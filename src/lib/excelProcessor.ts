@@ -31,11 +31,12 @@ function processEmployeeBlock(
   worksheet: ExcelJS.Worksheet,
   startRow: number,
   endRow: number,
-  defaultCompanyName: string
+  currentCompanyName: string,
+  currentDepartment: string
 ): EmployeeData | null {
   const employee: EmployeeData = {
-    companyName: defaultCompanyName,
-    department: "",
+    companyName: currentCompanyName,
+    department: currentDepartment,
     empCode: "",
     empName: "",
     present: 0,
@@ -43,30 +44,30 @@ function processEmployeeBlock(
     absent: 0,
     weekOff: 0,
     holiday: 0,
+    leave: 0,
+    totalOTHours: "0:00",
+    totalWorkHours: "0:00",
     days: [],
   };
 
   let dateRow: ExcelJS.CellValue[] = [];
   let dayRow: string[] = [];
 
-  // Look backwards from startRow to find the company name and department for this employee
-  for (let lookbackRow = startRow - 1; lookbackRow >= Math.max(1, startRow - 15); lookbackRow--) {
+  // Look backwards from startRow to update company name and department if found in this block
+  for (let lookbackRow = startRow - 1; lookbackRow >= Math.max(1, startRow - 5); lookbackRow--) {
     const row = worksheet.getRow(lookbackRow);
     const firstCell = cellValueToString(row.getCell(1).value);
     
-    // Find the company name (closest one before this employee)
+    if (firstCell.includes("Emp Code :")) {
+      break;
+    }
+    
     if (firstCell.includes("Company Name") && firstCell.includes(":")) {
       employee.companyName = firstCell.replace(/Company Name\s*:\s*/i, "").trim();
     }
     
-    // Find the department
     if (firstCell.includes("Department") && firstCell.includes(":")) {
       employee.department = firstCell.replace(/Department\s*:\s*/i, "").trim();
-    }
-    
-    // Stop if we hit another employee (going too far back)
-    if (firstCell.includes("Emp Code :")) {
-      break;
     }
   }
 
@@ -119,6 +120,25 @@ function processEmployeeBlock(
             weekOffCell.replace(/Week(?:ly)?\s+Off\s*:\s*/i, "").trim()
           ) || 0;
       }
+
+     // Extract Leave - Column 20 (index 20)
+const leaveCell = cellValueToString(row.getCell(20).value);
+if (leaveCell.includes("Leave :")) {
+  employee.leave =
+    parseFloat(leaveCell.replace("Leave :", "").trim()) || 0;
+}
+
+// Extract OT Hrs - Column 22 (index 22)
+const otHrsCell = cellValueToString(row.getCell(22).value);
+if (otHrsCell.includes("OT Hrs :")) {
+  employee.totalOTHours = otHrsCell.replace("OT Hrs :", "").trim() || "0:00";
+}
+
+// Extract Work Hrs - Column 24 (index 24)
+const workHrsCell = cellValueToString(row.getCell(24).value);
+if (workHrsCell.includes("Work Hrs :")) {
+  employee.totalWorkHours = workHrsCell.replace("Work Hrs :", "").trim() || "0:00";
+}
     }
 
     // Date row (starts with 1 in column 2)
@@ -189,17 +209,15 @@ export async function processExcelFile(
       size: file.size,
     });
 
-    // Basic validations
     if (file.size === 0) {
       throw new Error("File is empty");
     }
 
-    const maxSize = 10 * 1024 * 1024; // 10MB
+    const maxSize = 10 * 1024 * 1024;
     if (file.size > maxSize) {
       throw new Error("File size exceeds 10MB limit");
     }
 
-    // Read file as ArrayBuffer
     const arrayBuffer = await file.arrayBuffer();
 
     if (!arrayBuffer || arrayBuffer.byteLength === 0) {
@@ -208,7 +226,6 @@ export async function processExcelFile(
 
     console.log("ArrayBuffer size:", arrayBuffer.byteLength);
 
-    // Create workbook and load with better error handling
     const workbook = new ExcelJS.Workbook();
 
     try {
@@ -230,8 +247,7 @@ export async function processExcelFile(
 
         throw new Error(
           "Unable to read the Excel file. The file may be corrupted or in an unsupported format. " +
-            "Please ensure it is a valid .xlsx file. If the file was downloaded or received via email, " +
-            "try opening it in Excel first and re-saving it."
+            "Please ensure it is a valid .xlsx file."
         );
       }
 
@@ -248,12 +264,8 @@ export async function processExcelFile(
       throw new Error("The worksheet is empty");
     }
 
-    console.log(
-      "Worksheet loaded successfully, rows:",
-      worksheet.actualRowCount
-    );
+    console.log("Worksheet loaded successfully, rows:", worksheet.actualRowCount);
 
-    // Extract title and period from first row
     let title = "";
     let period = "";
     const firstRow = worksheet.getRow(1);
@@ -264,32 +276,29 @@ export async function processExcelFile(
       period = parts[1]?.replace(/:/g, "").trim() || "";
     }
 
-    // Extract default company name (appears at the top)
-    let defaultCompanyName = "";
-
-    for (
-      let rowNum = 1;
-      rowNum <= Math.min(10, worksheet.actualRowCount);
-      rowNum++
-    ) {
-      const row = worksheet.getRow(rowNum);
-      const firstCell = cellValueToString(row.getCell(1).value);
-
-      if (firstCell.includes("Company Name :")) {
-        defaultCompanyName = firstCell.replace("Company Name :", "").trim();
-        break;
-      }
-    }
-
-    // First pass: Collect all employee row numbers
     const employeeRows: number[] = [];
+    const companyDeptMap: Map<number, { company: string; department: string }> = new Map();
     let maxRowSeen = 0;
+    let currentCompany = "";
+    let currentDept = "";
 
     worksheet.eachRow((row, rowNumber) => {
       const firstCell = cellValueToString(row.getCell(1).value);
 
+      if (firstCell.includes("Company Name") && firstCell.includes(":")) {
+        currentCompany = firstCell.replace(/Company Name\s*:\s*/i, "").trim();
+      }
+
+      if (firstCell.includes("Department") && firstCell.includes(":")) {
+        currentDept = firstCell.replace(/Department\s*:\s*/i, "").trim();
+      }
+
       if (firstCell.includes("Emp Code :")) {
         employeeRows.push(rowNumber);
+        companyDeptMap.set(rowNumber, {
+          company: currentCompany,
+          department: currentDept,
+        });
       }
 
       maxRowSeen = Math.max(maxRowSeen, rowNumber);
@@ -297,11 +306,7 @@ export async function processExcelFile(
 
     console.log("=== EMPLOYEE DETECTION ===");
     console.log("Total employee rows found:", employeeRows.length);
-    console.log("First employee row:", employeeRows[0]);
-    console.log("Last employee row:", employeeRows[employeeRows.length - 1]);
-    console.log("Max row seen during iteration:", maxRowSeen);
 
-    // Second pass: Process each employee block
     const employees: EmployeeData[] = [];
 
     for (let i = 0; i < employeeRows.length; i++) {
@@ -309,79 +314,30 @@ export async function processExcelFile(
       const endRow =
         i + 1 < employeeRows.length ? employeeRows[i + 1] - 1 : maxRowSeen;
 
+      const companyDept = companyDeptMap.get(startRow) || {
+        company: "",
+        department: "",
+      };
+
       const employee = processEmployeeBlock(
         worksheet,
         startRow,
         endRow,
-        defaultCompanyName
+        companyDept.company,
+        companyDept.department
       );
 
       if (employee) {
         employees.push(employee);
-        if (i >= employeeRows.length - 3) {
-          console.log(
-            `  ✓ Employee ${i + 1}: ${employee.empCode} - ${employee.empName}, Company: ${employee.companyName}, Dept: ${employee.department}, ${employee.days.length} days`
-          );
-        }
-      } else {
-        console.warn(`  ✗ Employee ${i + 1} failed to process`);
       }
     }
 
     console.log("\n=== PROCESSING COMPLETE ===");
     console.log("Total employees processed:", employees.length);
-    console.log(
-      "First employee:",
-      employees[0]
-        ? `${employees[0].empCode} - ${employees[0].empName} (${employees[0].companyName} - ${employees[0].department})`
-        : "None"
-    );
-    console.log(
-      "Last employee:",
-      employees.length > 0
-        ? `${employees[employees.length - 1].empCode} - ${
-            employees[employees.length - 1].empName
-          } (${employees[employees.length - 1].companyName} - ${employees[employees.length - 1].department})`
-        : "None"
-    );
-
-    // Count employees per company
-    const companyCount: { [key: string]: number } = {};
-    employees.forEach((emp) => {
-      if (emp.companyName) {
-        companyCount[emp.companyName] = (companyCount[emp.companyName] || 0) + 1;
-      }
-    });
-    console.log("\n=== EMPLOYEES PER COMPANY ===");
-    Object.entries(companyCount).forEach(([company, count]) => {
-      console.log(`${company}: ${count} employees`);
-    });
-
-    // Check for missing data and warn
-    employees.forEach((emp, idx) => {
-      if (!emp.empCode || !emp.empName) {
-        console.warn(`Employee ${idx + 1} has missing data:`, emp);
-      }
-      if (!emp.days || emp.days.length === 0) {
-        console.warn(
-          `Employee ${idx + 1} (${emp.empCode}) has no attendance days`
-        );
-      }
-      if (!emp.department) {
-        console.warn(
-          `Employee ${idx + 1} (${emp.empCode} - ${emp.empName}) has no department`
-        );
-      }
-      if (!emp.companyName) {
-        console.warn(
-          `Employee ${idx + 1} (${emp.empCode} - ${emp.empName}) has no company name`
-        );
-      }
-    });
 
     if (employees.length === 0) {
       throw new Error(
-        "No employee data found in the Excel file. Please check that the file format matches the expected template."
+        "No employee data found in the Excel file."
       );
     }
 

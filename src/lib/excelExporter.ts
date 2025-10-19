@@ -25,36 +25,25 @@ export async function exportToExcel(data: ProcessedExcelData): Promise<void> {
   // Row 4: Empty
   currentRow++;
 
-  // Track last company name to know when to show it
-  let lastCompanyName = '';
-
   // Process each employee
   data.employees.forEach((employee: EmployeeData, index: number) => {
     // Check if employee has a company name
     const hasCompanyName = employee.companyName && employee.companyName.trim() !== '';
     
-    // Show company name if:
-    // 1. It's the first employee, OR
-    // 2. This employee's company is different from the last shown company
-    const showCompanyName = hasCompanyName && (employee.companyName !== lastCompanyName);
-    
-    // Only add company name row if employee has a company name and it's different from last
-    if (showCompanyName) {
+    // ALWAYS show company name for every employee (if they have one)
+    if (hasCompanyName) {
       const companyCell = worksheet.getCell(currentRow, 1);
       companyCell.value = `Company Name :  ${employee.companyName}`;
       currentRow++;
       
       // Empty row after company name
       currentRow++;
-      
-      // Update last company name
-      lastCompanyName = employee.companyName;
     }
 
     // Check if employee has a department
     const hasDepartment = employee.department && employee.department.trim() !== '';
     
-    // Only add department row if employee has a department
+    // ALWAYS show department for every employee (if they have one)
     if (hasDepartment) {
       const deptCell = worksheet.getCell(currentRow, 1);
       deptCell.value = `Department  :   ${employee.department}`;

@@ -25,8 +25,13 @@ export interface EmployeeData {
   absent: number;
   weekOff: number;
   holiday: number;
+  leave: number;          // ADD THIS
+  totalOTHours: string;   // ADD THIS
+  totalWorkHours: string; // ADD THIS
   days: DayAttendance[];
 }
+
+
 
 export interface ProcessedExcelData {
   title: string;
