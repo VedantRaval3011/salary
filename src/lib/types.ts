@@ -25,11 +25,14 @@ export interface EmployeeData {
   absent: number;
   weekOff: number;
   holiday: number;
-  leave: number;          // ADD THIS
-  totalOTHours: string;   // ADD THIS
-  totalWorkHours: string; // ADD THIS
+  leave: number;
+  totalOTHours: string;
+  totalWorkHours: string;
+  totalLateMins: number;     // ADD THIS
+  totalEarlyDep: number;      // ADD THIS
   days: DayAttendance[];
 }
+
 
 
 

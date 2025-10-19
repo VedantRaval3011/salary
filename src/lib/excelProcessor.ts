@@ -33,22 +33,26 @@ function processEmployeeBlock(
   endRow: number,
   currentCompanyName: string,
   currentDepartment: string
-): EmployeeData | null {
-  const employee: EmployeeData = {
-    companyName: currentCompanyName,
-    department: currentDepartment,
-    empCode: "",
-    empName: "",
-    present: 0,
-    od: 0,
-    absent: 0,
-    weekOff: 0,
-    holiday: 0,
-    leave: 0,
-    totalOTHours: "0:00",
-    totalWorkHours: "0:00",
-    days: [],
-  };
+): EmployeeData | null 
+{
+const employee: EmployeeData = {
+  companyName: currentCompanyName,
+  department: currentDepartment,
+  empCode: "",
+  empName: "",
+  present: 0,
+  od: 0,
+  absent: 0,
+  weekOff: 0,
+  holiday: 0,
+  leave: 0,
+  totalOTHours: "0:00",
+  totalWorkHours: "0:00",
+  totalLateMins: 0,      // ADD THIS
+  totalEarlyDep: 0,       // ADD THIS
+  days: [],
+};
+
 
   let dateRow: ExcelJS.CellValue[] = [];
   let dayRow: string[] = [];
@@ -191,8 +195,24 @@ if (workHrsCell.includes("Work Hrs :")) {
           });
         }
       }
+employee.days = days;
 
-      employee.days = days;
+// Calculate total Late Mins and Early Dep (excluding P/A status)
+let totalLateMins = 0;
+let totalEarlyDep = 0;
+
+employee.days.forEach((day) => {
+  const status = day.attendance.status.toUpperCase();
+  // Only count if status is NOT PA (Partial Absence)
+  if (status !== 'PA' && status !== 'P/A') {
+    totalLateMins += parseInt(String(day.attendance.lateMins), 10) || 0;
+    totalEarlyDep += parseInt(String(day.attendance.earlyDep), 10) || 0;
+  }
+});
+
+employee.totalLateMins = totalLateMins;
+employee.totalEarlyDep = totalEarlyDep;
+
     }
   }
 

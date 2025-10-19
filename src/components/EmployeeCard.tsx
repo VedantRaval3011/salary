@@ -85,6 +85,18 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({ employee, index }) =
     <div className="text-gray-600 text-sm mb-1">Work Hours</div>
     <div className="text-xl font-bold text-teal-600">{employee.totalWorkHours}</div>
   </div>
+
+    {/* Late Mins - NEW */}
+  <div className="bg-pink-50 p-4 rounded-lg text-center">
+    <div className="text-gray-600 text-sm mb-1">Late Mins</div>
+    <div className="text-2xl font-bold text-pink-600">{employee.totalLateMins}</div>
+  </div>
+
+  {/* Early Dep - NEW */}
+  <div className="bg-amber-50 p-4 rounded-lg text-center">
+    <div className="text-gray-600 text-sm mb-1">Early Dep</div>
+    <div className="text-2xl font-bold text-amber-600">{employee.totalEarlyDep}</div>
+  </div>
 </div>
 
 
