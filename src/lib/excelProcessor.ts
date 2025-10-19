@@ -33,43 +33,47 @@ function processEmployeeBlock(
   endRow: number,
   currentCompanyName: string,
   currentDepartment: string
-): EmployeeData | null 
-{
-const employee: EmployeeData = {
-  companyName: currentCompanyName,
-  department: currentDepartment,
-  empCode: "",
-  empName: "",
-  present: 0,
-  od: 0,
-  absent: 0,
-  weekOff: 0,
-  holiday: 0,
-  leave: 0,
-  totalOTHours: "0:00",
-  totalWorkHours: "0:00",
-  totalLateMins: 0,      // ADD THIS
-  totalEarlyDep: 0,       // ADD THIS
-  days: [],
-};
-
+): EmployeeData | null {
+  const employee: EmployeeData = {
+    companyName: currentCompanyName,
+    department: currentDepartment,
+    empCode: "",
+    empName: "",
+    present: 0,
+    od: 0,
+    absent: 0,
+    weekOff: 0,
+    holiday: 0,
+    leave: 0,
+    totalOTHours: "0:00",
+    totalWorkHours: "0:00",
+    totalLateMins: 0, // ADD THIS
+    totalEarlyDep: 0, // ADD THIS
+    days: [],
+  };
 
   let dateRow: ExcelJS.CellValue[] = [];
   let dayRow: string[] = [];
 
   // Look backwards from startRow to update company name and department if found in this block
-  for (let lookbackRow = startRow - 1; lookbackRow >= Math.max(1, startRow - 5); lookbackRow--) {
+  for (
+    let lookbackRow = startRow - 1;
+    lookbackRow >= Math.max(1, startRow - 5);
+    lookbackRow--
+  ) {
     const row = worksheet.getRow(lookbackRow);
     const firstCell = cellValueToString(row.getCell(1).value);
-    
+
     if (firstCell.includes("Emp Code :")) {
       break;
     }
-    
+
     if (firstCell.includes("Company Name") && firstCell.includes(":")) {
-      employee.companyName = firstCell.replace(/Company Name\s*:\s*/i, "").trim();
+      employee.companyName = firstCell
+        .replace(/Company Name\s*:\s*/i, "")
+        .trim();
     }
-    
+
     if (firstCell.includes("Department") && firstCell.includes(":")) {
       employee.department = firstCell.replace(/Department\s*:\s*/i, "").trim();
     }
@@ -125,24 +129,26 @@ const employee: EmployeeData = {
           ) || 0;
       }
 
-     // Extract Leave - Column 20 (index 20)
-const leaveCell = cellValueToString(row.getCell(20).value);
-if (leaveCell.includes("Leave :")) {
-  employee.leave =
-    parseFloat(leaveCell.replace("Leave :", "").trim()) || 0;
-}
+      // Extract Leave - Column 20 (index 20)
+      const leaveCell = cellValueToString(row.getCell(20).value);
+      if (leaveCell.includes("Leave :")) {
+        employee.leave =
+          parseFloat(leaveCell.replace("Leave :", "").trim()) || 0;
+      }
 
-// Extract OT Hrs - Column 22 (index 22)
-const otHrsCell = cellValueToString(row.getCell(22).value);
-if (otHrsCell.includes("OT Hrs :")) {
-  employee.totalOTHours = otHrsCell.replace("OT Hrs :", "").trim() || "0:00";
-}
+      // Extract OT Hrs - Column 22 (index 22)
+      const otHrsCell = cellValueToString(row.getCell(22).value);
+      if (otHrsCell.includes("OT Hrs :")) {
+        employee.totalOTHours =
+          otHrsCell.replace("OT Hrs :", "").trim() || "0:00";
+      }
 
-// Extract Work Hrs - Column 24 (index 24)
-const workHrsCell = cellValueToString(row.getCell(24).value);
-if (workHrsCell.includes("Work Hrs :")) {
-  employee.totalWorkHours = workHrsCell.replace("Work Hrs :", "").trim() || "0:00";
-}
+      // Extract Work Hrs - Column 24 (index 24)
+      const workHrsCell = cellValueToString(row.getCell(24).value);
+      if (workHrsCell.includes("Work Hrs :")) {
+        employee.totalWorkHours =
+          workHrsCell.replace("Work Hrs :", "").trim() || "0:00";
+      }
     }
 
     // Date row (starts with 1 in column 2)
@@ -195,24 +201,27 @@ if (workHrsCell.includes("Work Hrs :")) {
           });
         }
       }
-employee.days = days;
+      employee.days = days;
 
-// Calculate total Late Mins and Early Dep (excluding P/A status)
-let totalLateMins = 0;
-let totalEarlyDep = 0;
+      // Calculate total Late Mins and Early Dep (excluding P/A status and Saturdays)
+      let totalLateMins = 0;
+      let totalEarlyDep = 0;
 
-employee.days.forEach((day) => {
-  const status = day.attendance.status.toUpperCase();
-  // Only count if status is NOT PA (Partial Absence)
-  if (status !== 'PA' && status !== 'P/A') {
-    totalLateMins += parseInt(String(day.attendance.lateMins), 10) || 0;
-    totalEarlyDep += parseInt(String(day.attendance.earlyDep), 10) || 0;
-  }
-});
+      employee.days.forEach((day) => {
+        const status = day.attendance.status.toUpperCase();
+        const dayOfWeek = day.day.toLowerCase();
 
-employee.totalLateMins = totalLateMins;
-employee.totalEarlyDep = totalEarlyDep;
+        // Only count if:
+        // 1. Status is NOT PA (Partial Absence)
+        // 2. Day is NOT Saturday
+        if (status !== "PA" && status !== "P/A" && dayOfWeek !== "sa") {
+          totalLateMins += parseInt(String(day.attendance.lateMins)) || 0;
+          totalEarlyDep += parseInt(String(day.attendance.earlyDep)) || 0;
+        }
+      });
 
+      employee.totalLateMins = totalLateMins;
+      employee.totalEarlyDep = totalEarlyDep;
     }
   }
 
@@ -284,7 +293,10 @@ export async function processExcelFile(
       throw new Error("The worksheet is empty");
     }
 
-    console.log("Worksheet loaded successfully, rows:", worksheet.actualRowCount);
+    console.log(
+      "Worksheet loaded successfully, rows:",
+      worksheet.actualRowCount
+    );
 
     let title = "";
     let period = "";
@@ -297,7 +309,8 @@ export async function processExcelFile(
     }
 
     const employeeRows: number[] = [];
-    const companyDeptMap: Map<number, { company: string; department: string }> = new Map();
+    const companyDeptMap: Map<number, { company: string; department: string }> =
+      new Map();
     let maxRowSeen = 0;
     let currentCompany = "";
     let currentDept = "";
@@ -356,9 +369,7 @@ export async function processExcelFile(
     console.log("Total employees processed:", employees.length);
 
     if (employees.length === 0) {
-      throw new Error(
-        "No employee data found in the Excel file."
-      );
+      throw new Error("No employee data found in the Excel file.");
     }
 
     return { title, period, employees };
