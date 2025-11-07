@@ -1,6 +1,12 @@
 // lib/types.ts
 
 /**
+ * ============================================================================
+ * CORE ATTENDANCE DATA TYPES
+ * ============================================================================
+ */
+
+/**
  * Attendance Data for a single day
  * Contains all the time tracking information for an employee on a specific day
  */
@@ -20,18 +26,16 @@ export interface AttendanceData {
  * Represents a complete record for an employee on a specific day
  * Includes original status tracking for adjustment day feature
  */
-// lib/types.ts (Add to DayAttendance interface)
-
 export interface DayAttendance {
   date: number;
   day: string;
   attendance: AttendanceData;
-  
+
   // Adjustment Day Feature fields
   originalStatus?: string;
   isAdjustmentOriginal?: boolean;
   isAdjustmentTarget?: boolean;
-  isHoliday?: boolean; // ADD THIS - Marks if date was set as holiday through Holiday Management
+  isHoliday?: boolean; // Marks if date was set as holiday through Holiday Management
 }
 
 /**
@@ -72,11 +76,18 @@ export interface EmployeeData {
 
   // Day-wise Records
   days: DayAttendance[];
+  paidLeave?: number;
 
   // Adjustment Day Feature
   adjustments?: AdjustmentDay[]; // Array of all adjustments made for this employee
 }
 
+// Add new type for paid leave data
+export interface PaidLeaveData {
+  empCode: string;
+  empName: string;
+  paidDays: number;
+}
 /**
  * Processed Excel Data
  * The complete processed data from an uploaded Excel file
@@ -88,7 +99,72 @@ export interface ProcessedExcelData {
 }
 
 /**
- * Status Code Constants and Descriptions
+ * ============================================================================
+ * MULTI-FILE UPLOAD TYPES
+ * ============================================================================
+ */
+
+/**
+ * Uploaded File Metadata and Context
+ * Stores information about each uploaded file including its processing status
+ * and the data extracted from it
+ */
+export interface UploadedFile {
+  id: string; // Unique identifier for this upload (UUID v4)
+  fileName: string; // Original file name as uploaded
+  categoryName: string; // Category name (from REQUIRED_FILES or OPTIONAL_FILES)
+  fileType: 'required' | 'optional'; // Whether this file is mandatory or optional
+  uploadedAt: string; // ISO timestamp of when file was uploaded
+  data: ProcessedExcelData | null; // Processed data from the file (null until processing completes)
+  status: 'pending' | 'processing' | 'success' | 'error'; // Current processing status
+  error?: string; // Error message if status is 'error'
+  paidLeaveData?: PaidLeaveData[];
+}
+
+/**
+ * File Context Storage
+ * Maps file IDs to their UploadedFile metadata
+ * Used to maintain context for all uploaded files
+ */
+export interface FileContext {
+  [fileId: string]: UploadedFile;
+}
+
+/**
+ * File Category Configuration
+ * Defines the list of required and optional files
+ */
+export const REQUIRED_FILES = [
+  'Monthly Attendance Tulsi Sheet',
+] as const;
+
+export const OPTIONAL_FILES = [
+  'Late Arrival Sheet',
+  'Early Departure Sheet',
+  'Lunch In-Out Time Sheet',
+  'Full Night Stay Emp. OT Sheet',
+  'Staff OT Granted',
+  'Staff Paid Leave Sheet',
+  '09 to 06 Time Granted Emp. Sheet',
+  'Loan+TDS+Extra Paid',
+  'Maintenance Employee OT Deduct',
+  'Worker Tulsi',
+  'Staff Tulsi',
+] as const;
+
+/**
+ * Union type for all valid file categories
+ */
+export type FileCategory = typeof REQUIRED_FILES[number] | typeof OPTIONAL_FILES[number];
+
+/**
+ * ============================================================================
+ * STATUS CODE CONSTANTS AND DESCRIPTIONS
+ * ============================================================================
+ */
+
+/**
+ * Status Code Constants
  * Helps with consistent status handling across the application
  */
 export const STATUS_CODES = {
@@ -102,6 +178,10 @@ export const STATUS_CODES = {
   ADJUSTMENT_HOLIDAY: 'adj-M/WO-I', // Adjusted to holiday
 } as const;
 
+/**
+ * Status Descriptions
+ * Maps status codes to human-readable descriptions
+ */
 export const STATUS_DESCRIPTIONS: Record<string, string> = {
   [STATUS_CODES.PRESENT]: 'Present',
   [STATUS_CODES.ABSENT]: 'Absent',
@@ -115,7 +195,7 @@ export const STATUS_DESCRIPTIONS: Record<string, string> = {
 
 /**
  * Status Color Mapping for UI
- * Maps status codes to Tailwind CSS color classes
+ * Maps status codes to Tailwind CSS color classes for consistent styling
  */
 export const STATUS_COLORS: Record<string, string> = {
   [STATUS_CODES.PRESENT]: 'bg-green-100 text-green-800 border-green-300',
@@ -131,23 +211,37 @@ export const STATUS_COLORS: Record<string, string> = {
 };
 
 /**
- * Eligible statuses for original date (must be holiday or week off)
+ * ============================================================================
+ * ADJUSTMENT DAY FEATURE VALIDATION CONSTANTS
+ * ============================================================================
+ */
+
+/**
+ * Eligible statuses for original date
+ * Must be holiday or week off to be eligible for adjustment
  */
 export const ADJUSTMENT_ELIGIBLE_ORIGINAL = [
   STATUS_CODES.HOLIDAY,
   STATUS_CODES.WEEK_OFF,
-];
+] as const;
 
 /**
  * Status codes that cannot be adjusted to
+ * Prevents creating adjustments for already adjusted dates
  */
 export const ADJUSTMENT_INELIGIBLE_STATUSES = [
   STATUS_CODES.ADJUSTMENT_PRESENT,
   STATUS_CODES.ADJUSTMENT_HOLIDAY,
-];
+] as const;
 
 /**
- * Helper type for UI state management
+ * ============================================================================
+ * UI STATE MANAGEMENT TYPES
+ * ============================================================================
+ */
+
+/**
+ * Adjustment State for Modal/Form
  * Used in modals and forms for adjustment day selection
  */
 export interface AdjustmentState {
@@ -158,7 +252,8 @@ export interface AdjustmentState {
 }
 
 /**
- * Helper type for API responses or operations
+ * Adjustment Result for API Operations
+ * Used for API responses or operation results
  */
 export interface AdjustmentResult {
   success: boolean;
@@ -166,3 +261,109 @@ export interface AdjustmentResult {
   adjustment?: AdjustmentDay;
   error?: string;
 }
+
+/**
+ * ============================================================================
+ * FILE UPLOAD UI STATE TYPES
+ * ============================================================================
+ */
+
+/**
+ * File Upload Progress State
+ * Tracks the overall progress of file uploads
+ */
+export interface FileUploadProgress {
+  totalFiles: number;
+  uploadedFiles: number;
+  processingFiles: number;
+  errorFiles: number;
+  requiredFilesMissing: string[]; // Names of missing required files
+}
+
+/**
+ * File Upload Summary
+ * Provides a summary view of all uploaded files
+ */
+export interface FileUploadSummary {
+  requiredCount: number;
+  requiredUploaded: number;
+  optionalCount: number;
+  optionalUploaded: number;
+  totalEmployees: number;
+  lastUpdated: string;
+}
+
+/**
+ * ============================================================================
+ * HELPER TYPE GUARDS AND UTILITY TYPES
+ * ============================================================================
+ */
+
+/**
+ * Type to ensure file categories are valid
+ */
+export type ValidFileCategory = FileCategory;
+
+/**
+ * Type for status code
+ */
+export type StatusCode = typeof STATUS_CODES[keyof typeof STATUS_CODES];
+
+/**
+ * Type for file processing action
+ */
+export type FileProcessingAction =
+  | { type: 'UPLOAD'; fileId: string; file: UploadedFile }
+  | { type: 'REMOVE'; fileId: string }
+  | { type: 'UPDATE_STATUS'; fileId: string; status: UploadedFile['status']; error?: string }
+  | { type: 'UPDATE_DATA'; fileId: string; data: ProcessedExcelData }
+  | { type: 'CLEAR_ALL' };
+
+/**
+ * ============================================================================
+ * UTILITY FUNCTIONS FOR TYPE VALIDATION
+ * ============================================================================
+ */
+
+/**
+ * Validates if a file category is required
+ */
+export const isRequiredFile = (category: string): boolean => {
+  return REQUIRED_FILES.includes(category as typeof REQUIRED_FILES[number]);
+};
+
+/**
+ * Validates if a file category is optional
+ */
+export const isOptionalFile = (category: string): boolean => {
+  return OPTIONAL_FILES.includes(category as typeof OPTIONAL_FILES[number]);
+};
+
+/**
+ * Validates if a status code is valid
+ */
+export const isValidStatus = (status: string): status is StatusCode => {
+  return Object.values(STATUS_CODES).includes(status as StatusCode);
+};
+
+/**
+ * Gets all file categories
+ */
+export const getAllFileCategories = (): ValidFileCategory[] => {
+  return [...REQUIRED_FILES, ...OPTIONAL_FILES] as ValidFileCategory[];
+};
+
+/**
+ * Gets only required file categories
+ */
+export const getRequiredFileCategories = (): typeof REQUIRED_FILES => {
+  return REQUIRED_FILES;
+};
+
+/**
+ * Gets only optional file categories
+ */
+export const getOptionalFileCategories = (): typeof OPTIONAL_FILES => {
+  return OPTIONAL_FILES;
+};
+

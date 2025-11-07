@@ -1,3 +1,4 @@
+// lib/excelProcessor.ts
 import * as ExcelJS from "exceljs";
 import {
   ProcessedExcelData,
@@ -10,14 +11,12 @@ import {
 function cellValueToString(value: ExcelJS.CellValue): string {
   if (value === null || value === undefined) return "";
 
-  if (typeof value === "string" || typeof value === "number")
-    return String(value);
+  if (typeof value === "string" || typeof value === "number") return String(value);
   if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
   if (value instanceof Date) return value.toISOString();
 
   if (typeof value === "object") {
-    if ("richText" in value)
-      return value.richText.map((rt: any) => rt.text).join("");
+    if ("richText" in value) return value.richText.map((rt: any) => rt.text).join("");
     if ("result" in value) return String(value.result ?? "");
     if ("text" in value) return String(value.text ?? "");
     if ("error" in value) return String(value.error ?? "");
@@ -69,9 +68,7 @@ function processEmployeeBlock(
     }
 
     if (firstCell.includes("Company Name") && firstCell.includes(":")) {
-      employee.companyName = firstCell
-        .replace(/Company Name\s*:\s*/i, "")
-        .trim();
+      employee.companyName = firstCell.replace(/Company Name\s*:\s*/i, "").trim();
     }
 
     if (firstCell.includes("Department") && firstCell.includes(":")) {
@@ -86,8 +83,9 @@ function processEmployeeBlock(
 
     // Employee details row
     if (firstCell.includes("Emp Code :")) {
-      const empCodeMatch = firstCell.match(/Emp Code\s*:\s*(\d+)/);
-      if (empCodeMatch) employee.empCode = empCodeMatch[1];
+      // UPDATED: capture letters, numbers, and common separators
+      const empCodeMatch = firstCell.match(/Emp Code\s*:\s*([A-Za-z0-9\-/_ ]+)/);
+      if (empCodeMatch) employee.empCode = empCodeMatch[1].trim();
 
       const empNameCell = cellValueToString(row.getCell(4).value);
       if (empNameCell.includes("Emp Name :")) {
@@ -96,8 +94,7 @@ function processEmployeeBlock(
 
       const presentCell = cellValueToString(row.getCell(9).value);
       if (presentCell.includes("Present :")) {
-        employee.present =
-          parseFloat(presentCell.replace("Present :", "").trim()) || 0;
+        employee.present = parseFloat(presentCell.replace("Present :", "").trim()) || 0;
       }
 
       const odCell = cellValueToString(row.getCell(11).value);
@@ -107,47 +104,37 @@ function processEmployeeBlock(
 
       const absentCell = cellValueToString(row.getCell(13).value);
       if (absentCell.includes("Absent :")) {
-        employee.absent =
-          parseFloat(absentCell.replace("Absent :", "").trim()) || 0;
+        employee.absent = parseFloat(absentCell.replace("Absent :", "").trim()) || 0;
       }
 
       const holidayCell = cellValueToString(row.getCell(15).value);
       if (holidayCell.includes("Holiday")) {
         employee.holiday =
-          parseFloat(holidayCell.replace(/Holiday[s]?\s*:\s*/i, "").trim()) ||
-          0;
+          parseFloat(holidayCell.replace(/Holiday[s]?\s*:\s*/i, "").trim()) || 0;
       }
 
       const weekOffCell = cellValueToString(row.getCell(17).value);
-      if (
-        weekOffCell.includes("Weekly Off") ||
-        weekOffCell.includes("Week Off")
-      ) {
+      if (weekOffCell.includes("Weekly Off") || weekOffCell.includes("Week Off")) {
         employee.weekOff =
-          parseFloat(
-            weekOffCell.replace(/Week(?:ly)?\s+Off\s*:\s*/i, "").trim()
-          ) || 0;
+          parseFloat(weekOffCell.replace(/Week(?:ly)?\s+Off\s*:\s*/i, "").trim()) || 0;
       }
 
       // Extract Leave - Column 20 (index 20)
       const leaveCell = cellValueToString(row.getCell(20).value);
       if (leaveCell.includes("Leave :")) {
-        employee.leave =
-          parseFloat(leaveCell.replace("Leave :", "").trim()) || 0;
+        employee.leave = parseFloat(leaveCell.replace("Leave :", "").trim()) || 0;
       }
 
       // Extract OT Hrs - Column 22 (index 22)
       const otHrsCell = cellValueToString(row.getCell(22).value);
       if (otHrsCell.includes("OT Hrs :")) {
-        employee.totalOTHours =
-          otHrsCell.replace("OT Hrs :", "").trim() || "0:00";
+        employee.totalOTHours = otHrsCell.replace("OT Hrs :", "").trim() || "0:00";
       }
 
       // Extract Work Hrs - Column 24 (index 24)
       const workHrsCell = cellValueToString(row.getCell(24).value);
       if (workHrsCell.includes("Work Hrs :")) {
-        employee.totalWorkHours =
-          workHrsCell.replace("Work Hrs :", "").trim() || "0:00";
+        employee.totalWorkHours = workHrsCell.replace("Work Hrs :", "").trim() || "0:00";
       }
     }
 
@@ -208,8 +195,8 @@ function processEmployeeBlock(
       let totalEarlyDep = 0;
 
       employee.days.forEach((day) => {
-        const status = day.attendance.status.toUpperCase();
-        const dayOfWeek = day.day.toLowerCase();
+        const status = (day.attendance.status || "").toUpperCase();
+        const dayOfWeek = (day.day || "").toLowerCase();
 
         // Only count if:
         // 1. Status is NOT PA (Partial Absence)
@@ -228,9 +215,7 @@ function processEmployeeBlock(
   return employee.empCode ? employee : null;
 }
 
-export async function processExcelFile(
-  file: File
-): Promise<ProcessedExcelData> {
+export async function processExcelFile(file: File): Promise<ProcessedExcelData> {
   try {
     console.log("File info:", {
       name: file.name,
@@ -269,14 +254,12 @@ export async function processExcelFile(
       ) {
         if (file.name.toLowerCase().endsWith(".xls")) {
           throw new Error(
-            "This appears to be an old Excel format (.xls). " +
-              "Please open the file in Excel and save it as .xlsx format, then try again."
+            "This appears to be an old Excel format (.xls). Please open the file in Excel and save it as .xlsx format, then try again."
           );
         }
 
         throw new Error(
-          "Unable to read the Excel file. The file may be corrupted or in an unsupported format. " +
-            "Please ensure it is a valid .xlsx file."
+          "Unable to read the Excel file. The file may be corrupted or in an unsupported format. Please ensure it is a valid .xlsx file."
         );
       }
 
@@ -293,10 +276,7 @@ export async function processExcelFile(
       throw new Error("The worksheet is empty");
     }
 
-    console.log(
-      "Worksheet loaded successfully, rows:",
-      worksheet.actualRowCount
-    );
+    console.log("Worksheet loaded successfully, rows:", worksheet.actualRowCount);
 
     let title = "";
     let period = "";
@@ -309,8 +289,7 @@ export async function processExcelFile(
     }
 
     const employeeRows: number[] = [];
-    const companyDeptMap: Map<number, { company: string; department: string }> =
-      new Map();
+    const companyDeptMap: Map<number, { company: string; department: string }> = new Map();
     let maxRowSeen = 0;
     let currentCompany = "";
     let currentDept = "";
@@ -344,8 +323,7 @@ export async function processExcelFile(
 
     for (let i = 0; i < employeeRows.length; i++) {
       const startRow = employeeRows[i];
-      const endRow =
-        i + 1 < employeeRows.length ? employeeRows[i + 1] - 1 : maxRowSeen;
+      const endRow = i + 1 < employeeRows.length ? employeeRows[i + 1] - 1 : maxRowSeen;
 
       const companyDept = companyDeptMap.get(startRow) || {
         company: "",
@@ -367,10 +345,6 @@ export async function processExcelFile(
 
     console.log("\n=== PROCESSING COMPLETE ===");
     console.log("Total employees processed:", employees.length);
-
-    if (employees.length === 0) {
-      throw new Error("No employee data found in the Excel file.");
-    }
 
     return { title, period, employees };
   } catch (error: any) {

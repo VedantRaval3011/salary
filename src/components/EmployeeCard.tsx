@@ -1,139 +1,133 @@
-'use client';
+// components/EmployeeCard.tsx
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import { EmployeeData } from '@/lib/types';
-import { AttendanceGrid } from './AttendanceGrid';
-import { AdjustmentDayModal } from './AdjustmentDayModal';
-import { useExcel } from '@/context/ExcelContext';
+import React, { useState, useEffect } from "react";
+import { EmployeeData } from "@/lib/types";
+import { AttendanceGrid } from "./AttendanceGrid";
+import { AdjustmentDayModal } from "./AdjustmentDayModal";
+import { PresentDayStatsGrid } from "./PresentDayStatsGrid";
+import { useExcel } from "@/context/ExcelContext";
+import { OvertimeStatsGrid } from "./OvertimeStatsGrid";
 
 interface EmployeeCardProps {
   employee: EmployeeData;
   index: number;
+  baseHolidaysCount?: number;
+  selectedHolidaysCount?: number;
 }
 
-export const EmployeeCard: React.FC<EmployeeCardProps> = ({ employee, index }) => {
+export const EmployeeCard: React.FC<EmployeeCardProps> = ({
+  employee,
+  index,
+  baseHolidaysCount = 0,
+  selectedHolidaysCount = 0,
+}) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isAdjustmentModalOpen, setIsAdjustmentModalOpen] = useState(false);
-  const [currentEmployee, setCurrentEmployee] = useState<EmployeeData>(employee);
+  const [currentEmployee, setCurrentEmployee] =
+    useState<EmployeeData>(employee);
   const { excelData } = useExcel();
 
-  // Update local employee state when excelData changes (after bulk adjustments)
+  // Update local employee state when excelData changes
   useEffect(() => {
     if (excelData?.employees[index]) {
       setCurrentEmployee(excelData.employees[index]);
     }
   }, [excelData, index]);
 
+  // Update when employee prop changes
+  useEffect(() => {
+    setCurrentEmployee(employee);
+  }, [employee]);
+
   return (
-    <div className="bg-white rounded-lg shadow-md p-6 mb-4 border border-gray-200">
-      <div className="flex justify-between items-start mb-4">
+    <div className="bg-white rounded-lg shadow-md p-6 mb-4 border border-gray-200 transition-all hover:shadow-lg">
+      {/* Header Section */}
+      <div className="flex justify-between items-start mb-6">
         <div className="flex-1">
-          <div className="flex items-center gap-4 mb-2">
-            <span className="bg-blue-100 text-blue-800 text-sm font-semibold px-3 py-1 rounded">
+          {/* Employee ID and Name */}
+          <div className="flex items-center gap-4 mb-3">
+            <span className="bg-blue-100 text-blue-800 text-sm font-semibold px-4 py-1.5 rounded-full">
               #{currentEmployee.empCode}
             </span>
-            <h3 className="text-xl font-bold text-gray-800">{currentEmployee.empName}</h3>
+            <h3 className="text-xl font-bold text-gray-800">
+              {currentEmployee.empName}
+            </h3>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 text-sm text-gray-600">
+          {/* Company and Department */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm text-gray-700">
             <p>
-              <span className="font-semibold">Company:</span> {currentEmployee.companyName}
+              <span className="font-semibold text-gray-600">Company:</span>{" "}
+              <span className="text-gray-800">
+                {currentEmployee.companyName}
+              </span>
             </p>
             <p>
-              <span className="font-semibold">Department:</span>{' '}
-              {currentEmployee.department}
+              <span className="font-semibold text-gray-600">Department:</span>{" "}
+              <span className="text-gray-800">
+                {currentEmployee.department}
+              </span>
             </p>
           </div>
         </div>
 
-       <div className="flex gap-2 ml-4">
-  <button
-    onClick={() => setIsExpanded(!isExpanded)}
-    className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors text-sm font-semibold"
-  >
-    {isExpanded ? 'Hide Details' : 'View Details'}
-  </button>
-  <button
-    onClick={() => setIsAdjustmentModalOpen(true)}
-    className="px-4 py-2 bg-orange-500 text-white rounded-md hover:bg-orange-600 transition-colors text-sm font-semibold"
-  >
-    Adjustment Day
-  </button>
-</div>
+        {/* Action Buttons */}
+        <div className="flex gap-2 ml-4 flex-shrink-0">
+          <button
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-all text-sm font-semibold shadow-sm hover:shadow-md">
+            {isExpanded ? "Hide Details" : "View Details"}
+          </button>
+          <button
+            onClick={() => setIsAdjustmentModalOpen(true)}
+            className="px-4 py-2 bg-orange-500 text-white rounded-md hover:bg-orange-600 transition-all text-sm font-semibold shadow-sm hover:shadow-md">
+            Adjustment Day
+          </button>
+        </div>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 gap-4">
-        {/* Present */}
-        <div className="text-center p-3 bg-green-50 rounded-lg border border-green-200">
-          <div className="text-xs text-gray-600 font-semibold">Present</div>
-          <div className="text-2xl font-bold text-green-600">{currentEmployee.present || 0}</div>
-        </div>
-        {/* Absent */}
-        <div className="text-center p-3 bg-red-50 rounded-lg border border-red-200">
-          <div className="text-xs text-gray-600 font-semibold">Absent</div>
-          <div className="text-2xl font-bold text-red-600">{currentEmployee.absent || 0}</div>
-        </div>
-        {/* Holiday */}
-        <div className="text-center p-3 bg-blue-50 rounded-lg border border-blue-200">
-          <div className="text-xs text-gray-600 font-semibold">Holiday</div>
-          <div className="text-2xl font-bold text-blue-600">{currentEmployee.holiday || 0}</div>
-        </div>
-        {/* Week Off */}
-        <div className="text-center p-3 bg-gray-50 rounded-lg border border-gray-200">
-          <div className="text-xs text-gray-600 font-semibold">Week Off</div>
-          <div className="text-2xl font-bold text-gray-600">{currentEmployee.weekOff || 0}</div>
-        </div>
-        {/* OD */}
-        <div className="text-center p-3 bg-purple-50 rounded-lg border border-purple-200">
-          <div className="text-xs text-gray-600 font-semibold">OD</div>
-          <div className="text-2xl font-bold text-purple-600">{currentEmployee.od || 0}</div>
-        </div>
-        {/* Leave */}
-        <div className="text-center p-3 bg-yellow-50 rounded-lg border border-yellow-200">
-          <div className="text-xs text-gray-600 font-semibold">Leave</div>
-          <div className="text-2xl font-bold text-yellow-600">{currentEmployee.leave || 0}</div>
-        </div>
-        {/* Adjustments */}
-        <div className="text-center p-3 bg-lime-50 rounded-lg border border-lime-200">
-          <div className="text-xs text-gray-600 font-semibold">Adjustments</div>
-          <div className="text-2xl font-bold text-lime-600">
-            {currentEmployee.adjustments?.length || 0}
-          </div>
-        </div>
 
-        <div className="bg-indigo-50 p-4 rounded-lg text-center">
-    <div className="text-gray-600 text-sm mb-1">OT Hours</div>
-    <div className="text-xl font-bold text-indigo-600">{employee.totalOTHours}</div>
-  </div>
 
-  {/* Work Hours - NEW */}
-  <div className="bg-teal-50 p-4 rounded-lg text-center">
-    <div className="text-gray-600 text-sm mb-1">Work Hours</div>
-    <div className="text-xl font-bold text-teal-600">{employee.totalWorkHours}</div>
-  </div>
+      {/* Present Day Calculation Stats Grid */}
+      <PresentDayStatsGrid
+        employee={currentEmployee}
+        baseHolidaysCount={baseHolidaysCount}
+        selectedHolidaysCount={selectedHolidaysCount}
+      />
 
-    {/* Late Mins - NEW */}
-  <div className="bg-pink-50 p-4 rounded-lg text-center">
-    <div className="text-gray-600 text-sm mb-1">Late Mins</div>
-    <div className="text-2xl font-bold text-pink-600">{employee.totalLateMins}</div>
-  </div>
+      <OvertimeStatsGrid employee={employee} />
 
-  {/* Early Dep - NEW */}
-  <div className="bg-amber-50 p-4 rounded-lg text-center">
-    <div className="text-gray-600 text-sm mb-1">Early Dep</div>
-    <div className="text-2xl font-bold text-amber-600">{employee.totalEarlyDep}</div>
-  </div>
-
-      </div>
-
-      {/* Expanded Attendance Grid */}
+      {/* Expanded Attendance Grid Section */}
       {isExpanded && (
-        <div className="mt-6 border-t pt-6">
-          <h4 className="text-lg font-semibold text-gray-800 mb-4">
-            Detailed Attendance
-          </h4>
-          <AttendanceGrid days={currentEmployee.days} employeeIndex={index} />
+        <div className="mt-8 pt-8 border-t-2 border-gray-200">
+          <div className="flex items-center gap-3 mb-6">
+            <span className="text-2xl">📋</span>
+            <h4 className="text-lg font-bold text-gray-800">
+              Detailed Attendance Record
+            </h4>
+            <span className="text-xs font-semibold text-gray-500">
+              ({currentEmployee.days?.length || 0} days)
+            </span>
+          </div>
+
+          {/* Attendance Grid */}
+          {currentEmployee.days && currentEmployee.days.length > 0 ? (
+            <AttendanceGrid
+              days={currentEmployee.days}
+              employeeIndex={index}
+              onAdjustmentClick={(date) => {
+                // Handle click on a specific date if needed
+                console.log(`Clicked on date: ${date}`);
+              }}
+            />
+          ) : (
+            <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+              <p className="text-gray-500 text-sm">
+                No attendance data available
+              </p>
+            </div>
+          )}
         </div>
       )}
 
@@ -144,6 +138,21 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({ employee, index }) =
         isOpen={isAdjustmentModalOpen}
         onClose={() => setIsAdjustmentModalOpen(false)}
       />
+
+      {/* Quick Stats Summary (Compact view when collapsed) */}
+      {!isExpanded && (
+        <div className="mt-4 pt-4 border-t border-gray-200 text-xs text-gray-600">
+          <div className="flex items-center justify-between">
+            <span>
+              <strong>Days Summary:</strong> {currentEmployee.present || 0}P |{" "}
+              {currentEmployee.absent || 0}A | {currentEmployee.holiday || 0}H
+            </span>
+            <span className="text-blue-600 font-semibold cursor-pointer hover:text-blue-800">
+              Click "View Details" for full breakdown →
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
