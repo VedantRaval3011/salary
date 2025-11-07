@@ -1,3 +1,4 @@
+// lib/excelExporter.ts
 import * as ExcelJS from 'exceljs';
 import { ProcessedExcelData, EmployeeData } from '@/lib/types';
 
@@ -82,7 +83,7 @@ export async function exportToExcel(data: ProcessedExcelData): Promise<void> {
       return sum;
     }, 0);
     
-    empInfoRow.getCell(19).value = `Leave : 0.00`;
+    empInfoRow.getCell(19).value = `Leave : ${employee.leave.toFixed(2)}`;
     empInfoRow.getCell(21).value = `OT Hrs : ${Math.floor(totalOTHrs / 60)}:${String(totalOTHrs % 60).padStart(2, '0')}`;
     empInfoRow.getCell(23).value = `Work Hrs : ${Math.floor(totalWorkHrs / 60)}:${String(totalWorkHrs % 60).padStart(2, '0')}`;
     currentRow++;
@@ -162,13 +163,47 @@ export async function exportToExcel(data: ProcessedExcelData): Promise<void> {
     });
     currentRow++;
 
-    // Status row
+    // Status row - UPDATED TO INCLUDE ADJUSTED STATUSES
     const statusRow = worksheet.getRow(currentRow);
     statusRow.getCell(1).value = 'Status';
     employee.days.forEach((day, idx) => {
-      statusRow.getCell(idx + 2).value = day.attendance.status;
+      const cell = statusRow.getCell(idx + 2);
+      cell.value = day.attendance.status;
+      
+      // Apply special formatting for adjusted days
+      if (day.attendance.status === 'adj-P') {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFD4EDDA' } // Light green
+        };
+        cell.font = { bold: true, color: { argb: 'FF155724' } };
+      } else if (day.attendance.status === 'adj-M/WO-I') {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFFFEAA7' } // Light orange
+        };
+        cell.font = { bold: true, color: { argb: 'FF856404' } };
+      }
     });
     currentRow++;
+
+    // Add adjustment notes if any exist
+    if (employee.adjustments && employee.adjustments.length > 0) {
+      currentRow++; // Empty row
+      const noteRow = worksheet.getRow(currentRow);
+      noteRow.getCell(1).value = 'Adjustments:';
+      noteRow.getCell(1).font = { bold: true, italic: true };
+      currentRow++;
+      
+      employee.adjustments.forEach((adj) => {
+        const adjRow = worksheet.getRow(currentRow);
+        adjRow.getCell(1).value = `  • ${adj.originalDate} → ${adj.adjustedDate}`;
+        adjRow.getCell(1).font = { italic: true };
+        currentRow++;
+      });
+    }
 
     // Two empty rows after each employee
     currentRow++;
