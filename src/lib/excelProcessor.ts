@@ -11,12 +11,14 @@ import {
 function cellValueToString(value: ExcelJS.CellValue): string {
   if (value === null || value === undefined) return "";
 
-  if (typeof value === "string" || typeof value === "number") return String(value);
+  if (typeof value === "string" || typeof value === "number")
+    return String(value);
   if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
   if (value instanceof Date) return value.toISOString();
 
   if (typeof value === "object") {
-    if ("richText" in value) return value.richText.map((rt: any) => rt.text).join("");
+    if ("richText" in value)
+      return value.richText.map((rt: any) => rt.text).join("");
     if ("result" in value) return String(value.result ?? "");
     if ("text" in value) return String(value.text ?? "");
     if ("error" in value) return String(value.error ?? "");
@@ -68,7 +70,9 @@ function processEmployeeBlock(
     }
 
     if (firstCell.includes("Company Name") && firstCell.includes(":")) {
-      employee.companyName = firstCell.replace(/Company Name\s*:\s*/i, "").trim();
+      employee.companyName = firstCell
+        .replace(/Company Name\s*:\s*/i, "")
+        .trim();
     }
 
     if (firstCell.includes("Department") && firstCell.includes(":")) {
@@ -84,7 +88,9 @@ function processEmployeeBlock(
     // Employee details row
     if (firstCell.includes("Emp Code :")) {
       // UPDATED: capture letters, numbers, and common separators
-      const empCodeMatch = firstCell.match(/Emp Code\s*:\s*([A-Za-z0-9\-/_ ]+)/);
+      const empCodeMatch = firstCell.match(
+        /Emp Code\s*:\s*([A-Za-z0-9\-/_ ]+)/
+      );
       if (empCodeMatch) employee.empCode = empCodeMatch[1].trim();
 
       const empNameCell = cellValueToString(row.getCell(4).value);
@@ -92,9 +98,13 @@ function processEmployeeBlock(
         employee.empName = empNameCell.replace("Emp Name :", "").trim();
       }
 
-      const presentCell = cellValueToString(row.getCell(9).value);
-      if (presentCell.includes("Present :")) {
-        employee.present = parseFloat(presentCell.replace("Present :", "").trim()) || 0;
+ const presentCell = cellValueToString(row.getCell(9).value);
+      if (presentCell.includes("Present")) {
+        // Extract the numeric value after "Present :" or "Present:"
+        const match = presentCell.match(/Present\s*:\s*([\d.]+)/i);
+        if (match) {
+          employee.present = parseFloat(match[1]) || 0;
+        }
       }
 
       const odCell = cellValueToString(row.getCell(11).value);
@@ -104,61 +114,88 @@ function processEmployeeBlock(
 
       const absentCell = cellValueToString(row.getCell(13).value);
       if (absentCell.includes("Absent :")) {
-        employee.absent = parseFloat(absentCell.replace("Absent :", "").trim()) || 0;
+        employee.absent =
+          parseFloat(absentCell.replace("Absent :", "").trim()) || 0;
       }
 
       const holidayCell = cellValueToString(row.getCell(15).value);
       if (holidayCell.includes("Holiday")) {
         employee.holiday =
-          parseFloat(holidayCell.replace(/Holiday[s]?\s*:\s*/i, "").trim()) || 0;
+          parseFloat(holidayCell.replace(/Holiday[s]?\s*:\s*/i, "").trim()) ||
+          0;
       }
 
       const weekOffCell = cellValueToString(row.getCell(17).value);
-      if (weekOffCell.includes("Weekly Off") || weekOffCell.includes("Week Off")) {
+      if (
+        weekOffCell.includes("Weekly Off") ||
+        weekOffCell.includes("Week Off")
+      ) {
         employee.weekOff =
-          parseFloat(weekOffCell.replace(/Week(?:ly)?\s+Off\s*:\s*/i, "").trim()) || 0;
+          parseFloat(
+            weekOffCell.replace(/Week(?:ly)?\s+Off\s*:\s*/i, "").trim()
+          ) || 0;
       }
 
       // Extract Leave - Column 20 (index 20)
       const leaveCell = cellValueToString(row.getCell(20).value);
       if (leaveCell.includes("Leave :")) {
-        employee.leave = parseFloat(leaveCell.replace("Leave :", "").trim()) || 0;
+        employee.leave =
+          parseFloat(leaveCell.replace("Leave :", "").trim()) || 0;
       }
 
       // Extract OT Hrs - Column 22 (index 22)
       const otHrsCell = cellValueToString(row.getCell(22).value);
       if (otHrsCell.includes("OT Hrs :")) {
-        employee.totalOTHours = otHrsCell.replace("OT Hrs :", "").trim() || "0:00";
+        employee.totalOTHours =
+          otHrsCell.replace("OT Hrs :", "").trim() || "0:00";
       }
 
       // Extract Work Hrs - Column 24 (index 24)
       const workHrsCell = cellValueToString(row.getCell(24).value);
       if (workHrsCell.includes("Work Hrs :")) {
-        employee.totalWorkHours = workHrsCell.replace("Work Hrs :", "").trim() || "0:00";
+        employee.totalWorkHours =
+          workHrsCell.replace("Work Hrs :", "").trim() || "0:00";
       }
     }
 
     // Date row (starts with 1 in column 2)
-    if (secondCell && !isNaN(Number(secondCell)) && Number(secondCell) === 1) {
-      dateRow = [];
-      for (let col = 2; col <= 31; col++) {
-        dateRow.push(row.getCell(col).value);
-      }
-    }
+if (secondCell && !isNaN(Number(secondCell)) && Number(secondCell) === 1) {
+  dateRow = [];
+  for (let col = 2; col <= 32; col++) {  // Changed from 31 to 32
+    dateRow.push(row.getCell(col).value);
+  }
+}
 
-    // Day row
-    if (["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].includes(secondCell)) {
-      dayRow = [];
-      for (let col = 2; col <= 31; col++) {
-        dayRow.push(cellValueToString(row.getCell(col).value));
-      }
-    }
+// Day row
+if (["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].includes(secondCell)) {
+  dayRow = [];
+  for (let col = 2; col <= 32; col++) {  // Changed from 31 to 32
+    dayRow.push(cellValueToString(row.getCell(col).value));
+  }
+}
 
-    // Attendance data row
+    // Replace the attendance data processing section with:
     if (firstCell.includes("Shift") && firstCell.includes("In Time")) {
       const days: DayAttendance[] = [];
 
-      for (let col = 2; col <= 31; col++) {
+      // Dynamically determine how many date columns exist
+      let maxCol = 31; // Start with max possible (31 days)
+
+      // Check which columns actually have date data
+      for (let col = 2; col <= 33; col++) {
+        // Changed from 32 to 33
+        if (
+          dateRow[col - 2] === undefined ||
+          dateRow[col - 2] === null ||
+          dateRow[col - 2] === ""
+        ) {
+          maxCol = col - 1;
+          break;
+        }
+      }
+
+      for (let col = 2; col <= maxCol + 1; col++) {
+        // maxCol + 1 to include the last day
         const cellString = cellValueToString(row.getCell(col).value);
         const lines = cellString.split("\n");
 
@@ -181,11 +218,14 @@ function processEmployeeBlock(
               ? dateValue
               : Number(cellValueToString(dateValue)) || 0;
 
-          days.push({
-            date: dateNumber,
-            day: dayRow[dateIndex] || "",
-            attendance,
-          });
+          // Only add valid dates
+          if (dateNumber > 0) {
+            days.push({
+              date: dateNumber,
+              day: dayRow[dateIndex] || "",
+              attendance,
+            });
+          }
         }
       }
       employee.days = days;
@@ -215,7 +255,9 @@ function processEmployeeBlock(
   return employee.empCode ? employee : null;
 }
 
-export async function processExcelFile(file: File): Promise<ProcessedExcelData> {
+export async function processExcelFile(
+  file: File
+): Promise<ProcessedExcelData> {
   try {
     console.log("File info:", {
       name: file.name,
@@ -276,7 +318,10 @@ export async function processExcelFile(file: File): Promise<ProcessedExcelData> 
       throw new Error("The worksheet is empty");
     }
 
-    console.log("Worksheet loaded successfully, rows:", worksheet.actualRowCount);
+    console.log(
+      "Worksheet loaded successfully, rows:",
+      worksheet.actualRowCount
+    );
 
     let title = "";
     let period = "";
@@ -289,7 +334,8 @@ export async function processExcelFile(file: File): Promise<ProcessedExcelData> 
     }
 
     const employeeRows: number[] = [];
-    const companyDeptMap: Map<number, { company: string; department: string }> = new Map();
+    const companyDeptMap: Map<number, { company: string; department: string }> =
+      new Map();
     let maxRowSeen = 0;
     let currentCompany = "";
     let currentDept = "";
@@ -323,7 +369,8 @@ export async function processExcelFile(file: File): Promise<ProcessedExcelData> 
 
     for (let i = 0; i < employeeRows.length; i++) {
       const startRow = employeeRows[i];
-      const endRow = i + 1 < employeeRows.length ? employeeRows[i + 1] - 1 : maxRowSeen;
+      const endRow =
+        i + 1 < employeeRows.length ? employeeRows[i + 1] - 1 : maxRowSeen;
 
       const companyDept = companyDeptMap.get(startRow) || {
         company: "",

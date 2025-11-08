@@ -327,8 +327,7 @@ const mergePaidLeaveData = (paidLeaveData: PaidLeaveData[]) => {
   };
 
   // Normalize status before counting
-  const recalculateEmployeeTotals = (employee: EmployeeData) => {
-    let present = 0;
+const recalculateEmployeeTotals = (employee: EmployeeData) => {
     let absent = 0;
     let holiday = 0;
     let weekOff = 0;
@@ -338,9 +337,7 @@ const mergePaidLeaveData = (paidLeaveData: PaidLeaveData[]) => {
     employee.days.forEach((day) => {
       const status = (day.attendance.status || "").toUpperCase().trim();
 
-      if (status === "P" || status === "ADJ-P") {
-        present += 1;
-      } else if (status === "A") {
+    if (status === "A") {
         absent += 1;
       } else if (status === "H" || status === "ADJ-M/WO-I") {
         holiday += 1;
@@ -353,7 +350,6 @@ const mergePaidLeaveData = (paidLeaveData: PaidLeaveData[]) => {
       }
     });
 
-    employee.present = present;
     employee.absent = absent;
     employee.holiday = holiday;
     employee.weekOff = weekOff;

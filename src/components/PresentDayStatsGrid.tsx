@@ -98,8 +98,28 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
 
   const stats = useMemo(() => {
     const OT_THRESHOLD_MIN = 4 * 60 + 5;
-    const PD_excel = employee.present || 0;
-    const PAA = PD_excel;
+    
+    // Count P/A days (each counts as 0.5) and ADJ-P days (each counts as full day)
+    let paCount = 0;
+    let fullPresentDays = 0;
+    let adjPresentDays = 0; // NEW: Count ADJ-P days
+    
+    employee.days?.forEach((day) => {
+      const status = (day.attendance.status || '').toUpperCase();
+      if (status === 'P') {
+        fullPresentDays++;
+      } else if (status === 'P/A' || status === 'PA') {
+        paCount++;
+      } else if (status === 'ADJ-P') {
+        adjPresentDays++; // NEW: Count adjustment present days
+      }
+    });
+    
+    // Calculate adjusted present days: full days + adjustment days + (P/A days * 0.5)
+    const PD_excel = employee.present || 0; // Original from Excel
+    const paAdjustment = paCount * 0.5; // Each P/A is half day
+    const PAA = fullPresentDays + adjPresentDays + paAdjustment; // NEW: Added adjPresentDays
+    
     const H_base = selectedHolidaysCount || baseHolidaysCount || 0;
     const Total = PAA + H_base;
 
@@ -111,17 +131,27 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
     let AdditionalOT = 0;
     if (OT_min < lateMinsTotal) AdditionalOT = OT_min < OT_THRESHOLD_MIN ? 0.5 : 1;
 
-    const ATotal = Math.max(PAA + H_base - AdditionalOT, 0);
+    const ATotal = Math.max(Total - AdditionalOT, 0);
 
     const pl = getPL(employee) || 0;
     const GrandTotal = Math.max(ATotal + pl, 0);
 
-    return { PD_excel, PAA, H_base, Total, ATotal, PL_days: pl, GrandTotal };
+    return { 
+      PD_excel, 
+      PAA: Number(PAA.toFixed(1)), // Round to 1 decimal 
+      H_base, 
+      Total: Number(Total.toFixed(1)), 
+      ATotal: Number(ATotal.toFixed(1)), 
+      PL_days: pl, 
+      GrandTotal: Number(GrandTotal.toFixed(1)),
+      paCount,
+      adjPresentDays // NEW: Include in return
+    };
   }, [employee, baseHolidaysCount, selectedHolidaysCount, getPL]);
 
   const tooltipTexts: any = {
     PD_excel: 'Present days counted directly from attendance sheet.',
-    PAA: 'Present days after adjustment swaps.',
+    PAA: 'Present days after adjustment: Full Present days + ADJ-P days + (P/A days × 0.5). ADJ-P (Adjustment Present) counts as full day, P/A (Partial Attendance) counts as half day.',
     H_base: 'Holidays selected from Holiday Management.',
     Total: 'Present After Adj + Holidays',
     ATotal: 'Adjusted total considering OT deduction rules.',
@@ -158,6 +188,22 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
         <span className="text-indigo-600">📊</span>
         Present Day Calculation
       </h4>
+
+      {/* Info about P/A and ADJ-P count */}
+      {(stats.paCount > 0 || stats.adjPresentDays > 0) && (
+        <div className="mb-2 text-xs text-gray-600 bg-yellow-50 p-2 rounded space-y-1">
+          {stats.paCount > 0 && (
+            <div>
+              ℹ️ Found {stats.paCount} P/A (Partial Attendance) day{stats.paCount > 1 ? 's' : ''}, counted as {stats.paCount * 0.5} day{stats.paCount > 1 ? 's' : ''}
+            </div>
+          )}
+          {stats.adjPresentDays > 0 && (
+            <div>
+              ✅ Found {stats.adjPresentDays} ADJ-P (Adjustment Present) day{stats.adjPresentDays > 1 ? 's' : ''}, counted as full day{stats.adjPresentDays > 1 ? 's' : ''}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* HORIZONTAL WRAP LAYOUT */}
       <div className="flex flex-wrap gap-2">

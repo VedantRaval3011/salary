@@ -46,11 +46,12 @@ export default function Home() {
   const years = Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - 5 + i);
 
   // Get days in selected month
-  const getDaysInMonth = () => {
-    if (!selectedMonth || !selectedYear) return 31;
-    const monthIndex = months.indexOf(selectedMonth);
-    return new Date(selectedYear, monthIndex + 1, 0).getDate();
-  };
+const getDaysInMonth = () => {
+  if (!selectedMonth || !selectedYear) return 31;
+  const monthIndex = months.indexOf(selectedMonth);
+  return new Date(selectedYear, monthIndex + 1, 0).getDate(); // This correctly returns 31 for October
+};
+
 
   const daysInMonth = getDaysInMonth();
   const availableDates = Array.from({ length: daysInMonth }, (_, i) => i + 1);
