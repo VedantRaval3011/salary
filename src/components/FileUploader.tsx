@@ -7,37 +7,38 @@ import { processPaidLeaveFile } from "@/lib/processPaidLeave";
 import { exportToExcel } from "@/lib/excelExporter";
 import { REQUIRED_FILES, OPTIONAL_FILES } from "@/lib/types";
 import { v4 as uuidv4 } from "uuid";
+import { processOTSheet } from "@/lib/processOTSheets";
+import { processLunchInOutFile } from "@/lib/processLunchInOut";
+import { processHRFile } from "@/lib/processHRFile";
+import { PresentDayComparison } from "@/components/PresentDayComparison"; // Restored alias path
+import { OTComparison } from "./OTComparison";
 
-/**
- * =========================
- * Helpers
- * =========================
- */
+const norm = (s: any) =>
+  String(s ?? "")
+    .toLowerCase()
+    .trim();
 
-const norm = (s: any) => String(s ?? "").toLowerCase().trim();
-
-/** EXACT match for our Paid Leave sheet (but forgiving about spaces/case). */
 const isExactPaidLeaveFilename = (nameOrFile: string | File) => {
   const n = typeof nameOrFile === "string" ? nameOrFile : nameOrFile.name;
   const x = norm(n);
-  // normalize dots and spaces
   const collapsed = x.replace(/\s+/g, " ");
-  // accept with or without the ".xlsx" suffix and with optional leading '07.' prefix
   return (
     /^0*7\.\s*staff\s*paid\s*leave\s*sheet(\.xlsx)?$/i.test(n) ||
     /(^|\/)0*7\.\s*staff\s*paid\s*leave\s*sheet(\.xlsx)?$/i.test(n) ||
-    /(^|\/)\s*staff\s*paid\s*leave\s*sheet(\.xlsx)?$/i.test(n) && collapsed.includes("07. staff paid leave sheet")
+    (/(^|\/)\s*staff\s*paid\s*leave\s*sheet(\.xlsx)?$/i.test(n) &&
+      collapsed.includes("07. staff paid leave sheet"))
   );
 };
 
-/** Categorize by filename. The only Paid Leave category is our exact sheet. */
 const guessCategoryFromFilename = (fileName: string): string => {
   const n = norm(fileName);
 
-  // === Main required attendance (map to your exact REQUIRED_FILES[0]) ===
-  // match common “Monthly Attendance Tulsi …”
-  if (/\bmonthly\b/.test(n) && /\battendance\b/.test(n) && /\btulsi\b/.test(n)) {
-    return REQUIRED_FILES[0]; // "Monthly Attendance Tulsi Sheet"
+  if (
+    /\bmonthly\b/.test(n) &&
+    /\battendance\b/.test(n) &&
+    /\btulsi\b/.test(n)
+  ) {
+    return REQUIRED_FILES[0];
   }
   if (/\battendance\b/.test(n) && /\btulsi\b/.test(n)) {
     return REQUIRED_FILES[0];
@@ -46,19 +47,39 @@ const guessCategoryFromFilename = (fileName: string): string => {
     return REQUIRED_FILES[0];
   }
 
-  // === Paid Leave: only this file is PL ===
+  if (/\bstaff\s*ot\s*granted\b/.test(n) || /\b06\.\s*staff\s*ot\b/.test(n)) {
+    return "Staff OT Granted";
+  }
+  if (/\bfull\s*night\s*stay\b/.test(n) || /\b05\.\s*full\s*night\b/.test(n)) {
+    return "Full Night Stay Emp OT Sheet";
+  }
+  if (/\b09\s*to\s*06\b/.test(n) || /\b08\.\s*09\s*to\s*06\b/.test(n)) {
+    return "09 to 06 Time Granted Emp Sheet";
+  }
+  if (/\blunch\b/.test(n) && (/\bin\b/.test(n) || /\bout\b/.test(n))) {
+    return "Lunch In Out Time Sheet";
+  }
+  if (/\b04\.\s*lunch\b/.test(n)) {
+    return "Lunch In Out Time Sheet";
+  }
+
+  if (/\bmaintenance\b/.test(n) && /\bdeduct\b/.test(n)) {
+    return "Maintenance OT Deduct";
+  }
+  if (/\b10\.\s*maintenance\b/.test(n)) {
+    return "Maintenance OT Deduct";
+  }
+
   if (isExactPaidLeaveFilename(fileName)) return "Staff Paid Leave Sheet";
 
-  // Other optionals (optional)
   if (/\bmonthwise\s*salary\b/.test(n)) return "Monthwise Salary";
   if (/\bmisc\b/.test(n)) return "MISC";
   if (/\bstaff\s*tulsi\b/.test(n)) return "Staff Tulsi";
   if (/\bworker\s*tulsi\b/.test(n)) return "Worker Tulsi";
 
-  return fileName; // fallback label
+  return fileName;
 };
 
-/** Is the selected category treated as paid leave? */
 const isPaidLeaveCategory = (name: string) =>
   norm(name) === "staff paid leave sheet";
 
@@ -74,14 +95,26 @@ export const FileUploader: React.FC = () => {
     updateFileStatus,
     updateFileData,
     updatePaidLeaveData,
+    updateHRData,
     getAllUploadedFiles,
     clearAllFiles,
     mergePaidLeaveData,
   } = useExcel();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [selectedFileType, setSelectedFileType] = useState<string>(REQUIRED_FILES[0]);
+  const [selectedFileType, setSelectedFileType] = useState<string>(
+    REQUIRED_FILES[0]
+  );
   const [processingCount, setProcessingCount] = useState(0);
+  const [showOTComparison, setShowOTComparison] = useState(false);
+
+  // Derive holiday count from the main excelData object
+  // We assume `processExcelFile` adds `baseHolidaysCount` to the excelData at runtime.
+  // Cast to `any` to bypass the TypeScript error.
+  const baseHolidaysCount = (excelData as any)?.baseHolidaysCount ?? 0;
+  // This component doesn't have selection logic, so we pass 0.
+  // The calculator will use `baseHolidaysCount` as a fallback.
+  const selectedHolidaysCount = 0;
 
   const remergeAllPaidLeaveIfAny = () => {
     if (!excelData) return;
@@ -94,12 +127,9 @@ export const FileUploader: React.FC = () => {
     plFiles.forEach((f) => mergePaidLeaveData(f.paidLeaveData!));
   };
 
-  /**
-   * =========================
-   * Multiple file upload
-   * =========================
-   */
-  const handleMultipleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleMultipleFileUpload = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
     const files = event.target.files;
     if (!files || files.length === 0) return;
 
@@ -110,7 +140,6 @@ export const FileUploader: React.FC = () => {
     const uploadPromises = fileArray.map(async (file) => {
       const fileId = uuidv4();
 
-      // Derive category from filename (not by position)
       const guessedCategory = guessCategoryFromFilename(file.name);
       const isRequired = guessedCategory === REQUIRED_FILES[0];
       const categoryName = isRequired ? REQUIRED_FILES[0] : guessedCategory;
@@ -132,32 +161,133 @@ export const FileUploader: React.FC = () => {
           isPaidLeaveCategory(categoryName) || isExactPaidLeaveFilename(file);
 
         if (treatAsPaidLeave) {
-          // Robust parser; never throws to UI
           const paidLeaveData = await processPaidLeaveFile(file);
           updatePaidLeaveData(fileId, paidLeaveData);
-
-          if (excelData && paidLeaveData.length > 0) {
+          if (excelData && paidLeaveData.length > 0)
             mergePaidLeaveData(paidLeaveData);
-          }
-
-          // mark success if we reached here
           updateFileStatus(fileId, "success");
-          return { success: true, fileId, fileName: file.name, type: "paidLeave" as const };
+          return { success: true, fileId, fileName: file.name };
+        } else if (
+          /\b09\s*to\s*06\b/i.test(file.name) ||
+          /\b08\.\s*09\s*to\s*06\b/i.test(file.name)
+        ) {
+          const customTimingEmployees = await processOTSheet(file, "09to06");
+          updateFileData(fileId, { employees: customTimingEmployees } as any);
+          const currentFile = getAllUploadedFiles().find(
+            (f) => f.id === fileId
+          );
+          if (currentFile) {
+            (currentFile as any).customTimingOTData = customTimingEmployees;
+          }
+          console.log(
+            `✅ Processed ${customTimingEmployees.length} 09 to 06 Time Granted employees`
+          );
+          updateFileStatus(fileId, "success");
+          return { success: true, fileId, fileName: file.name };
+        } else if (
+          (/\blunch\b/i.test(file.name) &&
+            (/\bin\b/i.test(file.name) || /\bout\b/i.test(file.name))) ||
+          /\b04\.\s*lunch\b/i.test(file.name)
+        ) {
+          console.log("🍽️ Processing Lunch In/Out file:", file.name);
+          const lunchData = await processLunchInOutFile(file);
+          console.log("✅ Processed lunch data:", {
+            employeeCount: lunchData.length,
+            sample: lunchData[0],
+          });
+          updateFileData(fileId, { employees: lunchData } as any);
+          const currentFile = getAllUploadedFiles().find(
+            (f) => f.id === fileId
+          );
+          if (currentFile) {
+            (currentFile as any).lunchInOutData = lunchData;
+          }
+          console.log(
+            `✅ Successfully processed ${lunchData.length} Lunch In/Out employees`
+          );
+          updateFileStatus(fileId, "success");
+          return { success: true, fileId, fileName: file.name };
+        } else if (
+          /\bstaff\s*ot\s*granted\b/i.test(file.name) ||
+          /\b06\.\s*staff\s*ot\b/i.test(file.name)
+        ) {
+          const otEmployees = await processOTSheet(file, "staff");
+          updateFileData(fileId, { employees: otEmployees } as any);
+          const currentFile = getAllUploadedFiles().find(
+            (f) => f.id === fileId
+          );
+          if (currentFile) {
+            (currentFile as any).otGrantedData = otEmployees;
+          }
+          console.log(
+            `✅ Processed ${otEmployees.length} Staff OT Granted employees`
+          );
+          updateFileStatus(fileId, "success");
+          return { success: true, fileId, fileName: file.name };
+        } else if (
+          /\bfull\s*night\s*stay\b/i.test(file.name) ||
+          /\b05\.\s*full\s*night\b/i.test(file.name)
+        ) {
+          const fullNightEmployees = await processOTSheet(file, "fullnight");
+          updateFileData(fileId, { employees: fullNightEmployees } as any);
+          const currentFile = getAllUploadedFiles().find(
+            (f) => f.id === fileId
+          );
+          if (currentFile) {
+            (currentFile as any).fullNightOTData = fullNightEmployees;
+          }
+          console.log(
+            `✅ Processed ${fullNightEmployees.length} Full Night Stay OT employees`
+          );
+          updateFileStatus(fileId, "success");
+          return { success: true, fileId, fileName: file.name };
+        } else if (
+          (/\bmaintenance\b/i.test(file.name) &&
+            /\bdeduct\b/i.test(file.name)) ||
+          /\b10\.\s*maintenance\b/i.test(file.name)
+        ) {
+          const maintenanceEmployees = await processOTSheet(
+            file,
+            "maintenance"
+          );
+          updateFileData(fileId, { employees: maintenanceEmployees } as any);
+          console.log(
+            `✅ Processed ${maintenanceEmployees.length} Maintenance OT Deduct employees`
+          );
+          updateFileStatus(fileId, "success");
+          return { success: true, fileId, fileName: file.name };
+        } else if (norm(file.name).includes("staff tulsi")) {
+          console.log("📊 Processing Staff Tulsi HR file:", file.name);
+          const hrData = await processHRFile(file, "staff");
+          console.log("✅ Processed Staff HR data:", {
+            employeeCount: hrData.length,
+            sample: hrData[0],
+          });
+          updateHRData(fileId, hrData);
+          updateFileStatus(fileId, "success");
+          return { success: true, fileId, fileName: file.name };
+        } else if (norm(file.name).includes("worker tulsi")) {
+          console.log("📊 Processing Worker Tulsi HR file:", file.name);
+          const hrData = await processHRFile(file, "worker");
+          console.log("✅ Processed Worker HR data:", {
+            employeeCount: hrData.length,
+            sample: hrData[0],
+          });
+          updateHRData(fileId, hrData);
+          updateFileStatus(fileId, "success");
+          return { success: true, fileId, fileName: file.name };
         } else {
           const processedData = await processExcelFile(file);
           updateFileData(fileId, processedData);
-
           if (isRequired) {
             setExcelData(processedData);
             remergeAllPaidLeaveIfAny();
           }
-
           updateFileStatus(fileId, "success");
-          return { success: true, fileId, fileName: file.name, type: "attendance" as const };
+          return { success: true, fileId, fileName: file.name };
         }
       } catch (error) {
         console.error(`Error processing ${file.name}:`, error);
-        // Soft-fail: mark as error but do not crash
         updateFileStatus(
           fileId,
           "error",
@@ -169,41 +299,43 @@ export const FileUploader: React.FC = () => {
 
     const results = await Promise.allSettled(uploadPromises);
     const successCount = results.filter(
-      (r) => r.status === "fulfilled" && (r.value as any).success
+      (r) => r.status === "fulfilled" && r.value?.success
     ).length;
     const failCount = results.filter(
-      (r) => r.status === "rejected" || (r.status === "fulfilled" && !(r.value as any).success)
+      (r) =>
+        r.status === "rejected" ||
+        (r.status === "fulfilled" && !r.value?.success)
     ).length;
 
     setIsLoading(false);
     setProcessingCount(0);
 
     if (successCount > 0 && failCount === 0) {
-      alert(`✓ All ${successCount} file(s) uploaded successfully!`);
+      // alert(`✓ All ${successCount} file(s) uploaded successfully!`);
     } else if (successCount > 0 && failCount > 0) {
-      alert(`⚠️ ${successCount} file(s) uploaded successfully, ${failCount} failed.`);
+      // alert(
+      //   `⚠️ ${successCount} file(s) uploaded successfully, ${failCount} failed.`
+      // );
     } else {
-      alert(`✕ All ${failCount} file(s) failed to upload.`);
+      // alert(`✕ All ${failCount} file(s) failed to upload.`);
     }
 
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  /**
-   * =========================
-   * Single file upload
-   * =========================
-   */
-  const handleSingleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleSingleFileUpload = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
     const fileId = uuidv4();
 
-    // Prefer user selection; if not, guess
     const guessedCategory = guessCategoryFromFilename(file.name);
     const categoryName = selectedFileType || guessedCategory;
-    const isRequired = REQUIRED_FILES.includes(categoryName as (typeof REQUIRED_FILES)[number]);
+    const isRequired = REQUIRED_FILES.includes(
+      categoryName as (typeof REQUIRED_FILES)[number]
+    );
 
     const uploadedFile = {
       id: fileId,
@@ -225,24 +357,93 @@ export const FileUploader: React.FC = () => {
       if (treatAsPaidLeave) {
         const paidLeaveData = await processPaidLeaveFile(file);
         updatePaidLeaveData(fileId, paidLeaveData);
-
-        if (excelData && paidLeaveData.length > 0) {
+        if (excelData && paidLeaveData.length > 0)
           mergePaidLeaveData(paidLeaveData);
-        }
-
         updateFileStatus(fileId, "success");
-        alert(`✓ Paid Leave file uploaded. ${paidLeaveData.length} PL rows processed.`);
+      } else if (
+        /\b09\s*to\s*06\b/i.test(file.name) ||
+        /\b08\.\s*09\s*to\s*06\b/i.test(file.name)
+      ) {
+        const customTimingEmployees = await processOTSheet(file, "09to06");
+        updateFileData(fileId, { employees: customTimingEmployees } as any);
+        const currentFile = getAllUploadedFiles().find((f) => f.id === fileId);
+        if (currentFile) {
+          (currentFile as any).customTimingOTData = customTimingEmployees;
+        }
+        updateFileStatus(fileId, "success");
+      } else if (
+        /\bstaff\s*ot\s*granted\b/i.test(file.name) ||
+        /\b06\.\s*staff\s*ot\b/i.test(file.name)
+      ) {
+        const otEmployees = await processOTSheet(file, "staff");
+        updateFileData(fileId, { employees: otEmployees } as any);
+        const currentFile = getAllUploadedFiles().find((f) => f.id === fileId);
+        if (currentFile) {
+          (currentFile as any).otGrantedData = otEmployees;
+        }
+        updateFileStatus(fileId, "success");
+      } else if (
+        /\bfull\s*night\s*stay\b/i.test(file.name) ||
+        /\b05\.\s*full\s*night\b/i.test(file.name)
+      ) {
+        const fullNightEmployees = await processOTSheet(file, "fullnight");
+        updateFileData(fileId, { employees: fullNightEmployees } as any);
+        const currentFile = getAllUploadedFiles().find((f) => f.id === fileId);
+        if (currentFile) {
+          (currentFile as any).fullNightOTData = fullNightEmployees;
+        }
+        updateFileStatus(fileId, "success");
+      } else if (
+        (/\blunch\b/i.test(file.name) &&
+          (/\bin\b/i.test(file.name) || /\bout\b/i.test(file.name))) ||
+        /\b04\.\s*lunch\b/i.test(file.name)
+      ) {
+        const lunchData = await processLunchInOutFile(file);
+        updateFileData(fileId, { employees: lunchData } as any);
+        const currentFile = getAllUploadedFiles().find((f) => f.id === fileId);
+        if (currentFile) {
+          (currentFile as any).lunchInOutData = lunchData;
+        }
+        updateFileStatus(fileId, "success");
+      } else if (
+        (/\bmaintenance\b/i.test(file.name) && /\bdeduct\b/i.test(file.name)) ||
+        /\b10\.\s*maintenance\b/i.test(file.name)
+      ) {
+        const maintenanceEmployees = await processOTSheet(file, "maintenance");
+        updateFileData(fileId, { employees: maintenanceEmployees } as any);
+        updateFileStatus(fileId, "success");
+      } else if (
+        norm(file.name).includes("staff tulsi") ||
+        categoryName === "Staff Tulsi"
+      ) {
+        console.log("📊 Processing Staff Tulsi HR file:", file.name);
+        const hrData = await processHRFile(file, "staff");
+        console.log("✅ Processed Staff HR data:", {
+          employeeCount: hrData.length,
+          sample: hrData[0],
+        });
+        updateHRData(fileId, hrData);
+        updateFileStatus(fileId, "success");
+      } else if (
+        norm(file.name).includes("worker tulsi") ||
+        categoryName === "Worker Tulsi"
+      ) {
+        console.log("📊 Processing Worker Tulsi HR file:", file.name);
+        const hrData = await processHRFile(file, "worker");
+        console.log("✅ Processed Worker HR data:", {
+          employeeCount: hrData.length,
+          sample: hrData[0],
+        });
+        updateHRData(fileId, hrData);
+        updateFileStatus(fileId, "success");
       } else {
         const processedData = await processExcelFile(file);
         updateFileData(fileId, processedData);
-
         if (isRequired) {
           setExcelData(processedData);
           remergeAllPaidLeaveIfAny();
         }
-
         updateFileStatus(fileId, "success");
-        alert(`✓ File uploaded successfully!`);
       }
     } catch (error) {
       console.error("Error processing file:", error);
@@ -251,7 +452,9 @@ export const FileUploader: React.FC = () => {
         "error",
         error instanceof Error ? error.message : "Unknown error"
       );
-      alert("Error processing the file. It was uploaded but may contain errors.");
+      // alert(
+      //   "Error processing the file. It was uploaded but may contain errors."
+      // );
     } finally {
       setIsLoading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -276,7 +479,7 @@ export const FileUploader: React.FC = () => {
       await exportToExcel(excelData);
     } catch (error) {
       console.error("Error exporting file:", error);
-      alert("Error exporting the Excel file. Please try again.");
+      // alert("Error exporting the Excel file. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -284,17 +487,21 @@ export const FileUploader: React.FC = () => {
 
   const uploadedFiles = getAllUploadedFiles();
   const requiredFilesUploaded = REQUIRED_FILES.every((fileName) =>
-    uploadedFiles.some((f) => f.categoryName === fileName && f.status === "success")
+    uploadedFiles.some(
+      (f) => f.categoryName === fileName && f.status === "success"
+    )
   );
 
   return (
     <div className="w-full max-w-4xl mx-auto p-6 bg-white rounded-lg shadow-md">
-      <h2 className="text-2xl font-bold mb-2 text-gray-800">Excel File Manager</h2>
+      <h2 className="text-2xl font-bold mb-2 text-gray-800">
+        Excel File Manager
+      </h2>
       <p className="text-gray-600 mb-6">
-        Upload multiple Excel files at once or one at a time to manage attendance data.
+        Upload multiple Excel files at once or one at a time to manage
+        attendance data.
       </p>
 
-      {/* Multiple File Upload Section */}
       <div className="mb-6 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border-2 border-blue-300">
         <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
           <span className="text-blue-600">📤</span>
@@ -307,28 +514,27 @@ export const FileUploader: React.FC = () => {
             multiple
             onChange={handleMultipleFileUpload}
             className="block w-full text-sm text-gray-500
-              file:mr-4 file:py-2 file:px-4
-              file:rounded-md file:border-0
-              file:text-sm file:font-semibold
-              file:bg-blue-600 file:text-white
-              hover:file:bg-blue-700
-              cursor-pointer"
+                file:mr-4 file:py-2 file:px-4
+                file:rounded-md file:border-0
+                file:text-sm file:font-semibold
+                file:bg-blue-600 file:text-white
+                hover:file:bg-blue-700
+                cursor-pointer"
             disabled={isLoading}
           />
         </label>
         <p className="text-xs text-gray-600 mt-2">
-          ℹ️ The Paid Leave source is only: “07. Staff Paid Leave Sheet.xlsx”.
+          ℹ️ Supported: Staff OT, Night Stay, Paid Leave, Lunch In/Out, HR files
+          & Attendance.
         </p>
       </div>
 
-      {/* Single File Upload Section */}
       <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
         <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
           <span className="text-green-600">📁</span>
           Single File Upload (With Category Selection)
         </h3>
 
-        {/* File Category Selection */}
         <div className="mb-3">
           <label className="block text-xs font-semibold text-gray-600 mb-2">
             Select File Category
@@ -352,8 +558,27 @@ export const FileUploader: React.FC = () => {
                   {file} (Optional)
                 </option>
               ))}
+              <option value="Staff Paid Leave Sheet">
+                Staff Paid Leave Sheet (Optional)
+              </option>
+              <option value="Staff OT Granted">
+                Staff OT Granted (Optional)
+              </option>
+              <option value="Full Night Stay Emp OT Sheet">
+                Full Night Stay OT (Optional)
+              </option>
+              <option value="09 to 06 Time Granted Emp Sheet">
+                09 to 06 Time Granted (Optional)
+              </option>
+              <option value="Lunch In Out Time Sheet">
+                Lunch In Out Time (Optional)
+              </option>
+              <option value="Maintenance OT Deduct">
+                Maintenance OT Deduct (Optional)
+              </option>
+              <option value="Staff Tulsi">Staff Tulsi (Optional)</option>
+              <option value="Worker Tulsi">Worker Tulsi (Optional)</option>
             </optgroup>
-            <option value="Staff Paid Leave Sheet">Staff Paid Leave Sheet (Optional)</option>
           </select>
         </div>
 
@@ -364,21 +589,17 @@ export const FileUploader: React.FC = () => {
             accept=".xls,.xlsx"
             onChange={handleSingleFileUpload}
             className="block w-full text-sm text-gray-500
-              file:mr-4 file:py-2 file:px-4
-              file:rounded-md file:border-0
-              file:text-sm file:font-semibold
-              file:bg-green-50 file:text-green-700
-              hover:file:bg-green-100
-              cursor-pointer"
+                file:mr-4 file:py-2 file:px-4
+                file:rounded-md file:border-0
+                file:text-sm file:font-semibold
+                file:bg-green-50 file:text-green-700
+                hover:file:bg-green-100
+                cursor-pointer"
             disabled={isLoading}
           />
         </label>
-        <p className="text-xs text-gray-600 mt-2">
-          ℹ️ Paid Leave values are read only from “07. Staff Paid Leave Sheet.xlsx”.
-        </p>
       </div>
 
-      {/* Action Buttons */}
       <div className="flex gap-4 items-center mb-6">
         <button
           onClick={handleExport}
@@ -401,12 +622,12 @@ export const FileUploader: React.FC = () => {
         <div className="mt-4 flex items-center justify-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-700"></div>
           <span className="ml-3 text-gray-600">
-            Processing {processingCount > 0 ? `${processingCount} file(s)` : "file"}...
+            Processing{" "}
+            {processingCount > 0 ? `${processingCount} file(s)` : "file"}...
           </span>
         </div>
       )}
 
-      {/* Uploaded Files List */}
       <div className="mt-8">
         <h3 className="text-lg font-semibold text-gray-800 mb-4">
           Uploaded Files ({uploadedFiles.length})
@@ -429,7 +650,9 @@ export const FileUploader: React.FC = () => {
               >
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <p className="font-semibold text-gray-800">{file.categoryName}</p>
+                    <p className="font-semibold text-gray-800">
+                      {file.categoryName}
+                    </p>
                     <span
                       className={`px-2 py-1 text-xs rounded-full font-semibold ${
                         file.fileType === "required"
@@ -442,20 +665,18 @@ export const FileUploader: React.FC = () => {
                   </div>
                   <p className="text-sm text-gray-600">
                     {file.fileName}{" "}
-                    {file.status === "success" && file.data && (
-                      <span className="text-green-600 font-semibold">
-                        ({file.data.employees.length} employees)
-                      </span>
-                    )}
                     {file.status === "success" &&
-                      Array.isArray(file.paidLeaveData) && (
-                        <span className="ml-2 text-indigo-600 font-semibold">
-                          ({file.paidLeaveData.length} PL rows)
+                      file.data &&
+                      Array.isArray(file.data.employees) && (
+                        <span className="text-green-600 font-semibold">
+                          ({file.data.employees.length} employees)
                         </span>
                       )}
                   </p>
                   {file.error && (
-                    <p className="text-sm text-red-600 mt-1">Error: {file.error}</p>
+                    <p className="text-sm text-red-600 mt-1">
+                      Error: {file.error}
+                    </p>
                   )}
                   <p className="text-xs text-gray-500 mt-1">
                     Uploaded: {new Date(file.uploadedAt).toLocaleString()}
@@ -463,16 +684,6 @@ export const FileUploader: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-3 ml-4">
-                  {file.status === "processing" && (
-                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-700"></div>
-                  )}
-                  {file.status === "success" && (
-                    <span className="text-green-600 text-2xl">✓</span>
-                  )}
-                  {file.status === "error" && (
-                    <span className="text-red-600 text-2xl">✕</span>
-                  )}
-
                   <button
                     onClick={() => handleRemoveFile(file.id)}
                     className="px-3 py-1 bg-red-500 text-white text-sm rounded-md hover:bg-red-600 transition-colors disabled:bg-gray-400"
@@ -487,26 +698,33 @@ export const FileUploader: React.FC = () => {
         )}
       </div>
 
-      {/* Status Summary */}
       <div className="mt-8 p-4 bg-blue-50 rounded-lg border border-blue-200">
         <p className="text-sm text-gray-700">
           <strong>Files Progress:</strong>{" "}
-          {uploadedFiles.filter((f) => f.status === "success").length}/{uploadedFiles.length} uploaded successfully
+          {uploadedFiles.filter((f) => f.status === "success").length}/
+          {uploadedFiles.length} uploaded successfully
         </p>
         {REQUIRED_FILES.length > 0 && (
           <p className="text-sm text-gray-700 mt-2">
             <strong>Required Files:</strong>{" "}
             {requiredFilesUploaded ? (
-              <span className="text-green-600 font-semibold">✓ All required files uploaded</span>
+              <span className="text-green-600 font-semibold">
+                ✓ All required files uploaded
+              </span>
             ) : (
-              <span className="text-red-600 font-semibold">✕ Please upload required file(s)</span>
+              <span className="text-red-600 font-semibold">
+                ✕ Please upload required file(s)
+              </span>
             )}
           </p>
         )}
-        <p className="text-xs text-gray-600 mt-3">
-          💡 <strong>Tip:</strong> Paid Leave is read only from “07. Staff Paid Leave Sheet.xlsx”.
-        </p>
       </div>
+
+      <div className="mt-10">
+        <OTComparison />
+      </div>
+
+      <PresentDayComparison />
     </div>
   );
 };

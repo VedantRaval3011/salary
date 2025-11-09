@@ -1,5 +1,8 @@
 // lib/types.ts
 
+import { HRData } from "./processHRFile";
+import { OTGrantedEmployee } from "./processOTSheets";
+
 /**
  * ============================================================================
  * CORE ATTENDANCE DATA TYPES
@@ -36,6 +39,9 @@ export interface DayAttendance {
   isAdjustmentOriginal?: boolean;
   isAdjustmentTarget?: boolean;
   isHoliday?: boolean; // Marks if date was set as holiday through Holiday Management
+  hasCustomCalculation?: boolean;
+  originalLateMins?: string;
+  originalOTHrs?: string;
 }
 
 /**
@@ -59,6 +65,8 @@ export interface EmployeeData {
   department: string;
   empCode: string;
   empName: string;
+  isOTGranted?: boolean; // Flag if employee is in OT granted sheets
+  otGrantedType?: "staff" | "fullnight" | "special" | "09to06";
 
   // Attendance Counts
   present: number;
@@ -113,12 +121,16 @@ export interface UploadedFile {
   id: string; // Unique identifier for this upload (UUID v4)
   fileName: string; // Original file name as uploaded
   categoryName: string; // Category name (from REQUIRED_FILES or OPTIONAL_FILES)
-  fileType: 'required' | 'optional'; // Whether this file is mandatory or optional
+  fileType: "required" | "optional"; // Whether this file is mandatory or optional
   uploadedAt: string; // ISO timestamp of when file was uploaded
   data: ProcessedExcelData | null; // Processed data from the file (null until processing completes)
-  status: 'pending' | 'processing' | 'success' | 'error'; // Current processing status
+  status: "pending" | "processing" | "success" | "error"; // Current processing status
   error?: string; // Error message if status is 'error'
   paidLeaveData?: PaidLeaveData[];
+  otGrantedData?: OTGrantedEmployee[]; // For Staff OT Granted sheet
+  fullNightOTData?: OTGrantedEmployee[];
+  customTimingOTData?: OTGrantedEmployee[];
+   hrData?: HRData[];
 }
 
 /**
@@ -134,28 +146,28 @@ export interface FileContext {
  * File Category Configuration
  * Defines the list of required and optional files
  */
-export const REQUIRED_FILES = [
-  'Monthly Attendance Tulsi Sheet',
-] as const;
+export const REQUIRED_FILES = ["Monthly Attendance Tulsi Sheet"] as const;
 
 export const OPTIONAL_FILES = [
-  'Late Arrival Sheet',
-  'Early Departure Sheet',
-  'Lunch In-Out Time Sheet',
-  'Full Night Stay Emp. OT Sheet',
-  'Staff OT Granted',
-  'Staff Paid Leave Sheet',
-  '09 to 06 Time Granted Emp. Sheet',
-  'Loan+TDS+Extra Paid',
-  'Maintenance Employee OT Deduct',
-  'Worker Tulsi',
-  'Staff Tulsi',
+  "Late Arrival Sheet",
+  "Early Departure Sheet",
+  "Lunch In-Out Time Sheet",
+  "Full Night Stay Emp. OT Sheet",
+  "Staff OT Granted",
+  "Staff Paid Leave Sheet",
+  "09 to 06 Time Granted Emp. Sheet",
+  "Loan+TDS+Extra Paid",
+  "Maintenance Employee OT Deduct",
+  "Worker Tulsi",
+  "Staff Tulsi",
 ] as const;
 
 /**
  * Union type for all valid file categories
  */
-export type FileCategory = typeof REQUIRED_FILES[number] | typeof OPTIONAL_FILES[number];
+export type FileCategory =
+  | (typeof REQUIRED_FILES)[number]
+  | (typeof OPTIONAL_FILES)[number];
 
 /**
  * ============================================================================
@@ -168,14 +180,14 @@ export type FileCategory = typeof REQUIRED_FILES[number] | typeof OPTIONAL_FILES
  * Helps with consistent status handling across the application
  */
 export const STATUS_CODES = {
-  PRESENT: 'P',
-  ABSENT: 'A',
-  WEEK_OFF: 'WO',
-  HOLIDAY: 'H',
-  ON_DUTY: 'OD',
-  LEAVE: 'Leave',
-  ADJUSTMENT_PRESENT: 'adj-P', // Adjusted to working day
-  ADJUSTMENT_HOLIDAY: 'adj-M/WO-I', // Adjusted to holiday
+  PRESENT: "P",
+  ABSENT: "A",
+  WEEK_OFF: "WO",
+  HOLIDAY: "H",
+  ON_DUTY: "OD",
+  LEAVE: "Leave",
+  ADJUSTMENT_PRESENT: "adj-P", // Adjusted to working day
+  ADJUSTMENT_HOLIDAY: "adj-M/WO-I", // Adjusted to holiday
 } as const;
 
 /**
@@ -183,14 +195,14 @@ export const STATUS_CODES = {
  * Maps status codes to human-readable descriptions
  */
 export const STATUS_DESCRIPTIONS: Record<string, string> = {
-  [STATUS_CODES.PRESENT]: 'Present',
-  [STATUS_CODES.ABSENT]: 'Absent',
-  [STATUS_CODES.WEEK_OFF]: 'Week Off',
-  [STATUS_CODES.HOLIDAY]: 'Holiday',
-  [STATUS_CODES.ON_DUTY]: 'On Duty',
-  [STATUS_CODES.LEAVE]: 'Leave',
-  [STATUS_CODES.ADJUSTMENT_PRESENT]: 'Adjusted to Working',
-  [STATUS_CODES.ADJUSTMENT_HOLIDAY]: 'Adjusted to Holiday',
+  [STATUS_CODES.PRESENT]: "Present",
+  [STATUS_CODES.ABSENT]: "Absent",
+  [STATUS_CODES.WEEK_OFF]: "Week Off",
+  [STATUS_CODES.HOLIDAY]: "Holiday",
+  [STATUS_CODES.ON_DUTY]: "On Duty",
+  [STATUS_CODES.LEAVE]: "Leave",
+  [STATUS_CODES.ADJUSTMENT_PRESENT]: "Adjusted to Working",
+  [STATUS_CODES.ADJUSTMENT_HOLIDAY]: "Adjusted to Holiday",
 };
 
 /**
@@ -198,16 +210,16 @@ export const STATUS_DESCRIPTIONS: Record<string, string> = {
  * Maps status codes to Tailwind CSS color classes for consistent styling
  */
 export const STATUS_COLORS: Record<string, string> = {
-  [STATUS_CODES.PRESENT]: 'bg-green-100 text-green-800 border-green-300',
-  [STATUS_CODES.ABSENT]: 'bg-red-100 text-red-800 border-red-300',
-  [STATUS_CODES.WEEK_OFF]: 'bg-gray-100 text-gray-800 border-gray-300',
-  [STATUS_CODES.HOLIDAY]: 'bg-blue-100 text-blue-800 border-blue-300',
-  [STATUS_CODES.ON_DUTY]: 'bg-purple-100 text-purple-800 border-purple-300',
-  [STATUS_CODES.LEAVE]: 'bg-yellow-100 text-yellow-800 border-yellow-300',
+  [STATUS_CODES.PRESENT]: "bg-green-100 text-green-800 border-green-300",
+  [STATUS_CODES.ABSENT]: "bg-red-100 text-red-800 border-red-300",
+  [STATUS_CODES.WEEK_OFF]: "bg-gray-100 text-gray-800 border-gray-300",
+  [STATUS_CODES.HOLIDAY]: "bg-blue-100 text-blue-800 border-blue-300",
+  [STATUS_CODES.ON_DUTY]: "bg-purple-100 text-purple-800 border-purple-300",
+  [STATUS_CODES.LEAVE]: "bg-yellow-100 text-yellow-800 border-yellow-300",
   [STATUS_CODES.ADJUSTMENT_PRESENT]:
-    'bg-lime-100 text-lime-800 border-lime-300 ring-2 ring-lime-400',
+    "bg-lime-100 text-lime-800 border-lime-300 ring-2 ring-lime-400",
   [STATUS_CODES.ADJUSTMENT_HOLIDAY]:
-    'bg-orange-200 text-orange-800 border-orange-300 ring-2 ring-orange-400',
+    "bg-orange-200 text-orange-800 border-orange-300 ring-2 ring-orange-400",
 };
 
 /**
@@ -307,17 +319,22 @@ export type ValidFileCategory = FileCategory;
 /**
  * Type for status code
  */
-export type StatusCode = typeof STATUS_CODES[keyof typeof STATUS_CODES];
+export type StatusCode = (typeof STATUS_CODES)[keyof typeof STATUS_CODES];
 
 /**
  * Type for file processing action
  */
 export type FileProcessingAction =
-  | { type: 'UPLOAD'; fileId: string; file: UploadedFile }
-  | { type: 'REMOVE'; fileId: string }
-  | { type: 'UPDATE_STATUS'; fileId: string; status: UploadedFile['status']; error?: string }
-  | { type: 'UPDATE_DATA'; fileId: string; data: ProcessedExcelData }
-  | { type: 'CLEAR_ALL' };
+  | { type: "UPLOAD"; fileId: string; file: UploadedFile }
+  | { type: "REMOVE"; fileId: string }
+  | {
+      type: "UPDATE_STATUS";
+      fileId: string;
+      status: UploadedFile["status"];
+      error?: string;
+    }
+  | { type: "UPDATE_DATA"; fileId: string; data: ProcessedExcelData }
+  | { type: "CLEAR_ALL" };
 
 /**
  * ============================================================================
@@ -329,14 +346,14 @@ export type FileProcessingAction =
  * Validates if a file category is required
  */
 export const isRequiredFile = (category: string): boolean => {
-  return REQUIRED_FILES.includes(category as typeof REQUIRED_FILES[number]);
+  return REQUIRED_FILES.includes(category as (typeof REQUIRED_FILES)[number]);
 };
 
 /**
  * Validates if a file category is optional
  */
 export const isOptionalFile = (category: string): boolean => {
-  return OPTIONAL_FILES.includes(category as typeof OPTIONAL_FILES[number]);
+  return OPTIONAL_FILES.includes(category as (typeof OPTIONAL_FILES)[number]);
 };
 
 /**
@@ -366,4 +383,3 @@ export const getRequiredFileCategories = (): typeof REQUIRED_FILES => {
 export const getOptionalFileCategories = (): typeof OPTIONAL_FILES => {
   return OPTIONAL_FILES;
 };
-

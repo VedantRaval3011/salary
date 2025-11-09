@@ -1,19 +1,191 @@
 // components/EmployeeCard.tsx
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { EmployeeData } from "@/lib/types";
 import { AttendanceGrid } from "./AttendanceGrid";
 import { AdjustmentDayModal } from "./AdjustmentDayModal";
 import { PresentDayStatsGrid } from "./PresentDayStatsGrid";
 import { useExcel } from "@/context/ExcelContext";
 import { OvertimeStatsGrid } from "./OvertimeStatsGrid";
+import { EarlyDepartureStatsGrid } from "./EarlyDepartureStatsGrid";
 
 interface EmployeeCardProps {
   employee: EmployeeData;
   index: number;
   baseHolidaysCount?: number;
   selectedHolidaysCount?: number;
+}
+
+// Helper to check custom timing
+function useCustomTimingInfo(employee: EmployeeData) {
+  const { getAllUploadedFiles } = useExcel();
+
+  return useMemo(() => {
+    const files = getAllUploadedFiles?.() ?? [];
+    
+    const customTimingFile = files.find((f: any) => {
+      const n = (f?.fileName || "").toString().toLowerCase();
+      return (
+        f.status === "success" &&
+        ((n.includes("09") && n.includes("06") && n.includes("time")) ||
+         (n.includes("9") && n.includes("6") && n.includes("granted")))
+      );
+    });
+
+    if (!customTimingFile) {
+      return { hasCustomTiming: false, customTime: null };
+    }
+
+    let customTimingEmployees: any[] = [];
+    
+    if (customTimingFile.customTimingOTData && Array.isArray(customTimingFile.customTimingOTData)) {
+      customTimingEmployees = customTimingFile.customTimingOTData;
+    } else if (customTimingFile.data?.employees && Array.isArray(customTimingFile.data.employees)) {
+      customTimingEmployees = customTimingFile.data.employees;
+    }
+
+    const norm = (s: string) => (s ?? "").toString().toUpperCase().trim();
+    const key = (s: string) => norm(s).replace(/[^A-Z0-9]/g, "");
+    const numOnly = (s: string) => s.match(/\d+/g)?.join("") ?? "";
+
+    const empCodeK = key(employee.empCode);
+    const empNameK = key(employee.empName);
+    const numCodeK = numOnly(employee.empCode);
+
+    for (const emp of customTimingEmployees) {
+      const codeMatch = emp.empCode && (
+        key(emp.empCode) === empCodeK || 
+        numOnly(emp.empCode) === numCodeK
+      );
+      const nameMatch = emp.empName && key(emp.empName) === empNameK;
+      
+      if (codeMatch || nameMatch) {
+        return {
+          hasCustomTiming: true,
+          customTime: emp.customTime || "9:00 TO 6:00", // 🆕 Use actual customTime from data
+          totalHours: emp.totalHours || 0,
+        };
+      }
+    }
+
+    return { hasCustomTiming: false, customTime: null };
+  }, [employee, getAllUploadedFiles]);
+}
+
+// Helper to check Staff OT Granted
+function useStaffOTGrantedInfo(employee: EmployeeData) {
+  const { getAllUploadedFiles } = useExcel();
+
+  return useMemo(() => {
+    const files = getAllUploadedFiles?.() ?? [];
+    
+    const staffOTFile = files.find((f: any) => {
+      const n = (f?.fileName || "").toString().toLowerCase();
+      return (
+        f.status === "success" &&
+        n.includes("staff") &&
+        n.includes("ot") &&
+        n.includes("granted")
+      );
+    });
+
+    if (!staffOTFile) {
+      return { isStaffOTGranted: false };
+    }
+
+    let otEmployees: any[] = [];
+    
+    if (staffOTFile.otGrantedData && Array.isArray(staffOTFile.otGrantedData)) {
+      otEmployees = staffOTFile.otGrantedData;
+    } else if (staffOTFile.data?.employees && Array.isArray(staffOTFile.data.employees)) {
+      otEmployees = staffOTFile.data.employees;
+    }
+
+    const norm = (s: string) => (s ?? "").toString().toUpperCase().trim();
+    const key = (s: string) => norm(s).replace(/[^A-Z0-9]/g, "");
+    const numOnly = (s: string) => s.match(/\d+/g)?.join("") ?? "";
+
+    const empCodeK = key(employee.empCode);
+    const empNameK = key(employee.empName);
+    const numCodeK = numOnly(employee.empCode);
+
+    for (const emp of otEmployees) {
+      const codeMatch = emp.empCode && (
+        key(emp.empCode) === empCodeK || 
+        numOnly(emp.empCode) === numCodeK
+      );
+      const nameMatch = emp.empName && key(emp.empName) === empNameK;
+      
+      if (codeMatch || nameMatch) {
+        return {
+          isStaffOTGranted: true,
+          fromDate: emp.fromDate,
+          toDate: emp.toDate,
+        };
+      }
+    }
+
+    return { isStaffOTGranted: false };
+  }, [employee, getAllUploadedFiles]);
+}
+
+// Helper to check Full Night Stay OT
+function useFullNightOTInfo(employee: EmployeeData) {
+  const { getAllUploadedFiles } = useExcel();
+
+  return useMemo(() => {
+    const files = getAllUploadedFiles?.() ?? [];
+    
+    const fullNightFile = files.find((f: any) => {
+      const n = (f?.fileName || "").toString().toLowerCase();
+      return (
+        f.status === "success" &&
+        n.includes("full") &&
+        n.includes("night") &&
+        n.includes("stay")
+      );
+    });
+
+    if (!fullNightFile) {
+      return { hasFullNightOT: false, totalHours: 0 };
+    }
+
+    let fullNightEmployees: any[] = [];
+    
+    if (fullNightFile.fullNightOTData && Array.isArray(fullNightFile.fullNightOTData)) {
+      fullNightEmployees = fullNightFile.fullNightOTData;
+    } else if (fullNightFile.data?.employees && Array.isArray(fullNightFile.data.employees)) {
+      fullNightEmployees = fullNightFile.data.employees;
+    }
+
+    const norm = (s: string) => (s ?? "").toString().toUpperCase().trim();
+    const key = (s: string) => norm(s).replace(/[^A-Z0-9]/g, "");
+    const numOnly = (s: string) => s.match(/\d+/g)?.join("") ?? "";
+
+    const empCodeK = key(employee.empCode);
+    const empNameK = key(employee.empName);
+    const numCodeK = numOnly(employee.empCode);
+
+    let totalHours = 0;
+
+    for (const emp of fullNightEmployees) {
+      const codeMatch = emp.empCode && (
+        key(emp.empCode) === empCodeK || 
+        numOnly(emp.empCode) === numCodeK
+      );
+      const nameMatch = emp.empName && key(emp.empName) === empNameK;
+      
+      if (codeMatch || nameMatch) {
+        totalHours += Number(emp.totalHours) || 0;
+      }
+    }
+
+    return {
+      hasFullNightOT: totalHours > 0,
+      totalHours,
+    };
+  }, [employee, getAllUploadedFiles]);
 }
 
 export const EmployeeCard: React.FC<EmployeeCardProps> = ({
@@ -27,6 +199,11 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
   const [currentEmployee, setCurrentEmployee] =
     useState<EmployeeData>(employee);
   const { excelData } = useExcel();
+
+  // Get custom timing info
+  const customTimingInfo = useCustomTimingInfo(currentEmployee);
+  const staffOTInfo = useStaffOTGrantedInfo(currentEmployee);
+  const fullNightOTInfo = useFullNightOTInfo(currentEmployee);
 
   // Update local employee state when excelData changes
   useEffect(() => {
@@ -53,6 +230,28 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
             <h3 className="text-xl font-bold text-gray-800">
               {currentEmployee.empName}
             </h3>
+            
+            {/* Special Badges */}
+            <div className="flex gap-2 ml-2">
+              {customTimingInfo.hasCustomTiming && (
+                <span className="bg-purple-100 text-purple-800 text-xs font-bold px-3 py-1 rounded-full border border-purple-300 flex items-center gap-1">
+                  <span>🕐</span>
+                  Custom Timing
+                </span>
+              )}
+              {staffOTInfo.isStaffOTGranted && (
+                <span className="bg-green-100 text-green-800 text-xs font-bold px-3 py-1 rounded-full border border-green-300 flex items-center gap-1">
+                  <span>⭐</span>
+                  OT Granted
+                </span>
+              )}
+              {fullNightOTInfo.hasFullNightOT && (
+                <span className="bg-orange-100 text-orange-800 text-xs font-bold px-3 py-1 rounded-full border border-orange-300 flex items-center gap-1">
+                  <span>🌙</span>
+                  Full Night
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Company and Department */}
@@ -70,6 +269,47 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
               </span>
             </p>
           </div>
+
+          {/* Custom Timing Info Box */}
+          {(customTimingInfo.hasCustomTiming || staffOTInfo.isStaffOTGranted || fullNightOTInfo.hasFullNightOT) && (
+            <div className="mt-3 p-3 bg-gradient-to-r from-purple-50 to-blue-50 border-l-4 border-purple-500 rounded-r-lg">
+              <div className="text-sm space-y-1">
+                {customTimingInfo.hasCustomTiming && (
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-purple-700">🕐 Work Hours:</span>
+                    <span className="text-purple-900 font-semibold">
+                      {customTimingInfo.customTime}
+                    </span>
+                    <span className="text-purple-600 text-xs">
+                      (Custom {customTimingInfo.totalHours}h/day)
+                    </span>
+                  </div>
+                )}
+                {staffOTInfo.isStaffOTGranted && (
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-green-700">⭐ OT Period:</span>
+                    <span className="text-green-900 font-semibold">
+                      Day {staffOTInfo.fromDate} to {staffOTInfo.toDate}
+                    </span>
+                    <span className="text-green-600 text-xs">
+                      (All days eligible for OT)
+                    </span>
+                  </div>
+                )}
+                {fullNightOTInfo.hasFullNightOT && (
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-orange-700">🌙 Full Night Hours:</span>
+                    <span className="text-orange-900 font-semibold">
+                      {fullNightOTInfo.totalHours} hours
+                    </span>
+                    <span className="text-orange-600 text-xs">
+                      (Added to total OT)
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Action Buttons */}
@@ -87,14 +327,13 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
         </div>
       </div>
 
-
-
       {/* Present Day Calculation Stats Grid */}
       <PresentDayStatsGrid
         employee={currentEmployee}
         baseHolidaysCount={baseHolidaysCount}
         selectedHolidaysCount={selectedHolidaysCount}
       />
+      <EarlyDepartureStatsGrid employee={currentEmployee} />
 
       <OvertimeStatsGrid employee={employee} />
 
@@ -111,15 +350,33 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
             </span>
           </div>
 
+          {/* Special Work Schedule Info */}
+          {customTimingInfo.hasCustomTiming && (
+            <div className="mb-4 p-4 bg-purple-50 border-2 border-purple-200 rounded-lg">
+              <div className="flex items-start gap-3">
+                <span className="text-3xl">🕐</span>
+                <div>
+                  <h5 className="font-bold text-purple-900 mb-1">Custom Work Schedule</h5>
+                  <p className="text-sm text-purple-800">
+                    This employee has a <strong>customized work schedule of {customTimingInfo.customTime}</strong> instead of the standard 8:30 TO 5:30 timing.
+                  </p>
+                  <p className="text-xs text-purple-700 mt-2">
+                    💡 <strong>Note:</strong> Overtime calculations are adjusted based on this custom schedule.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Attendance Grid */}
           {currentEmployee.days && currentEmployee.days.length > 0 ? (
             <AttendanceGrid
               days={currentEmployee.days}
               employeeIndex={index}
               onAdjustmentClick={(date) => {
-                // Handle click on a specific date if needed
                 console.log(`Clicked on date: ${date}`);
               }}
+              customTime={customTimingInfo.customTime} // Pass the custom time from computed info
             />
           ) : (
             <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
@@ -143,10 +400,17 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
       {!isExpanded && (
         <div className="mt-4 pt-4 border-t border-gray-200 text-xs text-gray-600">
           <div className="flex items-center justify-between">
-            <span>
-              <strong>Days Summary:</strong> {currentEmployee.present || 0}P |{" "}
-              {currentEmployee.absent || 0}A | {currentEmployee.holiday || 0}H
-            </span>
+            <div className="flex items-center gap-4">
+              <span>
+                <strong>Days Summary:</strong> {currentEmployee.present || 0}P |{" "}
+                {currentEmployee.absent || 0}A | {currentEmployee.holiday || 0}H
+              </span>
+              {customTimingInfo.hasCustomTiming && (
+                <span className="text-purple-600 font-semibold">
+                  🕐 Custom Timing: {customTimingInfo.customTime}
+                </span>
+              )}
+            </div>
             <span className="text-blue-600 font-semibold cursor-pointer hover:text-blue-800">
               Click "View Details" for full breakdown →
             </span>

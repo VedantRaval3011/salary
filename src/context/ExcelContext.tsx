@@ -10,7 +10,8 @@ import {
   FileContext,
   PaidLeaveData,
 } from "@/lib/types";
-import { normalizeEmpCode } from "@/utils/normalizeEmpCode";
+import { OTGrantedEmployee } from "@/lib/processOTSheets";
+import { HRData } from "@/lib/processHRFile";
 
 interface ExcelContextType {
   excelData: ProcessedExcelData | null;
@@ -36,12 +37,14 @@ interface ExcelContextType {
     error?: string
   ) => void;
   updateFileData: (fileId: string, data: ProcessedExcelData) => void;
-  updatePaidLeaveData: (fileId: string, paid: PaidLeaveData[]) => void; // NEW
+  updatePaidLeaveData: (fileId: string, paid: PaidLeaveData[]) => void;
+  updateHRData: (fileId: string, hrData: HRData[]) => void; // NEW
   getUploadedFile: (fileId: string) => UploadedFile | null;
   getAllUploadedFiles: () => UploadedFile[];
   clearAllFiles: () => void;
   getFilesByType: (type: "required" | "optional") => UploadedFile[];
   mergePaidLeaveData: (paidLeaveData: PaidLeaveData[]) => void;
+  mergeOTData: (otEmployees: OTGrantedEmployee[], otType: string) => void;
 }
 
 const ExcelContext = createContext<ExcelContextType | undefined>(undefined);
@@ -107,6 +110,18 @@ export const ExcelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }));
   };
 
+  // NEW METHOD: Update HR data
+  const updateHRData = (fileId: string, hrData: HRData[]) => {
+    setFileContext((prev) => ({
+      ...prev,
+      [fileId]: {
+        ...prev[fileId],
+        hrData: hrData,
+        status: "success",
+      },
+    }));
+  };
+
   const getUploadedFile = (fileId: string): UploadedFile | null => {
     return fileContext[fileId] || null;
   };
@@ -123,85 +138,109 @@ export const ExcelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setFileContext({});
   };
 
-  /** Merge Paid Leave rows into current employees using normalized emp codes. */
-// inside ExcelProvider
-const mergePaidLeaveData = (paidLeaveData: PaidLeaveData[]) => {
-  if (!excelData) return;
+  const mergePaidLeaveData = (paidLeaveData: PaidLeaveData[]) => {
+    if (!excelData) return;
 
-  // Helpers to normalize codes/names aggressively
-  const canon = (s: string) => (s || "").toUpperCase().trim();
-  const stripNonAlnum = (s: string) => canon(s).replace(/[^A-Z0-9]/g, "");
-  const numericOnly = (s: string) => (s.match(/\d+/g)?.join("") ?? "");
-  const dropLeadingZeros = (s: string) => s.replace(/^0+/, "");
+    const canon = (s: string) => (s || "").toUpperCase().trim();
+    const stripNonAlnum = (s: string) => canon(s).replace(/[^A-Z0-9]/g, "");
+    const numericOnly = (s: string) => (s.match(/\d+/g)?.join("") ?? "");
+    const dropLeadingZeros = (s: string) => s.replace(/^0+/, "");
 
-  // Build multiple keys for each PL row
-  type PLRec = PaidLeaveData & { _keys: string[]; _nameKey: string };
-  const plWithKeys: PLRec[] = paidLeaveData.map((pl) => {
-    const raw = canon(pl.empCode);
-    const s1 = stripNonAlnum(raw);
-    const num = numericOnly(raw);
-    const no0 = dropLeadingZeros(num);
-    // also try some padded variants (common 4–6 width)
-    const pads = [4, 5, 6].map(w => num.padStart(w, "0"));
-    const k = new Set<string>([
-      raw, s1, num, no0,
-      ...pads,
-      `S:${raw}`, `S:${s1}`, `N:${num}`, `Z:${no0}`,
-    ]);
-    return { ...pl, _keys: Array.from(k), _nameKey: stripNonAlnum(pl.empName) };
-  });
-
-  // Index PL by every key
-  const plIndex = new Map<string, PLRec>();
-  plWithKeys.forEach(pl => {
-    pl._keys.forEach(k => {
-      if (!plIndex.has(k)) plIndex.set(k, pl);
+    type PLRec = PaidLeaveData & { _keys: string[]; _nameKey: string };
+    const plWithKeys: PLRec[] = paidLeaveData.map((pl) => {
+      const raw = canon(pl.empCode);
+      const s1 = stripNonAlnum(raw);
+      const num = numericOnly(raw);
+      const no0 = dropLeadingZeros(num);
+      const pads = [4, 5, 6].map(w => num.padStart(w, "0"));
+      const k = new Set<string>([
+        raw, s1, num, no0,
+        ...pads,
+        `S:${raw}`, `S:${s1}`, `N:${num}`, `Z:${no0}`,
+      ]);
+      return { ...pl, _keys: Array.from(k), _nameKey: stripNonAlnum(pl.empName) };
     });
-  });
 
-  // Also index by name (but keep possible multiples)
-  const nameIndex = new Map<string, PLRec[]>();
-  plWithKeys.forEach(pl => {
-    const arr = nameIndex.get(pl._nameKey) ?? [];
-    arr.push(pl);
-    nameIndex.set(pl._nameKey, arr);
-  });
+    const plIndex = new Map<string, PLRec>();
+    plWithKeys.forEach(pl => {
+      pl._keys.forEach(k => {
+        if (!plIndex.has(k)) plIndex.set(k, pl);
+      });
+    });
 
-  const updatedEmployees = excelData.employees.map((emp) => {
-    const raw = canon(emp.empCode);
-    const s1 = stripNonAlnum(raw);
-    const num = numericOnly(raw);
-    const no0 = dropLeadingZeros(num);
-    const pads = [4, 5, 6].map(w => num.padStart(w, "0"));
-    const candidateKeys = [raw, s1, num, no0, ...pads, `S:${raw}`, `S:${s1}`, `N:${num}`, `Z:${no0}`];
+    const nameIndex = new Map<string, PLRec[]>();
+    plWithKeys.forEach(pl => {
+      const arr = nameIndex.get(pl._nameKey) ?? [];
+      arr.push(pl);
+      nameIndex.set(pl._nameKey, arr);
+    });
 
-    // 1) Try code-based matches (first hit wins)
-    let match: PLRec | undefined = candidateKeys.map(k => plIndex.get(k)).find(Boolean);
+    const updatedEmployees = excelData.employees.map((emp) => {
+      const raw = canon(emp.empCode);
+      const s1 = stripNonAlnum(raw);
+      const num = numericOnly(raw);
+      const no0 = dropLeadingZeros(num);
+      const pads = [4, 5, 6].map(w => num.padStart(w, "0"));
+      const candidateKeys = [raw, s1, num, no0, ...pads, `S:${raw}`, `S:${s1}`, `N:${num}`, `Z:${no0}`];
 
-    // 2) Fallback: exact-ish name match if unique
-    if (!match) {
-      const nameKey = stripNonAlnum(emp.empName);
-      const options = nameIndex.get(nameKey) ?? [];
-      if (options.length === 1) {
-        match = options[0];
-      } else if (options.length > 1) {
-        // pick the one whose numeric-only code matches best
-        const best = options.find(o => numericOnly(o.empCode) === num) ||
-                     options.find(o => dropLeadingZeros(numericOnly(o.empCode)) === no0);
-        if (best) match = best;
+      let match: PLRec | undefined = candidateKeys.map(k => plIndex.get(k)).find(Boolean);
+
+      if (!match) {
+        const nameKey = stripNonAlnum(emp.empName);
+        const options = nameIndex.get(nameKey) ?? [];
+        if (options.length === 1) {
+          match = options[0];
+        } else if (options.length > 1) {
+          const best = options.find(o => numericOnly(o.empCode) === num) ||
+                       options.find(o => dropLeadingZeros(numericOnly(o.empCode)) === no0);
+          if (best) match = best;
+        }
       }
-    }
 
-    if (!match) {
-      console.warn(`[PaidLeave] No match for code="${emp.empCode}" name="${emp.empName}"`);
-    }
+      if (!match) {
+        console.warn(`[PaidLeave] No match for code="${emp.empCode}" name="${emp.empName}"`);
+      }
 
-    return { ...emp, paidLeave: match ? match.paidDays : 0 };
-  });
+      return { ...emp, paidLeave: match ? match.paidDays : 0 };
+    });
 
-  setExcelData({ ...excelData, employees: updatedEmployees });
-};
+    setExcelData({ ...excelData, employees: updatedEmployees });
+  };
 
+  const mergeOTData = (otEmployees: OTGrantedEmployee[], otType: string) => {
+    if (!excelData) return;
+
+    const normalizeEmpCode = (code: string) =>
+      code?.toUpperCase().replace(/[^A-Z0-9]/g, "").trim();
+
+    const allowedTypes = ["staff", "fullnight", "special", "09to06"] as const;
+    type AllowedOTType = typeof allowedTypes[number];
+
+    const isAllowed = (val: any): val is AllowedOTType =>
+      allowedTypes.includes(val);
+
+    const updatedEmployees = excelData.employees.map((emp) => {
+      const match = otEmployees.find(
+        (ot) =>
+          normalizeEmpCode(ot.empCode) === normalizeEmpCode(emp.empCode) ||
+          ot.empName.toUpperCase().trim() === emp.empName.toUpperCase().trim()
+      );
+
+      if (match) {
+        const candidate = (match.otType ?? otType) as string;
+        const otGrantedType = isAllowed(candidate) ? candidate : undefined;
+
+        return {
+          ...emp,
+          isOTGranted: true,
+          otGrantedType: otGrantedType as EmployeeData['otGrantedType'],
+        };
+      }
+      return emp;
+    });
+
+    setExcelData({ ...excelData, employees: updatedEmployees });
+  };
 
   const applyAdjustment = (
     employeeIndex: number,
@@ -326,18 +365,20 @@ const mergePaidLeaveData = (paidLeaveData: PaidLeaveData[]) => {
     setExcelData({ ...excelData, employees: updatedEmployees });
   };
 
-  // Normalize status before counting
-const recalculateEmployeeTotals = (employee: EmployeeData) => {
+  const recalculateEmployeeTotals = (employee: EmployeeData) => {
     let absent = 0;
     let holiday = 0;
     let weekOff = 0;
     let od = 0;
     let leave = 0;
+    let totalLateMins = 0;
 
     employee.days.forEach((day) => {
       const status = (day.attendance.status || "").toUpperCase().trim();
 
-    if (status === "A") {
+      totalLateMins += Number(day.attendance.lateMins) || 0;
+
+      if (status === "A") {
         absent += 1;
       } else if (status === "H" || status === "ADJ-M/WO-I") {
         holiday += 1;
@@ -355,6 +396,7 @@ const recalculateEmployeeTotals = (employee: EmployeeData) => {
     employee.weekOff = weekOff;
     employee.od = od;
     employee.leave = leave;
+    employee.totalLateMins = totalLateMins;
   };
 
   return (
@@ -374,11 +416,13 @@ const recalculateEmployeeTotals = (employee: EmployeeData) => {
         updateFileStatus,
         updateFileData,
         updatePaidLeaveData,
+        updateHRData,
         getUploadedFile,
         getAllUploadedFiles,
         clearAllFiles,
         getFilesByType,
         mergePaidLeaveData,
+        mergeOTData,
       }}
     >
       {children}
