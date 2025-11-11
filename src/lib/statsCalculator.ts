@@ -78,12 +78,57 @@ export function calculateEmployeeStats(
     else if (status === "WO") weekOffDays++;
   });
 
-  const paAdjustment = paCount * 0.5;
-  const PAA = fullPresentDays + adjPresentDays + paAdjustment;
-  const H_base = selectedHolidaysCount || baseHolidaysCount || 0;
+const paAdjustment = paCount * 0.5;
+const PAA = fullPresentDays + adjPresentDays + paAdjustment;
+const H_base = selectedHolidaysCount || baseHolidaysCount || 0;
+
+// --- Sandwich Rule: Remove holidays surrounded by absences ---
+let validHolidays = 0;
+const days = employee.days || [];
+
+for (let i = 0; i < days.length; i++) {
+  const day = days[i];
+  const status = (day.attendance.status || "").toUpperCase();
   
-  // Total = PAA + Holidays + Week Offs
-  const Total = PAA + H_base + weekOffDays;
+  // Check if current day is a holiday or ADJ-M/WO-I
+  if (status === "H" || status === "ADJ-M/WO-I") {
+    // Find previous non-holiday day
+    let prevStatus = null;
+    for (let j = i - 1; j >= 0; j--) {
+      const pStatus = (days[j].attendance.status || "").toUpperCase();
+      if (pStatus !== "H" && pStatus !== "ADJ-M/WO-I") {
+        prevStatus = pStatus;
+        break;
+      }
+    }
+    
+    // Find next non-holiday day
+    let nextStatus = null;
+    for (let j = i + 1; j < days.length; j++) {
+      const nStatus = (days[j].attendance.status || "").toUpperCase();
+      if (nStatus !== "H" && nStatus !== "ADJ-M/WO-I") {
+        nextStatus = nStatus;
+        break;
+      }
+    }
+    
+    // If sandwiched between absences, don't count it
+    if (prevStatus === "A" && nextStatus === "A") {
+      console.log(`🚫 ${employee.empName} - Day ${day.date} (${status}) is sandwiched between absences - NOT counted`);
+      continue;
+    }
+    
+    // Otherwise, count it as valid (only count H in validHolidays)
+    if (status === "H") {
+      validHolidays++;
+      console.log(`✅ ${employee.empName} - Day ${day.date} (H) is valid - counted`);
+    }
+  }
+}
+
+// Total = PAA + Valid Holidays + Week Offs
+const Total = PAA + validHolidays + weekOffDays;
+console.log(`📊 ${employee.empName} Total calculation: PAA (${PAA}) + Valid Holidays (${validHolidays}) + Week Offs (${weekOffDays}) = ${Total}`);
 
   // --- 2. Calculate Late Hours ---
   const customTiming = getCustomTimingForEmployee(employee);

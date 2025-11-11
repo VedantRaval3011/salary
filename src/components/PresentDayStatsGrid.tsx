@@ -6,7 +6,6 @@ import { useExcel } from "../context/ExcelContext"; // Corrected import path
 
 // Utility helpers
 const canon = (s: string) => (s ?? "").toUpperCase().trim();
-// ... (rest of helper functions)
 const stripNonAlnum = (s: string) => canon(s).replace(/[^A-Z0-9]/g, "");
 const numericOnly = (s: string) => s.match(/\d+/g)?.join("") ?? "";
 const dropLeadingZeros = (s: string) => s.replace(/^0+/, "");
@@ -539,9 +538,58 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
     const paAdjustment = paCount * 0.5;
     const PAA = fullPresentDays + adjPresentDays + paAdjustment;
     const H_base = selectedHolidaysCount || baseHolidaysCount || 0;
-    const Total = PAA + H_base;
 
-    // --- [MODIFIED] Recalculate Late Mins Total with Grace Period ---
+    // --- Sandwich Rule: Remove holidays surrounded by absences ---
+    let validHolidays = 0;
+    const days = employee.days || [];
+
+    for (let i = 0; i < days.length; i++) {
+      const day = days[i];
+      const status = (day.attendance.status || "").toUpperCase();
+
+      // Check if current day is a holiday or ADJ-M/WO-I
+      if (status === "H" || status === "ADJ-M/WO-I") {
+        // Find previous non-holiday day
+        let prevStatus = null;
+        for (let j = i - 1; j >= 0; j--) {
+          const pStatus = (days[j].attendance.status || "").toUpperCase();
+          if (pStatus !== "H" && pStatus !== "ADJ-M/WO-I") {
+            prevStatus = pStatus;
+            break;
+          }
+        }
+
+        // Find next non-holiday day
+        let nextStatus = null;
+        for (let j = i + 1; j < days.length; j++) {
+          const nStatus = (days[j].attendance.status || "").toUpperCase();
+          if (nStatus !== "H" && nStatus !== "ADJ-M/WO-I") {
+            nextStatus = nStatus;
+            break;
+          }
+        }
+
+        // If sandwiched between absences, don't count it
+        if (prevStatus === "A" && nextStatus === "A") {
+          console.log(
+            `🚫 Day ${day.date} (${status}) is sandwiched between absences - NOT counted`
+          );
+          continue;
+        }
+
+        // Otherwise, count it as valid (only count H in validHolidays)
+        if (status === "H") {
+          validHolidays++;
+          console.log(`✅ Day ${day.date} (H) is valid - counted`);
+        }
+      }
+    }
+
+    const Total = PAA + validHolidays;
+    console.log(
+      `📊 Total calculation: PAA (${PAA}) + Valid Holidays (${validHolidays}) = ${Total}`
+    );
+
     const customTiming = getCustomTimingForEmployee(employee);
     let lateMinsTotal = 0;
     let wasOTDeducted = false; // <-- Flag for 5% deduction
