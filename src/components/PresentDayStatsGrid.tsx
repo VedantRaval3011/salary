@@ -531,7 +531,17 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
       const status = (day.attendance.status || "").toUpperCase();
       if (status === "P") fullPresentDays++;
       else if (status === "P/A" || status === "PA") paCount++;
-      else if (status === "ADJ-P") adjPresentDays++;
+      else if (status === "ADJ-P") {
+        const inTime = day.attendance.inTime;
+        const outTime = day.attendance.outTime;
+        if (inTime && inTime !== "-" && outTime && outTime !== "-") {
+          adjPresentDays++;
+        } else {
+          console.log(
+            `🚫 Skipping ADJ-P on ${day.date} (no In/Out time present)`
+          );
+        }
+      }
     });
 
     const PD_excel = employee.present || 0;
@@ -540,52 +550,132 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
     const H_base = selectedHolidaysCount || baseHolidaysCount || 0;
 
     // --- Sandwich Rule: Remove holidays surrounded by absences ---
+    // --- Sandwich Rule: Remove holidays surrounded by absences or NA ---
     let validHolidays = 0;
     const days = employee.days || [];
 
-    for (let i = 0; i < days.length; i++) {
-      const day = days[i];
-      const status = (day.attendance.status || "").toUpperCase();
+    // Helper function to check if status is absent or NA
+    const isAbsentOrNA = (status: string): boolean => {
+      const normalized = status.toUpperCase().trim();
+      return (
+        normalized === "A" || normalized === "NA" || normalized === "ABSENT"
+      );
+    };
 
-      // Check if current day is a holiday or ADJ-M/WO-I
-      if (status === "H" || status === "ADJ-M/WO-I") {
-        // Find previous non-holiday day
+    // Helper function to check if status is holiday or special day
+    const isHolidayOrSpecial = (status: string): boolean => {
+      const normalized = status.toUpperCase().trim();
+      return (
+        normalized === "H" ||
+        normalized === "ADJ-M/WO-I" ||
+        normalized === "ADJ-M" ||
+        normalized === "WO-I"
+      );
+    };
+
+    // Find continuous blocks of holidays/special days
+    let i = 0;
+    while (i < days.length) {
+      const currentStatus = (days[i].attendance.status || "")
+        .toUpperCase()
+        .trim();
+
+      if (isHolidayOrSpecial(currentStatus)) {
+        // Found start of a holiday block
+        const blockStart = i;
+        let blockEnd = i;
+
+        // Find the end of this continuous block
+        while (
+          blockEnd < days.length &&
+          isHolidayOrSpecial(
+            (days[blockEnd].attendance.status || "").toUpperCase().trim()
+          )
+        ) {
+          blockEnd++;
+        }
+        blockEnd--; // Step back to last holiday day
+
+        // Find previous non-holiday/non-special day
         let prevStatus = null;
-        for (let j = i - 1; j >= 0; j--) {
-          const pStatus = (days[j].attendance.status || "").toUpperCase();
-          if (pStatus !== "H" && pStatus !== "ADJ-M/WO-I") {
+        for (let j = blockStart - 1; j >= 0; j--) {
+          const pStatus = (days[j].attendance.status || "")
+            .toUpperCase()
+            .trim();
+          if (!isHolidayOrSpecial(pStatus)) {
             prevStatus = pStatus;
             break;
           }
         }
 
-        // Find next non-holiday day
+        // Find next non-holiday/non-special day
         let nextStatus = null;
-        for (let j = i + 1; j < days.length; j++) {
-          const nStatus = (days[j].attendance.status || "").toUpperCase();
-          if (nStatus !== "H" && nStatus !== "ADJ-M/WO-I") {
+        for (let j = blockEnd + 1; j < days.length; j++) {
+          const nStatus = (days[j].attendance.status || "")
+            .toUpperCase()
+            .trim();
+          if (!isHolidayOrSpecial(nStatus)) {
             nextStatus = nStatus;
             break;
           }
         }
 
-        // If sandwiched between absences, don't count it
-        if (prevStatus === "A" && nextStatus === "A") {
+        // Check if this entire block is sandwiched between absences/NA
+        const isSandwiched =
+          prevStatus !== null &&
+          nextStatus !== null &&
+          isAbsentOrNA(prevStatus) &&
+          isAbsentOrNA(nextStatus);
+
+        if (isSandwiched) {
+          // Count how many H days are in this sandwiched block (for logging)
+          let sandwichedHCount = 0;
+          const blockDays = [];
+          for (let j = blockStart; j <= blockEnd; j++) {
+            const blockStatus = (days[j].attendance.status || "")
+              .toUpperCase()
+              .trim();
+            blockDays.push(`${days[j].date}(${blockStatus})`);
+            if (blockStatus === "H") {
+              sandwichedHCount++;
+            }
+          }
+
           console.log(
-            `🚫 Day ${day.date} (${status}) is sandwiched between absences - NOT counted`
+            `🥪 ${employee.empName} - Block [${blockDays.join(
+              ", "
+            )}] is sandwiched between ${prevStatus}(Day ${
+              days[blockStart - 1]?.date
+            }) and ${nextStatus}(Day ${
+              days[blockEnd + 1]?.date
+            }) - ${sandwichedHCount} holiday(s) NOT counted`
           );
-          continue;
+        } else {
+          // Block is NOT sandwiched - count all H days in this block
+          for (let j = blockStart; j <= blockEnd; j++) {
+            const blockStatus = (days[j].attendance.status || "")
+              .toUpperCase()
+              .trim();
+            if (blockStatus === "H") {
+              validHolidays++;
+              console.log(
+                `✅ ${employee.empName} - Day ${days[j].date} (H) is valid - counted`
+              );
+            }
+          }
         }
 
-        // Otherwise, count it as valid (only count H in validHolidays)
-        if (status === "H") {
-          validHolidays++;
-          console.log(`✅ Day ${day.date} (H) is valid - counted`);
-        }
+        // Move to next block
+        i = blockEnd + 1;
+      } else {
+        i++;
       }
     }
 
     const Total = PAA + validHolidays;
+    console.log(
+      `📊 ${employee.empName} Total calculation: PAA (${PAA}) + Valid Holidays (${validHolidays}) = ${Total}`
+    );
     console.log(
       `📊 Total calculation: PAA (${PAA}) + Valid Holidays (${validHolidays}) = ${Total}`
     );
@@ -1022,49 +1112,6 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
         <span className="text-indigo-600">📊</span>
         Present Day Calculation
       </h4>
-      <div className="mb-3 text-xs text-gray-700 bg-blue-50 p-3 rounded border border-blue-200">
-        <div className="font-semibold mb-2 text-blue-800">
-          ⏱️ Time Tracking Details:
-        </div>
-        <div className="grid grid-cols-4 gap-3">
-          <div className="bg-white p-2 rounded border border-blue-100">
-            <span className="text-gray-600">Late Hours:</span>
-            <span className="ml-2 font-bold text-red-600">
-              {stats.Late_hours} hrs
-            </span>
-          </div>
-          <div className="bg-white p-2 rounded border border-blue-100">
-            <span className="text-gray-600">OT Hours:</span>
-            <span className="ml-2 font-bold text-green-600">
-              {stats.OT_hours} hrs
-              {stats.wasOTDeducted && <span className="text-red-500">*</span>}
-            </span>
-          </div>
-          <div className="bg-white p-2 rounded border border-orange-100">
-            <span className="text-gray-600">Full Night OT:</span>
-            <span className="ml-2 font-bold text-orange-600">
-              {stats.fullNightOTHours} hrs
-            </span>
-          </div>
-          <div className="bg-white p-2 rounded border border-purple-100">
-            <span className="text-gray-600">Custom Timing OT:</span>
-            <span className="ml-2 font-bold text-purple-600">
-              {stats.customTimingOTHours} hrs
-            </span>
-          </div>
-        </div>
-        {stats.customTimingOTHours > 0 && (
-          <div className="mt-2 text-xs text-purple-700 italic">
-            * Custom Timing OT is included in the OT Hours total above
-          </div>
-        )}
-        {/* This is the new message */}
-        {stats.wasOTDeducted && (
-          <div className="mt-2 text-xs text-red-700 italic">
-            * 5% OT deduction applied (Maintenance)
-          </div>
-        )}
-      </div>
       <div className="flex flex-wrap gap-2">
         <StatBox
           label="PD (Excel)"

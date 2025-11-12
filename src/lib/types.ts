@@ -96,6 +96,36 @@ export interface PaidLeaveData {
   empName: string;
   paidDays: number;
 }
+
+/**
+ * Lunch In/Out Data for an employee
+ * Stores daily punch records for break time analysis
+ */
+export interface LunchInOutEmployee {
+  empCode: string;
+  empName: string;
+  dailyPunches: {
+    date: string;
+    punches: Array<{
+      type: "In" | "Out";
+      time: string;
+    }>;
+  }[];
+}
+
+/**
+ * HR Late Data for an employee
+ * Stores late hours from HR/Tulsi system
+ */
+export interface HRLateEmployee {
+  empCode: string;
+  empName: string;
+  late?: number | string;
+  lateHours?: number | string;
+  Late?: number | string;
+  "Late Hours"?: number | string;
+}
+
 /**
  * Processed Excel Data
  * The complete processed data from an uploaded Excel file
@@ -126,11 +156,19 @@ export interface UploadedFile {
   data: ProcessedExcelData | null; // Processed data from the file (null until processing completes)
   status: "pending" | "processing" | "success" | "error"; // Current processing status
   error?: string; // Error message if status is 'error'
+  
+  // Specialized data fields for different file types
   paidLeaveData?: PaidLeaveData[];
   otGrantedData?: OTGrantedEmployee[]; // For Staff OT Granted sheet
+  otGrantedSheetData?: OTGrantedEmployee[];
   fullNightOTData?: OTGrantedEmployee[];
   customTimingOTData?: OTGrantedEmployee[];
-   hrData?: HRData[];
+  hrData?: HRData[];
+  
+  // NEW: Add these missing properties
+  hrLateData?: HRLateEmployee[]; // For HR/Tulsi Late data
+  lunchInOutData?: LunchInOutEmployee[]; // For Lunch In/Out Time data
+  employees?: EmployeeData[]; // Alternative structure for employee data
 }
 
 /**

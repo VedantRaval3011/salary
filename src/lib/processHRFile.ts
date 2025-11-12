@@ -1,11 +1,11 @@
-// lib/processHRFile.ts
 import * as XLSX from "xlsx";
 
 export interface HRData {
   empCode: string;
   empName: string;
   presentDays: number;
-  OT?: number; // Add OT field
+  OT?: number;
+  Late?: number; // ADD LATE FIELD
 }
 
 /**
@@ -40,7 +40,6 @@ const getColumnMap = (header: string[]): { [key: string]: number } => {
 };
 
 // --- Main Processor Function ---
-
 export async function processHRFile(
   file: File,
   type: "staff" | "worker"
@@ -50,7 +49,7 @@ export async function processHRFile(
   const workbook = XLSX.read(arrayBuffer, { cellDates: true });
   const worksheet = workbook.Sheets[workbook.SheetNames[0]];
 
-  const data: any[] = XLSX.utils.sheet_to_json(worksheet, {
+  const data: any[][] = XLSX.utils.sheet_to_json(worksheet, {
     header: 1,
     defval: null,
   });
@@ -69,89 +68,116 @@ export async function processHRFile(
 
   if (headerRowIndex === -1) {
     throw new Error(
-      `Could not find header row in HR file. (Searched for: ${searchTerms.join(
-        ", "
-      )})`
+      `Could not find header row in HR file. (Searched for: ${searchTerms.join(", ")})`
     );
   }
 
-  const header: string[] = data[headerRowIndex].map(String);
-  const colMap = getColumnMap(header);
+  let header: string[] = data[headerRowIndex].map(String);
+  let colMap = getColumnMap(header);
 
-  const codeCol =
+  let codeCol =
     colMap["Emp. Code"] ??
     colMap["EMP CODE"] ??
     colMap["Emp Code"] ??
     colMap["Employee Code"] ??
     colMap["EMP. ID"];
 
-  const nameCol =
+  let nameCol =
     colMap["Employee Name"] ??
     colMap["NAME"] ??
     colMap["Emp. Name"] ??
     colMap["EMPNAME"] ??
     colMap["EMPLOYEE NAME"];
 
-  // Present Days Column (for attendance comparison)
-  const presentDaysCol =
+  let presentDaysCol: number | undefined =
     type === "staff"
       ? colMap["DAY"]
       : colMap["SALARY(S*T)"] ?? colMap["SALARY"] ?? colMap["ACT.DAY"];
 
-  // --- FIX: OT Column Detection ---
-  // For Staff: Column I contains "OT"
-  // For Worker: Column F contains "OT"
-  const otCol = colMap["OT"] ?? colMap["ot"];
-  // --- END OF FIX ---
+  let otCol: number | undefined = colMap["OT"] ?? colMap["ot"];
+
+  // ADD LATE COLUMN DETECTION
+  let lateCol: number | undefined =
+    type === "staff"
+      ? colMap["Final Late"] ?? colMap["FINAL LATE"] ?? colMap["final late"]
+      : colMap["LATE"] ?? colMap["Late"] ?? colMap["late"];
 
   if (codeCol === undefined || nameCol === undefined) {
     throw new Error(
-      `Could not find 'Emp. Code' or 'Name' columns in the header row: [${header.join(
-        ", "
-      )}]`
+      `Could not find 'Emp. Code' or 'Name' columns in the header row: [${header.join(", ")}]`
     );
   }
 
-  if (presentDaysCol === undefined) {
-    let errorHint = "";
-    if (type === "staff") {
-      errorHint = "Looked for 'DAY' (H-col)";
-    } else {
-      errorHint = "Looked for 'SALARY(S*T)', 'SALARY', or 'ACT.DAY' (U-col)";
-    }
-
-    throw new Error(
-      `Could not find present days column. ${errorHint}. Header was: [${header.join(
-        ", "
-      )}]`
-    );
-  }
-
-  console.log(
-    `📊 Found present days column at index: ${presentDaysCol}, header: "${header[presentDaysCol]}"`
-  );
-
+  console.log(`📊 Found present days column: ${presentDaysCol}`);
   if (otCol !== undefined) {
-    console.log(`📊 Found OT column at index: ${otCol}, header: "${header[otCol]}"`);
+    console.log(`📊 Found OT column at index: ${otCol}`);
   } else {
-    console.warn(
-      `⚠️ Could not find OT column in header: [${header.join(", ")}]`
-    );
+    console.warn(`⚠️ Could not find OT column in header: [${header.join(", ")}]`);
+  }
+
+  // ADD LATE COLUMN LOGGING
+  if (lateCol !== undefined) {
+    console.log(`📊 Found Late column at index: ${lateCol}`);
+  } else {
+    console.warn(`⚠️ Could not find Late column in header: [${header.join(", ")}]`);
   }
 
   const employees: HRData[] = [];
+
   for (let i = headerRowIndex + 1; i < data.length; i++) {
     const row = data[i];
-    if (!row) continue;
+    if (!row || row.every((v: any) => v === null || v === undefined || v === "")) {
+      continue;
+    }
+
+    // 🔍 Detect new section header (like second header at row 217)
+    const rowString = row.join(" ").toUpperCase();
+    if (
+      rowString.includes("EMP") &&
+      rowString.includes("CODE") &&
+      rowString.includes("NAME")
+    ) {
+      console.log(`🔄 Detected new header at row ${i}`);
+      header = row.map(String);
+      colMap = getColumnMap(header);
+
+      codeCol =
+        colMap["Emp. Code"] ??
+        colMap["EMP CODE"] ??
+        colMap["Emp Code"] ??
+        colMap["Employee Code"] ??
+        colMap["EMP. ID"];
+
+      nameCol =
+        colMap["Employee Name"] ??
+        colMap["NAME"] ??
+        colMap["Emp. Name"] ??
+        colMap["EMPNAME"] ??
+        colMap["EMPLOYEE NAME"];
+
+      presentDaysCol =
+        type === "staff"
+          ? colMap["DAY"]
+          : colMap["SALARY(S*T)"] ?? colMap["SALARY"] ?? colMap["ACT.DAY"];
+
+      otCol = colMap["OT"] ?? colMap["ot"];
+      
+      // RE-DETECT LATE COLUMN ON NEW HEADER
+      lateCol =
+        type === "staff"
+          ? colMap["Final Late"] ?? colMap["FINAL LATE"] ?? colMap["final late"]
+          : colMap["LATE"] ?? colMap["Late"] ?? colMap["late"];
+      
+      continue;
+    }
 
     const empCode = row[codeCol];
     const empName = row[nameCol];
-    const presentDays = row[presentDaysCol];
+    const presentDays = presentDaysCol !== undefined ? row[presentDaysCol] : null;
     const otValue = otCol !== undefined ? row[otCol] : null;
+    const lateValue = lateCol !== undefined ? row[lateCol] : null; // EXTRACT LATE VALUE
 
-    if (!empCode && !empName) {
-      continue;
-    }
+    if (!empCode && !empName) continue;
 
     if (empCode && empName) {
       const employeeData: HRData = {
@@ -160,19 +186,21 @@ export async function processHRFile(
         presentDays: Number(presentDays) || 0,
       };
 
-      // Add OT if column was found and has a value
       if (otCol !== undefined && otValue !== null && otValue !== undefined) {
         employeeData.OT = Number(otValue) || 0;
+      }
+
+      // ADD LATE VALUE TO EMPLOYEE DATA
+      if (lateCol !== undefined && lateValue !== null && lateValue !== undefined) {
+        employeeData.Late = Number(lateValue) || 0;
       }
 
       employees.push(employeeData);
     }
   }
 
-  console.log(
-    `✅ Processed ${employees.length} employees from HR file: ${file.name}`
-  );
-  console.log(`📝 Sample employee with OT:`, employees[0]);
+  console.log(`✅ Processed ${employees.length} employees from HR file: ${file.name}`);
+  console.log(`📝 Sample employee:`, employees[0]);
 
   return employees;
 }

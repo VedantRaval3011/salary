@@ -11,13 +11,22 @@ const numericOnly = (s: string) => s.match(/\d+/g)?.join("") ?? "";
 const dropLeadingZeros = (s: string) => s.replace(/^0+/, "");
 const nameKey = (s: string) => stripNonAlnum(s);
 
-// [NEW] Helper to check if employee is Staff or Worker
+interface Props {
+  employee: EmployeeData;
+  otGrandTotal?: number; // Add this
+}
+
+// Helper to check if employee is Staff or Worker
 const getIsStaff = (emp: EmployeeData): boolean => {
-  const inStr = `${emp.companyName ?? ''} ${emp.department ?? ''}`.toLowerCase();
-  if (inStr.includes('worker')) return false;
-  if (inStr.includes('staff')) return true;
-  // default to staff if not clear
-  return true;
+  const inStr = `${emp.companyName ?? ""} ${
+    emp.department ?? ""
+  }`.toLowerCase();
+  // The original logic: if 'worker' is present, return false (Worker); if 'staff' is present, return true (Staff); otherwise, default to true (Staff).
+  // The prompt states: "if the dept has staff in it's string then we consider him as staff employee"
+  // Let's stick to the original, more complete logic unless explicitly told otherwise, but the core check is:
+  if (inStr.includes("worker")) return false;
+  if (inStr.includes("staff")) return true;
+  return true; // Default to staff
 };
 
 /**
@@ -45,7 +54,6 @@ function useLunchInOutLookup() {
 
     let lunchEmployees: any[] = [];
 
-    // THIS IS THE KEY FIX - Check the correct property name
     if (
       (lunchFile as any).lunchInOutData &&
       Array.isArray((lunchFile as any).lunchInOutData)
@@ -67,13 +75,11 @@ function useLunchInOutLookup() {
         "employees"
       );
     } else {
-      // ADD THIS: Check the root level for employees array
       console.log(
         "⚠️ Checking alternative data structures...",
         Object.keys(lunchFile)
       );
 
-      // The file might store data directly as lunchFile.employees
       if (Array.isArray((lunchFile as any).employees)) {
         lunchEmployees = (lunchFile as any).employees;
         console.log("✅ Found root-level employees:", lunchEmployees.length);
@@ -82,7 +88,6 @@ function useLunchInOutLookup() {
       }
     }
 
-    // Log a sample of the lunch data
     if (lunchEmployees.length > 0) {
       console.log("📊 Sample lunch employee data:", {
         employee: lunchEmployees[0],
@@ -126,7 +131,7 @@ function useLunchInOutLookup() {
         `🔍 Looking up lunch data for: ${emp.empCode} (${emp.empName})`
       );
       console.log(
-        `  Keys: code="${empCodeK}", num="${numCodeK}", name="${empNameK}"`
+        `  Keys: code="${empCodeK}", num="${numCodeK}", name="${empNameK}"`
       );
 
       let found = employeeByCode.get(empCodeK);
@@ -264,15 +269,14 @@ function useCustomTimingLookup() {
 interface Props {
   employee: EmployeeData;
 }
+
 const timeToMinutes = (timeStr: string): number => {
   if (!timeStr || timeStr === "-") return 0;
   const parts = timeStr.split(":").map(Number);
 
-  // v-- THE FIX IS HERE --v
   if (parts.length < 2 || isNaN(parts[0]) || isNaN(parts[1])) return 0;
-  // ^-- THE FIX IS HERE --^
 
-  const [hours, minutes] = parts; // This will correctly get hours and minutes
+  const [hours, minutes] = parts;
   return hours * 60 + (minutes || 0);
 };
 
@@ -292,9 +296,15 @@ const formatTime = (timeStr: string): string => {
   return timeStr;
 };
 
-export const EarlyDepartureStatsGrid: React.FC<Props> = ({ employee }) => {
+// --- Staff Relaxation Constant ---
+const STAFF_RELAXATION_MINUTES = 4 * 60; // 4 hours in minutes
+
+export const EarlyDepartureStatsGrid: React.FC<Props> = ({
+  employee,
+  otGrandTotal = 0,
+}) => {
   const [tooltips, setTooltips] = useState<{ [k: string]: boolean }>({});
-  const [showBreakDetails, setShowBreakDetails] = useState(false);
+  const [showBreakModal, setShowBreakModal] = useState(false);
   const { getCustomTimingForEmployee } = useCustomTimingLookup();
   const { getLunchDataForEmployee } = useLunchInOutLookup();
 
@@ -343,7 +353,6 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({ employee }) => {
 
       if (punches.length < 2) continue;
 
-      // Convert punches to minutes with validation
       interface Punch {
         type: "In" | "Out" | string;
         time: string;
@@ -358,14 +367,14 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({ employee }) => {
       const punchTimes: PunchTime[] = (punches as Punch[])
         .map((p: Punch) => {
           const minutes = timeToMinutes(p.time);
-          console.log(`  ${p.type} at ${p.time} = ${minutes} minutes`);
+          console.log(`  ${p.type} at ${p.time} = ${minutes} minutes`);
           return {
             type: p.type,
             minutes,
             time: p.time,
           };
         })
-        .filter((p: PunchTime) => p.minutes > 0); // Filter out invalid times
+        .filter((p: PunchTime) => p.minutes > 0);
 
       if (punchTimes.length < 2) {
         console.log("⚠️ Not enough valid punch times");
@@ -381,7 +390,6 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({ employee }) => {
           const duration = inTime - outTime;
 
           if (duration > 0 && duration < 240) {
-            // Sanity check: breaks should be < 4 hours
             breakPeriods.push({
               outTime: punchTimes[i].time,
               inTime: punchTimes[i + 1].time,
@@ -390,7 +398,7 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({ employee }) => {
               duration,
             });
             console.log(
-              `  ✅ Break found: ${punchTimes[i].time} to ${
+              `  ✅ Break found: ${punchTimes[i].time} to ${
                 punchTimes[i + 1].time
               } = ${duration} mins`
             );
@@ -409,7 +417,7 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({ employee }) => {
         lastInPunch && lastInPunch.minutes >= 17 * 60 + 30;
 
       console.log(
-        `  Post-evening return: ${
+        `  Post-evening return: ${
           hasPostEveningReturn ? "YES" : "NO"
         } (last In: ${lastInPunch?.time})`
       );
@@ -423,7 +431,6 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({ employee }) => {
         let bestMatch: any = null;
         let bestOverlap = 0;
 
-        // Find which defined break period this overlaps with most
         for (const defBreak of BREAKS) {
           const overlapStart = Math.max(bp.outMinutes, defBreak.start);
           const overlapEnd = Math.min(bp.inMinutes, defBreak.end);
@@ -438,7 +445,7 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({ employee }) => {
         if (bestMatch) {
           const excess = Math.max(0, bp.duration - bestMatch.allowed);
           console.log(
-            `  ✅ Matched to ${bestMatch.name}: duration=${bp.duration}, allowed=${bestMatch.allowed}, excess=${excess}`
+            `  ✅ Matched to ${bestMatch.name}: duration=${bp.duration}, allowed=${bestMatch.allowed}, excess=${excess}`
           );
 
           matchedBreaks.push({
@@ -453,12 +460,11 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({ employee }) => {
           totalExcessMinutes += excess;
           processedBreaks.add(bpIdx);
         } else if (hasPostEveningReturn && bp.outMinutes >= 17 * 60 + 30) {
-          // Post-evening break
           const postEveningAllowed = 15;
           const excess = Math.max(0, bp.duration - postEveningAllowed);
 
           console.log(
-            `  ✅ Post-evening break: duration=${bp.duration}, allowed=${postEveningAllowed}, excess=${excess}`
+            `  ✅ Post-evening break: duration=${bp.duration}, allowed=${postEveningAllowed}, excess=${excess}`
           );
 
           matchedBreaks.push({
@@ -481,7 +487,7 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({ employee }) => {
           const bp = breakPeriods[bpIdx];
 
           console.log(
-            `  ⚠️ Unauthorized break: ${bp.outTime} to ${bp.inTime} = ${bp.duration} mins`
+            `  ⚠️ Unauthorized break: ${bp.outTime} to ${bp.inTime} = ${bp.duration} mins`
           );
 
           matchedBreaks.push({
@@ -501,6 +507,7 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({ employee }) => {
         dailyBreaks.push({
           date: dayData.date,
           breaks: matchedBreaks,
+          allPunches: punchTimes, // Store all punches for train view
         });
       }
     }
@@ -516,12 +523,34 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({ employee }) => {
   const stats = useMemo(() => {
     const customTiming = getCustomTimingForEmployee(employee);
     let lateMinsTotal = 0;
+    let lessThan4HrMins = 0;
 
-    // [NEW] Determine if employee is staff or worker
+    employee.days?.forEach((day) => {
+      const status = (day.attendance.status || "").toUpperCase();
+      const workHours = day.attendance.workHrs || 0;
+
+      // Convert work hours like "3:50" to total minutes
+      let workMins = 0;
+      if (typeof workHours === "string" && workHours.includes(":")) {
+        const [h, m] = workHours.split(":").map(Number);
+        workMins = h * 60 + (m || 0);
+      } else if (!isNaN(Number(workHours))) {
+        workMins = Number(workHours) * 60;
+      }
+
+      // If P/A and less than 4 hours (240 mins)
+      if ((status === "P/A" || status === "PA") && workMins < 240) {
+        lessThan4HrMins += 240 - workMins; // difference from 4 hours
+      }
+    });
+
     const isStaff = getIsStaff(employee);
     const isWorker = !isStaff;
-    console.log(`👷 ${employee.empName} is ${isWorker ? 'Worker' : 'Staff'}. Applying ${isWorker ? 'Worker' : 'Staff'} late policy.`);
-
+    console.log(
+      `👷 ${employee.empName} is ${isWorker ? "Worker" : "Staff"}. Applying ${
+        isWorker ? "Worker" : "Staff"
+      } late policy.`
+    );
 
     const STANDARD_START_MINUTES = 8 * 60 + 30;
     const EVENING_SHIFT_START_MINUTES = 12 * 60 + 45;
@@ -551,27 +580,22 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({ employee }) => {
               dailyLateMins = inMinutes - EVENING_SHIFT_START_MINUTES;
             }
           }
-        } 
-        // [MODIFIED] Apply Staff/Worker logic for ADJ-P
-        else if (status === "P") {
-            // 'P' (Full Day Present) is ALWAYS checked for lates
-            if (inMinutes > employeeNormalStartMinutes) {
-              dailyLateMins = inMinutes - employeeNormalStartMinutes;
-            }
-        } 
-        else if (isStaff && status === "ADJ-P") {
-            // 'ADJ-P' is ONLY checked for lates if employee is STAFF
-            console.log(`  -> Day ${day.date}: Checking ADJ-P for late (is Staff)`);
-            if (inMinutes > employeeNormalStartMinutes) {
-              dailyLateMins = inMinutes - employeeNormalStartMinutes;
-            }
-        } 
-        else if (isWorker && status === "ADJ-P") {
-            // 'ADJ-P' is SKIPPED for lates if employee is WORKER
-            console.log(`  -> Day ${day.date}: Skipping ADJ-P for late (is Worker)`);
-            // dailyLateMins remains 0
+        } else if (status === "P") {
+          if (inMinutes > employeeNormalStartMinutes) {
+            dailyLateMins = inMinutes - employeeNormalStartMinutes;
+          }
+        } else if (isStaff && status === "ADJ-P") {
+          console.log(
+            `  -> Day ${day.date}: Checking ADJ-P for late (is Staff)`
+          );
+          if (inMinutes > employeeNormalStartMinutes) {
+            dailyLateMins = inMinutes - employeeNormalStartMinutes;
+          }
+        } else if (isWorker && status === "ADJ-P") {
+          console.log(
+            `  -> Day ${day.date}: Skipping ADJ-P for late (is Worker)`
+          );
         }
-        // [END OF MODIFICATION]
 
         if (dailyLateMins > PERMISSIBLE_LATE_MINS) {
           lateMinsTotal += dailyLateMins;
@@ -585,16 +609,38 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({ employee }) => {
     });
 
     const breakExcessMinutes = lunchBreakAnalysis?.totalExcessMinutes || 0;
-    const totalCombinedMinutes =
-      lateMinsTotal + earlyDepartureTotalMinutes + breakExcessMinutes;
+
+    // --- New: Calculate Total Combined Minutes before relaxation ---
+    let totalCombinedMinutes =
+      lateMinsTotal +
+      earlyDepartureTotalMinutes +
+      breakExcessMinutes +
+      lessThan4HrMins;
+
+    // --- New: Apply Staff Relaxation ---
+    let staffRelaxationApplied = 0;
+    if (isStaff) {
+      staffRelaxationApplied = STAFF_RELAXATION_MINUTES;
+      // Ensure the total doesn't go below zero
+      totalCombinedMinutes = Math.max(
+        0,
+        totalCombinedMinutes - STAFF_RELAXATION_MINUTES
+      );
+    }
+    // --- End Staff Relaxation Logic ---
 
     return {
       Late_hours_in_minutes: Math.round(lateMinsTotal),
       earlyDepartureTotalMinutes: Math.round(earlyDepartureTotalMinutes),
       breakExcessMinutes: Math.round(breakExcessMinutes),
+      lessThan4HrMins: Math.round(lessThan4HrMins),
       totalCombinedMinutes: Math.round(totalCombinedMinutes),
+      isStaff, // Pass the staff status
+      staffRelaxationApplied: Math.round(staffRelaxationApplied), // Pass the applied relaxation
+      otGrandTotal: Math.round(otGrandTotal),
+      finalDifference: Math.round(otGrandTotal - totalCombinedMinutes),
     };
-  }, [employee, getCustomTimingForEmployee, lunchBreakAnalysis]);
+  }, [employee, getCustomTimingForEmployee, lunchBreakAnalysis, otGrandTotal]);
 
   const tooltipTexts: any = {
     Late_hours_in_minutes:
@@ -602,13 +648,30 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({ employee }) => {
     earlyDepartureTotalMinutes:
       "Total minutes left early for the month, from the 'Early Dep' column, shown in HH:MM format.",
     breakExcessMinutes:
-      "Total extra minutes taken beyond allowed break times (Tea: 15 mins, Lunch: 30 mins, Post-evening: 15 mins).",
+      "Total extra minutes taken beyond allowed break times (Tea: 15 mins, Lunch: 30 mins, Post-evening: 15 mins). Click 'View Details' to see breakdown.",
+    lessThan4HrMins:
+      "Total minutes below 4 working hours on P/A days. For example, if worked 3.50 hrs, counted as 10 mins shortfall.",
+    finalDifference:
+      "The difference between OT Grand Total and Late/Early Departure Total. Positive = More OT earned than deductions. Negative = More deductions than OT earned.",
     totalCombinedMinutes:
-      "The sum of total chargeable Late Arrival, Early Departure, and Break Excess minutes.",
+      "The sum of total chargeable Late Arrival, Early Departure, Break Excess minute and less than 4 hours minutes for the month. For Staff employees, a 4-hour relaxation is deducted from this total. Shown in HH:MM format.", // Tooltip updated
   };
 
-  const StatBox = ({ label, value, bgColor, textColor, tooltipKey }: any) => {
-    const displayValue = minutesToHHMM(value);
+  const StatBox = ({
+    label,
+    value,
+    bgColor,
+    textColor,
+    tooltipKey,
+    hasDetails,
+    isTotal,
+    isDifference, // Add this prop
+  }: any) => {
+    const absValue = Math.abs(value);
+    const displayHours = minutesToHHMM(absValue);
+    const displayMins = `${absValue} mins`;
+    const displayDecimalHours = `${(absValue / 60).toFixed(1)} hrs`;
+    const sign = isDifference && value !== 0 ? (value > 0 ? "+" : "-") : "";
 
     return (
       <div
@@ -631,7 +694,46 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({ employee }) => {
         </div>
 
         <div className="text-[11px] text-gray-600">{label}</div>
-        <div className="text-xl font-bold mt-1">{displayValue}</div>
+        <div className="text-xl font-bold mt-1">
+          {sign}
+          {displayHours}
+        </div>
+        <div className="text-[10px] text-gray-500 mt-0.5">
+          {sign}
+          {displayMins}
+        </div>
+        <div className="text-[10px] text-gray-500">
+          {sign}
+          {displayDecimalHours}
+        </div>
+
+        {isTotal && stats.isStaff && (
+          <div className="mt-1 text-[8px] font-semibold text-orange-900 bg-orange-300/50 rounded-full py-[1px] px-1">
+            4-Hr Staff Relaxation Applied
+          </div>
+        )}
+
+        {/* NEW: Add indicator for difference */}
+        {isDifference && value !== 0 && (
+          <div
+            className={`mt-1 text-[8px] font-semibold rounded-full py-[1px] px-1 ${
+              value > 0
+                ? "text-green-900 bg-green-300/50"
+                : "text-red-900 bg-red-300/50"
+            }`}
+          >
+            {value > 0 ? "Net OT Gain ✓" : "Net Deduction ✗"}
+          </div>
+        )}
+
+        {hasDetails && value > 0 && (
+          <button
+            onClick={() => setShowBreakModal(true)}
+            className="mt-2 text-[10px] px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition w-full"
+          >
+            View Details
+          </button>
+        )}
       </div>
     );
   };
@@ -643,128 +745,301 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({ employee }) => {
         Late & Early Departure
       </h4>
 
-      {/* Break Analysis Section */}
-      {lunchBreakAnalysis && lunchBreakAnalysis.dailyBreaks.length > 0 && (
-        <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-3">
-          <div className="flex items-center justify-between mb-2">
-            <div className="font-semibold text-sm text-blue-800 flex items-center gap-2">
-              ☕ Break Analysis
-            </div>
-            <button
-              onClick={() => setShowBreakDetails(!showBreakDetails)}
-              className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
-            >
-              {showBreakDetails ? "Hide Details" : "Show Details"}
-            </button>
-          </div>
-
-          <div className="text-xs text-blue-900 mb-2">
-            <strong>Total Break Excess:</strong>{" "}
-            {minutesToHHMM(lunchBreakAnalysis.totalExcessMinutes)}
-          </div>
-
-          {showBreakDetails && (
-            <div className="mt-3 space-y-3 max-h-96 overflow-y-auto">
-              {lunchBreakAnalysis.dailyBreaks.map((day: any, idx: number) => (
-                <div
-                  key={idx}
-                  className="bg-white border border-blue-300 rounded p-2"
-                >
-                  <div className="font-semibold text-xs text-blue-900 mb-2">
-                    📅 {day.date}
-                  </div>
-
-                  <div className="space-y-2">
-                    {day.breaks.map((brk: any, bIdx: number) => {
-                      const excessClass =
-                        brk.excess > 0 ? "text-red-600" : "text-green-600";
-
-                      return (
-                        <div
-                          key={bIdx}
-                          className="bg-gray-50 border border-gray-300 rounded p-2 text-[10px]"
-                        >
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="font-semibold text-gray-700">
-                              {brk.name}
-                            </span>
-                            <span className={`font-bold ${excessClass}`}>
-                              {brk.excess > 0 ? `+${brk.excess} mins` : "✓ OK"}
-                            </span>
-                          </div>
-
-                          <div className="grid grid-cols-3 gap-2 text-gray-600">
-                            <div>
-                              <span className="text-gray-500">Out:</span>{" "}
-                              {formatTime(brk.outTime)}
-                            </div>
-                            <div>
-                              <span className="text-gray-500">In:</span>{" "}
-                              {formatTime(brk.inTime)}
-                            </div>
-                            <div>
-                              <span className="text-gray-500">Duration:</span>{" "}
-                              {brk.duration} mins
-                            </div>
-                          </div>
-
-                          <div className="mt-1 text-gray-500">
-                            Allowed: {brk.allowed} mins | Took: {brk.duration}{" "}
-                            mins
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div className="mt-2 text-[10px] text-blue-700 bg-blue-100 p-2 rounded">
-            <strong>Break Rules:</strong> Tea breaks: 15 mins (10:15-10:30,
-            3:15-3:30) | Lunch: 30 mins (12:45-1:15) | Post-evening (after
-            5:30pm return): 15 mins
-          </div>
-        </div>
-      )}
-
       {/* Stats Section */}
       <div className="mb-3 text-xs text-gray-700 bg-orange-50 p-3 rounded border border-orange-200">
         <div className="font-semibold mb-2 text-orange-800">
           ⏱️ Punctuality Details:
+          {/* New: Display Staff Status and Relaxation */}
+          <span
+            className={`ml-2 text-[10px] font-bold py-1 px-2 rounded-full ${
+              stats.isStaff
+                ? "bg-green-200 text-green-800"
+                : "bg-red-200 text-red-800"
+            }`}
+          >
+            {stats.isStaff ? "STAFF" : "WORKER"}
+          </span>
+          {stats.isStaff && (
+            <span className="ml-2 text-[10px] font-normal text-gray-700">
+              (Relaxation: {minutesToHHMM(stats.staffRelaxationApplied)})
+            </span>
+          )}
         </div>
-        <div className="flex flex-wrap gap-2">
-          <StatBox
-            label="Late Arrival"
-            value={stats.Late_hours_in_minutes}
-            bgColor="bg-red-50"
-            textColor="text-red-700"
-            tooltipKey="Late_hours_in_minutes"
-          />
-          <StatBox
-            label="Early Departure"
-            value={stats.earlyDepartureTotalMinutes}
-            bgColor="bg-yellow-50"
-            textColor="text-yellow-800"
-            tooltipKey="earlyDepartureTotalMinutes"
-          />
-          <StatBox
-            label="Break Excess"
-            value={stats.breakExcessMinutes}
-            bgColor="bg-blue-50"
-            textColor="text-blue-700"
-            tooltipKey="breakExcessMinutes"
-          />
-          <StatBox
-            label="Total"
-            value={stats.totalCombinedMinutes}
-            bgColor="bg-orange-100"
-            textColor="text-orange-900"
-            tooltipKey="totalCombinedMinutes"
-          />
+
+        {/* Main layout with two sections */}
+        <div className="flex items-center justify-between gap-6">
+          {/* Left side: All the regular stats */}
+          <div className="flex flex-wrap gap-2">
+            <StatBox
+              label="Late Arrival"
+              value={stats.Late_hours_in_minutes}
+              bgColor="bg-red-50"
+              textColor="text-red-700"
+              tooltipKey="Late_hours_in_minutes"
+              hasDetails={false}
+            />
+            <StatBox
+              label="Early Departure"
+              value={stats.earlyDepartureTotalMinutes}
+              bgColor="bg-yellow-50"
+              textColor="text-yellow-800"
+              tooltipKey="earlyDepartureTotalMinutes"
+              hasDetails={false}
+            />
+            <StatBox
+              label="Break Excess"
+              value={stats.breakExcessMinutes}
+              bgColor="bg-blue-50"
+              textColor="text-blue-700"
+              tooltipKey="breakExcessMinutes"
+              hasDetails={true}
+            />
+            <StatBox
+              label="Less Than 4 Hr (P/A)"
+              value={stats.lessThan4HrMins}
+              bgColor="bg-purple-50"
+              textColor="text-purple-800"
+              tooltipKey="lessThan4HrMins"
+              hasDetails={false}
+            />
+            <StatBox
+              label="Total"
+              value={stats.totalCombinedMinutes}
+              bgColor="bg-orange-100"
+              textColor="text-orange-900"
+              tooltipKey="totalCombinedMinutes"
+              hasDetails={false}
+              isTotal={true}
+            />
+          </div>
+
+          {/* Right side: Final Difference - separated with visual divider */}
+          <div className="flex items-center gap-4">
+            {/* Visual separator */}
+            <div className="h-24 w-[2px] bg-gradient-to-b "></div>
+
+            {/* Final Difference Box */}
+            <StatBox
+              label="Final Difference"
+              value={stats.finalDifference}
+              bgColor={
+                stats.finalDifference >= 0 ? "bg-green-100" : "bg-red-100"
+              }
+              textColor={
+                stats.finalDifference >= 0 ? "text-green-900" : "text-red-900"
+              }
+              tooltipKey="finalDifference"
+              hasDetails={false}
+              isDifference={true}
+            />
+          </div>
         </div>
       </div>
+
+      {/* Break Analysis Modal (Unchanged) */}
+      {showBreakModal && lunchBreakAnalysis && (
+        <div className="fixed inset-0 bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            {/* Modal Header */}
+            <div className="bg-blue-600 text-white px-6 py-4 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold">☕ Break Time Analysis</h3>
+                <p className="text-sm text-blue-100 mt-1">
+                  {employee.empName} ({employee.empCode})
+                </p>
+              </div>
+              <button
+                onClick={() => setShowBreakModal(false)}
+                className="text-white hover:bg-blue-700 rounded-full w-8 h-8 flex items-center justify-center text-xl"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto flex-1">
+              {/* Summary */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-blue-900">
+                      Total Break Excess
+                    </div>
+                    <div className="text-2xl font-bold text-blue-700 mt-1">
+                      {minutesToHHMM(lunchBreakAnalysis.totalExcessMinutes)}
+                    </div>
+                    <div className="text-xs text-blue-600">
+                      ({lunchBreakAnalysis.totalExcessMinutes} minutes)
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-xs text-blue-700 bg-blue-100 px-3 py-2 rounded">
+                      <strong>Break Rules:</strong>
+                      <br />
+                      Tea: 15 mins (10:15-10:30, 3:15-3:30)
+                      <br />
+                      Lunch: 30 mins (12:45-1:15)
+                      <br />
+                      Post-evening: 15 mins (after 5:30pm)
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Daily Breakdown */}
+              <div className="space-y-4">
+                {lunchBreakAnalysis.dailyBreaks.map((day: any, idx: number) => (
+                  <div
+                    key={idx}
+                    className="bg-white border-2 border-gray-200 rounded-lg overflow-hidden"
+                  >
+                    {/* Date Header */}
+                    <div className="bg-gray-100 px-4 py-2 font-semibold text-sm text-gray-800 border-b border-gray-200">
+                      📅 {day.date}
+                    </div>
+
+                    {/* Punch Train Timeline */}
+                    <div className="p-4 bg-gray-50">
+                      <div className="text-xs font-semibold text-gray-600 mb-3">
+                        All Punches (Train View):
+                      </div>
+                      <div className="flex items-center gap-2 overflow-x-auto pb-2">
+                        {day.allPunches.map((punch: any, pIdx: number) => {
+                          const isIn = punch.type === "In";
+                          const isOut = punch.type === "Out";
+
+                          // Calculate duration to next punch
+                          let durationToNext = null;
+                          if (pIdx < day.allPunches.length - 1) {
+                            const nextPunch = day.allPunches[pIdx + 1];
+                            durationToNext = nextPunch.minutes - punch.minutes;
+                          }
+
+                          return (
+                            <React.Fragment key={pIdx}>
+                              {/* Punch Node */}
+                              <div className="flex flex-col items-center">
+                                <div
+                                  className={`w-20 h-16 rounded-lg flex flex-col items-center justify-center shadow-md ${
+                                    isIn
+                                      ? "bg-green-100 border-2 border-green-500"
+                                      : "bg-red-100 border-2 border-red-500"
+                                  }`}
+                                >
+                                  <div
+                                    className={`text-xs font-bold ${
+                                      isIn ? "text-green-700" : "text-red-700"
+                                    }`}
+                                  >
+                                    {isIn ? "IN" : "OUT"}
+                                  </div>
+                                  <div className="text-sm font-bold text-gray-800 mt-1">
+                                    {formatTime(punch.time)}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Arrow and Duration */}
+                              {durationToNext !== null && (
+                                <div className="flex flex-col items-center justify-center mx-2">
+                                  <div className="text-gray-400 text-xl">→</div>
+                                  <div className="text-[10px] text-gray-600 font-semibold bg-yellow-100 px-2 py-1 rounded">
+                                    {durationToNext} min
+                                  </div>
+                                </div>
+                              )}
+                            </React.Fragment>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Break Details */}
+                    <div className="p-4 space-y-3">
+                      <div className="text-xs font-semibold text-gray-600 mb-2">
+                        Break Breakdown:
+                      </div>
+                      {day.breaks.map((brk: any, bIdx: number) => {
+                        const excessClass =
+                          brk.excess > 0 ? "text-red-600" : "text-green-600";
+                        const bgClass =
+                          brk.excess > 0 ? "bg-red-50" : "bg-green-50";
+                        const borderClass =
+                          brk.excess > 0
+                            ? "border-red-300"
+                            : "border-green-300";
+
+                        return (
+                          <div
+                            key={bIdx}
+                            className={`${bgClass} border ${borderClass} rounded-lg p-3`}
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="font-semibold text-sm text-gray-800">
+                                {brk.name}
+                              </span>
+                              <span
+                                className={`font-bold text-sm ${excessClass}`}
+                              >
+                                {brk.excess > 0
+                                  ? `+${brk.excess} mins excess`
+                                  : "✓ Within Limit"}
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3 text-xs">
+                              <div>
+                                <div className="text-gray-500 mb-1">
+                                  Break Period:
+                                </div>
+                                <div className="font-semibold text-gray-700">
+                                  {formatTime(brk.outTime)} →{" "}
+                                  {formatTime(brk.inTime)}
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-gray-500 mb-1">
+                                  Duration vs Allowed:
+                                </div>
+                                <div className="font-semibold text-gray-700">
+                                  <span
+                                    className={
+                                      brk.excess > 0 ? "text-red-600" : ""
+                                    }
+                                  >
+                                    {brk.duration} mins
+                                  </span>{" "}
+                                  / {brk.allowed} mins
+                                </div>
+                              </div>
+                            </div>
+
+                            {brk.excess > 0 && (
+                              <div className="mt-2 text-xs bg-red-100 text-red-700 px-2 py-1 rounded">
+                                ⚠️ Exceeded by {brk.excess} minutes
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-gray-50 px-6 py-4 border-t border-gray-200 flex justify-end">
+              <button
+                onClick={() => setShowBreakModal(false)}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

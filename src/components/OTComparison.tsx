@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useCallback } from "react";
 import { useExcel } from "@/context/ExcelContext";
 import { EmployeeData } from "@/lib/types";
 import {
@@ -8,12 +8,73 @@ import {
   OTComparisonData,
 } from "@/lib/exportComparison";
 import { useHROTLookup } from "@/hooks/useHROTLookup";
+import { ArrowDown, ArrowUp } from "lucide-react"; // Import icons
+
+// Define the type for the sorting state
+type SortColumn = keyof OTComparisonData | "difference" | "category";
+type SortDirection = "asc" | "desc";
+
+// Define the Difference Category type
+type DifferenceCategory = "N/A" | "Match" | "Minor" | "Medium" | "Major";
+
+// Extend OTComparisonData type locally to include category for sorting and coloring
+interface SortableOTComparisonData extends OTComparisonData {
+  category: DifferenceCategory;
+}
 
 /**
  * ===========================
  * HELPER FUNCTIONS
  * ===========================
  */
+
+/**
+ * Determines the category of the difference and returns a numeric sort value.
+ * Category definition:
+ * - Major: |Diff| > 2
+ * - Medium: 1 < |Diff| <= 2
+ * - Minor: 0 < |Diff| <= 1
+ * - Match: Diff = 0
+ */
+const getDifferenceCategory = (
+  diff: number | string
+): { category: DifferenceCategory; sortValue: number } => {
+  if (diff === "N/A") {
+    // Treat N/A as lowest priority (e.g., sortValue 0)
+    return { category: "N/A", sortValue: 0 };
+  }
+  const absDiff = Math.abs(diff as number);
+
+  if (absDiff === 0) {
+    // Treat Match as highest priority (e.g., sortValue 5)
+    return { category: "Match", sortValue: 5 };
+  } else if (absDiff > 2) {
+    // Major (e.g., sortValue 4)
+    return { category: "Major", sortValue: 4 };
+  } else if (absDiff > 1) {
+    // Medium (e.g., sortValue 3)
+    return { category: "Medium", sortValue: 3 };
+  } else {
+    // Minor (e.g., sortValue 2)
+    return { category: "Minor", sortValue: 2 };
+  }
+};
+
+// Add this after other handler functions (around line 400)
+const handleScrollToEmployee = (empCode: string) => {
+  const element = document.getElementById(`employee-${empCode}`);
+  if (element) {
+    element.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+    // Optional: Add a highlight effect
+    element.classList.add("ring-4", "ring-blue-400");
+    setTimeout(() => {
+      element.classList.remove("ring-4", "ring-blue-400");
+    }, 2000);
+  }
+};
 
 /**
  * Convert "HH:MM" time strings to total minutes.
@@ -27,7 +88,7 @@ const timeToMinutes = (timeStr: string): number => {
 };
 
 /**
- * Convert minutes to HH:MM string
+ * Convert minutes to HH:MM string (Not strictly needed for comparison, but kept)
  */
 const minutesToHHMM = (totalMinutes: number): string => {
   if (isNaN(totalMinutes) || totalMinutes <= 0) return "0:00";
@@ -40,7 +101,9 @@ const minutesToHHMM = (totalMinutes: number): string => {
  * Check if employee is Staff or Worker
  */
 const getIsStaff = (emp: EmployeeData): boolean => {
-  const inStr = `${emp.companyName ?? ""} ${emp.department ?? ""}`.toLowerCase();
+  const inStr = `${emp.companyName ?? ""} ${
+    emp.department ?? ""
+  }`.toLowerCase();
   if (inStr.includes("worker")) return false;
   if (inStr.includes("staff")) return true;
   return true; // default to staff
@@ -48,7 +111,7 @@ const getIsStaff = (emp: EmployeeData): boolean => {
 
 /**
  * ===========================
- * CUSTOM HOOKS
+ * CUSTOM HOOKS (Kept unchanged)
  * ===========================
  */
 
@@ -74,7 +137,7 @@ function useStaffOTGrantedLookup() {
       return { getGrantForEmployee: () => undefined };
     }
 
-    console.log("✅ Staff OT Granted file detected:", staffOTFile.fileName);
+    // console.log("✅ Staff OT Granted file detected:", staffOTFile.fileName);
 
     let otEmployees: any[] = [];
     if (staffOTFile.otGrantedData && Array.isArray(staffOTFile.otGrantedData)) {
@@ -145,7 +208,7 @@ function useFullNightOTLookup() {
       return { getFullNightOTForEmployee: () => 0 };
     }
 
-    console.log("✅ Full Night Stay OT file detected:", fullNightFile.fileName);
+    // console.log("✅ Full Night Stay OT file detected:", fullNightFile.fileName);
 
     let fullNightEmployees: any[] = [];
     if (
@@ -233,10 +296,10 @@ function useCustomTimingLookup() {
       return { getCustomTimingForEmployee: () => null };
     }
 
-    console.log(
-      "✅ 09 to 06 Time Granted file detected:",
-      customTimingFile.fileName
-    );
+    // console.log(
+    //   "✅ 09 to 06 Time Granted file detected:",
+    //   customTimingFile.fileName
+    // );
 
     let customTimingEmployees: any[] = [];
     if (
@@ -338,18 +401,21 @@ function useMaintenanceDeductLookup() {
       return { isMaintenanceEmployee: () => false };
     }
 
-    console.log(
-      "✅ Maintenance OT Deduct file detected:",
-      deductFile.fileName
-    );
+    // console.log(
+    //   "✅ Maintenance OT Deduct file detected:",
+    //   deductFile.fileName
+    // );
 
     let maintenanceEmployees: any[] = [];
-    if (deductFile.data?.employees && Array.isArray(deductFile.data.employees)) {
+    if (
+      deductFile.data?.employees &&
+      Array.isArray(deductFile.data.employees)
+    ) {
       maintenanceEmployees = deductFile.data.employees;
     } else {
-      console.warn(
-        "⚠️ Maintenance deduct file found, but no 'data.employees' array inside."
-      );
+      // console.warn(
+      //   "⚠️ Maintenance deduct file found, but no 'data.employees' array inside."
+      // );
       return { isMaintenanceEmployee: () => false };
     }
 
@@ -393,9 +459,8 @@ function useMaintenanceDeductLookup() {
 
 /**
  * ===========================
- * FINAL OT CALCULATION
+ * FINAL OT CALCULATION (Unchanged)
  * ===========================
- * This replicates the exact logic from OvertimeStatsGrid
  */
 function calculateFinalOT(
   employee: EmployeeData,
@@ -405,65 +470,43 @@ function calculateFinalOT(
   isMaintenanceEmployee: any
 ): number {
   const isStaff = getIsStaff(employee);
-  const isWorker = !isStaff;
-
   const grant = getGrantForEmployee(employee);
   const customTiming = getCustomTimingForEmployee(employee);
 
-  // Helper to parse OT field values (can be time string or decimal)
   const parseMinutes = (val?: string | number | null): number => {
     if (!val) return 0;
     const str = String(val).trim();
-
-    // Handle time format "HH:MM"
-    if (str.includes(":")) {
-      return timeToMinutes(str);
-    }
-
-    // Handle decimal hours (e.g., "8.5" = 8h 30m)
-    const decimalHours = parseFloat(str);
-    if (!isNaN(decimalHours)) {
-      return Math.round(decimalHours * 60);
-    }
-
-    return 0;
+    if (str.includes(":")) return timeToMinutes(str);
+    const dec = parseFloat(str);
+    return isNaN(dec) ? 0 : Math.round(dec * 60);
   };
 
-  // Helper to calculate custom timing OT for a day
   const calculateCustomTimingOT = (
     outTime: string,
     expectedEndMinutes: number
   ): number => {
     if (!outTime || outTime === "-") return 0;
-    const outMinutes = timeToMinutes(outTime);
-    const otMinutes =
-      outMinutes > expectedEndMinutes ? outMinutes - expectedEndMinutes : 0;
-    // Ignore minor deviations (less than 5 minutes)
-    return otMinutes < 5 ? 0 : otMinutes;
+    const outMin = timeToMinutes(outTime);
+    const ot = outMin > expectedEndMinutes ? outMin - expectedEndMinutes : 0;
+    return ot < 5 ? 0 : ot;
   };
 
   let otWithoutGrantInMinutes = 0;
-  let customTimingOTMinutes = 0;
 
-  // --- CASE 1: NO OT GRANT ---
+  // --- CASE 1: NOT GRANTED OT ---
   if (!grant) {
     if (isStaff) {
-      // STAFF (Not Granted): Saturday only, not ADJ-P
+      // STAFF (Not Granted): count only non-ADJ-P Saturdays
       employee.days?.forEach((day) => {
         const dayName = (day.day || "").toLowerCase();
         const status = (day.attendance.status || "").toUpperCase();
-
         if (dayName === "sa" && status !== "ADJ-P") {
           let dayOTMinutes = 0;
-
           if (customTiming) {
             dayOTMinutes = calculateCustomTimingOT(
               day.attendance.outTime,
               customTiming.expectedEndMinutes
             );
-            if (dayOTMinutes > 0) {
-              customTimingOTMinutes += dayOTMinutes;
-            }
           } else {
             const otField =
               (day.attendance as any).otHours ??
@@ -474,27 +517,40 @@ function calculateFinalOT(
               null;
             dayOTMinutes = parseMinutes(otField);
           }
-          // Cap at 9 hours (540 minutes)
-          const cappedOT = Math.min(dayOTMinutes, 540);
-          otWithoutGrantInMinutes += cappedOT;
+          otWithoutGrantInMinutes += Math.min(dayOTMinutes, 540);
         }
       });
     } else {
-      // WORKER (Not Granted): All days except ADJ-P
+      // WORKER (Not Granted)
       employee.days?.forEach((day) => {
         const status = (day.attendance.status || "").toUpperCase();
+        const dayName = (day.day || "").toLowerCase();
+        let dayOTMinutes = 0;
 
-        if (status !== "ADJ-P") {
-          let dayOTMinutes = 0;
+        // ✅ Case 1: ADJ-P Saturday → OT only after 5:30 PM
+        if (status === "ADJ-P" && dayName === "sa") {
+          const outTime = day.attendance.outTime;
+          if (outTime && outTime !== "-") {
+            const outMinutes = timeToMinutes(outTime);
+            const endOfShift = 17 * 60 + 30;
+            if (outMinutes > endOfShift) {
+              dayOTMinutes = outMinutes - endOfShift;
+              console.log(
+                `🟢 ADJ-P Saturday → ${employee.empName}: ${minutesToHHMM(
+                  dayOTMinutes
+                )}`
+              );
+            }
+          }
+        }
 
+        // 🟡 Case 2: all other non-ADJ-P days
+        else if (status !== "ADJ-P") {
           if (customTiming) {
             dayOTMinutes = calculateCustomTimingOT(
               day.attendance.outTime,
               customTiming.expectedEndMinutes
             );
-            if (dayOTMinutes > 0) {
-              customTimingOTMinutes += dayOTMinutes;
-            }
           } else {
             const otField =
               (day.attendance as any).otHours ??
@@ -505,35 +561,27 @@ function calculateFinalOT(
               null;
             dayOTMinutes = parseMinutes(otField);
           }
-          // Cap at 9 hours (540 minutes)
-          const cappedOT = Math.min(dayOTMinutes, 540);
-          otWithoutGrantInMinutes += cappedOT;
         }
+
+        otWithoutGrantInMinutes += Math.min(dayOTMinutes, 540);
       });
     }
   }
 
-  // --- CASE 2: WITH OT GRANT ---
+  // --- CASE 2: GRANTED OT ---
   let otWithGrantInMinutes = 0;
   if (grant) {
-    customTimingOTMinutes = 0; // Reset for grant case
-
     const fromD = Number(grant.fromDate) || 1;
     const toD = Number(grant.toDate) || 31;
-
     employee.days?.forEach((day) => {
       const dateNum = Number(day.date) || 0;
       if (dateNum >= fromD && dateNum <= toD) {
         let dayOTMinutes = 0;
-
         if (customTiming) {
           dayOTMinutes = calculateCustomTimingOT(
             day.attendance.outTime,
             customTiming.expectedEndMinutes
           );
-          if (dayOTMinutes > 0) {
-            customTimingOTMinutes += dayOTMinutes;
-          }
         } else {
           const otField =
             (day.attendance as any).otHours ??
@@ -544,31 +592,22 @@ function calculateFinalOT(
             null;
           dayOTMinutes = parseMinutes(otField);
         }
-        // Cap at 9 hours (540 minutes)
-        const cappedOT = Math.min(dayOTMinutes, 540);
-        otWithGrantInMinutes += cappedOT;
+        otWithGrantInMinutes += Math.min(dayOTMinutes, 540);
       }
     });
   }
 
-  // Determine base OT (grant vs no grant)
-  const staffOTInMinutes = grant
-    ? otWithGrantInMinutes
-    : otWithoutGrantInMinutes;
+  // Pick correct base
+  const baseMinutes = grant ? otWithGrantInMinutes : otWithoutGrantInMinutes;
+  let totalOTMinutes = baseMinutes;
 
-  let totalOTMinutes = staffOTInMinutes;
+  // Add Full-Night Stay OT
+  const fullNightOTDecimal = getFullNightOTForEmployee(employee);
+  totalOTMinutes += Math.round(fullNightOTDecimal * 60);
 
-  // --- ADD FULL NIGHT STAY OT ---
-  const fullNightOTDecimalHours = getFullNightOTForEmployee(employee);
-  const fullNightOTInMinutes = Math.round(fullNightOTDecimalHours * 60);
-
-  if (fullNightOTInMinutes > 0) {
-    totalOTMinutes += fullNightOTInMinutes;
-  }
-
-  // --- APPLY 5% MAINTENANCE DEDUCTION ---
+  // Apply 5 % maintenance deduction
   if (isMaintenanceEmployee(employee)) {
-    totalOTMinutes = totalOTMinutes * 0.95; // 5% deduction
+    totalOTMinutes *= 0.95;
   }
 
   return Math.round(totalOTMinutes);
@@ -584,6 +623,19 @@ export const OTComparison: React.FC = () => {
   const [showTable, setShowTable] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
+  // New state for filtering
+  const [filterCategory, setFilterCategory] = useState<
+    DifferenceCategory | "All" | null
+  >(null);
+
+  const [sortConfig, setSortConfig] = useState<{
+    key: SortColumn;
+    direction: SortDirection;
+  }>({
+    key: "empCode", // Default sort column
+    direction: "asc", // Default sort direction
+  });
+
   // Get all lookup hooks
   const { getHROTValue } = useHROTLookup();
   const { getGrantForEmployee } = useStaffOTGrantedLookup();
@@ -591,13 +643,13 @@ export const OTComparison: React.FC = () => {
   const { getCustomTimingForEmployee } = useCustomTimingLookup();
   const { isMaintenanceEmployee } = useMaintenanceDeductLookup();
 
-  const comparisonData: OTComparisonData[] = useMemo(() => {
+  // 1. Calculate and annotate data with category
+  const categorizedData: SortableOTComparisonData[] = useMemo(() => {
     if (!excelData || !excelData.employees || !showTable) return [];
     setIsLoading(true);
 
-    const data: OTComparisonData[] = excelData.employees.map(
+    const data: SortableOTComparisonData[] = excelData.employees.map(
       (employee: EmployeeData) => {
-        // Calculate FINAL OT using the same logic as OvertimeStatsGrid
         const finalOTMinutes = calculateFinalOT(
           employee,
           getGrantForEmployee,
@@ -606,17 +658,17 @@ export const OTComparison: React.FC = () => {
           isMaintenanceEmployee
         );
 
-        // Convert to decimal hours for display (e.g., 90 minutes = 1.5 hours)
-        const softwareOTHours: number = Number((finalOTMinutes / 60).toFixed(2));
-
-        // Get HR OT value from uploaded Tulsi files
+        const softwareOTHours: number = Number(
+          (finalOTMinutes / 60).toFixed(2)
+        );
         const hrOTHours: number | null = getHROTValue(employee);
 
-        // Calculate difference
         const difference: number | string =
           hrOTHours === null
             ? "N/A"
             : Number((softwareOTHours - hrOTHours).toFixed(2));
+
+        const { category } = getDifferenceCategory(difference);
 
         return {
           empCode: employee.empCode,
@@ -624,6 +676,7 @@ export const OTComparison: React.FC = () => {
           softwareOTHours,
           hrOTHours,
           difference,
+          category, // Added category
         };
       }
     );
@@ -640,17 +693,189 @@ export const OTComparison: React.FC = () => {
     isMaintenanceEmployee,
   ]);
 
+  // 2. Sorting Logic (Updated to handle category sort)
+  const sortedData = useMemo(() => {
+    if (categorizedData.length === 0) return [];
+    const sortableData = [...categorizedData];
+
+    sortableData.sort((a, b) => {
+      const { key, direction } = sortConfig;
+
+      let aValue: string | number | null = null;
+      let bValue: string | number | null = null;
+
+      if (key === "category") {
+        // Sort by Category: Match (5) > Major (4) > Medium (3) > Minor (2) > N/A (0)
+        const { sortValue: aSortValue } = getDifferenceCategory(a.difference);
+        const { sortValue: bSortValue } = getDifferenceCategory(b.difference);
+
+        return direction === "asc"
+          ? aSortValue - bSortValue
+          : bSortValue - aSortValue;
+      } else if (key === "difference") {
+        // Sort by actual difference value
+        aValue =
+          a.difference === "N/A"
+            ? direction === "asc"
+              ? Infinity
+              : -Infinity
+            : (a.difference as number);
+        bValue =
+          b.difference === "N/A"
+            ? direction === "asc"
+              ? Infinity
+              : -Infinity
+            : (b.difference as number);
+      } else if (key === "hrOTHours") {
+        // Handle null (treated as extremes) for hrOTHours sort
+        aValue =
+          a.hrOTHours === null
+            ? direction === "asc"
+              ? Infinity
+              : -Infinity
+            : a.hrOTHours;
+        bValue =
+          b.hrOTHours === null
+            ? direction === "asc"
+              ? Infinity
+              : -Infinity
+            : b.hrOTHours;
+      } else if (
+        key === "empCode" ||
+        key === "empName" ||
+        key === "softwareOTHours"
+      ) {
+        aValue = a[key];
+        bValue = b[key];
+      }
+
+      if (aValue === null || bValue === null) return 0;
+
+      if (typeof aValue === "string" && typeof bValue === "string") {
+        const comparison = aValue.localeCompare(bValue);
+        return direction === "asc" ? comparison : -comparison;
+      } else if (typeof aValue === "number" && typeof bValue === "number") {
+        return direction === "asc" ? aValue - bValue : bValue - aValue;
+      }
+      return 0;
+    });
+
+    return sortableData;
+  }, [categorizedData, sortConfig]);
+
+  // 3. Filtering Logic
+  const filteredData = useMemo(() => {
+    if (!filterCategory || filterCategory === "All") {
+      return sortedData;
+    }
+    return sortedData.filter((row) => row.category === filterCategory);
+  }, [sortedData, filterCategory]);
+
+  // Handler to change sorting
+  const requestSort = useCallback(
+    (key: SortColumn) => {
+      let direction: SortDirection = "asc";
+      if (sortConfig.key === key && sortConfig.direction === "asc") {
+        direction = "desc";
+      }
+      setSortConfig({ key, direction });
+    },
+    [sortConfig]
+  );
+
+  /**
+   * Renders both up and down arrows for all columns.
+   */
+  const getSortArrows = (key: SortColumn) => (
+    <div className="flex flex-col ml-1">
+      <ArrowUp
+        size={10}
+        className={
+          sortConfig.key === key && sortConfig.direction === "asc"
+            ? "text-gray-900"
+            : "text-gray-300"
+        }
+      />
+      <ArrowDown
+        size={10}
+        className={
+          sortConfig.key === key && sortConfig.direction === "desc"
+            ? "text-gray-900"
+            : "text-gray-300"
+        }
+      />
+    </div>
+  );
+
+  /**
+   * Get CSS class for the Difference cell based on category
+   */
+  const getDiffClass = (category: DifferenceCategory): string => {
+    switch (category) {
+      case "Major":
+        return "text-red-600 font-extrabold";
+      case "Medium":
+        return "text-orange-600 font-bold"; // Using orange for visibility
+      case "Minor":
+        return "text-gray-900 font-medium"; // Default color
+      case "Match":
+        return "text-green-600 font-semibold";
+      case "N/A":
+        return "text-gray-400";
+      default:
+        return "text-gray-700";
+    }
+  };
+
+  const getCategoryButtonClass = (
+    buttonCategory: DifferenceCategory | "All" | null
+  ) => {
+    const baseClass =
+      "px-3 py-1 text-xs font-semibold rounded-full transition-colors";
+    if (filterCategory === buttonCategory) {
+      switch (buttonCategory) {
+        case "Major":
+          return `${baseClass} bg-red-600 text-white`;
+        case "Medium":
+          return `${baseClass} bg-orange-600 text-white`;
+        case "Minor":
+          return `${baseClass} bg-gray-600 text-white`;
+        case "Match":
+          return `${baseClass} bg-green-600 text-white`;
+        case "N/A":
+          return `${baseClass} bg-gray-400 text-white`;
+        case "All":
+        default:
+          return `${baseClass} bg-blue-600 text-white`;
+      }
+    }
+    return `${baseClass} bg-gray-200 text-gray-700 hover:bg-gray-300`;
+  };
+
   const handleCompareClick = () => setShowTable(true);
 
   const handleExportClick = () => {
-    if (comparisonData.length === 0) {
+    if (categorizedData.length === 0) {
       console.warn("Please click 'Compare' first to generate data.");
       return;
     }
-    exportOTComparisonToExcel(comparisonData, "OT_Comparison.xlsx");
+    // Export the data including the calculated category (useful for debugging/analysis)
+    const exportData = categorizedData.map(({ category, ...rest }) => ({
+      ...rest,
+      DifferenceCategory: category,
+    }));
+    exportOTComparisonToExcel(exportData, "OT_Comparison.xlsx");
   };
 
   if (!excelData) return null;
+
+  const tableHeaders: { label: string; key: SortColumn }[] = [
+    { label: "Emp Code", key: "empCode" },
+    { label: "Emp Name", key: "empName" },
+    { label: "Software Final OT (Hours)", key: "softwareOTHours" },
+    { label: "HR (Tulsi) OT (Hours)", key: "hrOTHours" },
+    { label: "Difference", key: "difference" },
+  ];
 
   return (
     <div className="mt-8 pt-6 border-t border-gray-300">
@@ -658,7 +883,7 @@ export const OTComparison: React.FC = () => {
         Overtime (OT) Comparison
       </h3>
 
-      <div className="flex gap-4 mb-4">
+      <div className="flex gap-4 mb-4 items-center flex-wrap">
         {!showTable ? (
           <button
             onClick={handleCompareClick}
@@ -681,6 +906,57 @@ export const OTComparison: React.FC = () => {
             >
               Hide Comparison
             </button>
+            <span className="text-sm font-medium text-gray-700 ml-4">
+              Filter by:
+            </span>
+            <button
+              onClick={() => setFilterCategory("All")}
+              className={getCategoryButtonClass("All")}
+            >
+              All ({categorizedData.length})
+            </button>
+            <button
+              onClick={() => setFilterCategory("Major")}
+              className={getCategoryButtonClass("Major")}
+            >
+              Major (
+              {categorizedData.filter((row) => row.category === "Major").length}
+              )
+            </button>
+            <button
+              onClick={() => setFilterCategory("Medium")}
+              className={getCategoryButtonClass("Medium")}
+            >
+              Medium (
+              {
+                categorizedData.filter((row) => row.category === "Medium")
+                  .length
+              }
+              )
+            </button>
+            <button
+              onClick={() => setFilterCategory("Minor")}
+              className={getCategoryButtonClass("Minor")}
+            >
+              Minor (
+              {categorizedData.filter((row) => row.category === "Minor").length}
+              )
+            </button>
+            <button
+              onClick={() => setFilterCategory("Match")}
+              className={getCategoryButtonClass("Match")}
+            >
+              Match (
+              {categorizedData.filter((row) => row.category === "Match").length}
+              )
+            </button>
+            <button
+              onClick={() => setFilterCategory("N/A")}
+              className={getCategoryButtonClass("N/A")}
+            >
+              N/A (
+              {categorizedData.filter((row) => row.category === "N/A").length})
+            </button>
           </>
         )}
       </div>
@@ -693,31 +969,52 @@ export const OTComparison: React.FC = () => {
             </div>
           ) : (
             <>
-              {/* Summary Stats */}
+              {/* Summary Stats (updated to use categorizedData) */}
               <div className="mb-4 p-4 bg-blue-50 rounded-md border border-blue-200">
                 <div className="text-sm font-semibold text-blue-800 mb-2">
                   📊 Comparison Summary
                 </div>
-                <div className="grid grid-cols-3 gap-4 text-sm">
+                <div className="grid grid-cols-5 gap-4 text-sm">
                   <div>
                     <span className="text-gray-600">Total Employees:</span>{" "}
-                    <span className="font-bold">{comparisonData.length}</span>
+                    <span className="font-bold">{categorizedData.length}</span>
                   </div>
                   <div>
                     <span className="text-gray-600">Matches:</span>{" "}
                     <span className="font-bold text-green-600">
                       {
-                        comparisonData.filter((row) => row.difference === 0)
-                          .length
+                        categorizedData.filter(
+                          (row) => row.category === "Match"
+                        ).length
                       }
                     </span>
                   </div>
                   <div>
-                    <span className="text-gray-600">Mismatches:</span>{" "}
+                    <span className="text-gray-600">Minor Diff:</span>{" "}
+                    <span className="font-bold text-gray-900">
+                      {
+                        categorizedData.filter(
+                          (row) => row.category === "Minor"
+                        ).length
+                      }
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Medium Diff:</span>{" "}
+                    <span className="font-bold text-orange-600">
+                      {
+                        categorizedData.filter(
+                          (row) => row.category === "Medium"
+                        ).length
+                      }
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Major Diff:</span>{" "}
                     <span className="font-bold text-red-600">
                       {
-                        comparisonData.filter(
-                          (row) => row.difference !== 0 && row.difference !== "N/A"
+                        categorizedData.filter(
+                          (row) => row.category === "Major"
                         ).length
                       }
                     </span>
@@ -725,54 +1022,61 @@ export const OTComparison: React.FC = () => {
                 </div>
               </div>
 
-              {/* Comparison Table */}
+              {/* Comparison Table with Sorting and Filtering */}
               <div className="max-h-[600px] overflow-y-auto border border-gray-300 rounded-md">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50 sticky top-0 z-10">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-300">
-                        Emp Code
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-300">
-                        Emp Name
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-300">
-                        Software Final OT (Hours)
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-300">
-                        HR (Tulsi) OT (Hours)
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-300">
-                        Difference
-                      </th>
+                      {tableHeaders.map((header) => (
+                        <th
+                          key={header.key}
+                          onClick={() => requestSort(header.key)}
+                          className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-300 cursor-pointer hover:bg-gray-100 transition-colors"
+                        >
+                          <div className="flex items-center">
+                            {header.label}
+                            {getSortArrows(header.key)}
+                          </div>
+                        </th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {comparisonData.map((row, index) => {
-                      const diffClass =
-                        row.difference === 0
-                          ? "text-green-600 font-semibold"
-                          : row.difference === "N/A"
-                          ? "text-gray-400"
-                          : "text-red-600 font-bold";
-                      
-                      const rowBgClass = index % 2 === 0 ? "bg-white" : "bg-gray-50";
-                      
+                    {filteredData.map((row, index) => {
+                      const diffClass = getDiffClass(row.category);
+                      const rowBgClass =
+                        index % 2 === 0 ? "bg-white" : "bg-gray-50";
+
                       return (
-                        <tr key={`${row.empCode}-${index}`} className={`${rowBgClass} hover:bg-blue-50 transition-colors`}>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700 font-medium">
+                        <tr
+                          key={`${row.empCode}-${index}`}
+                          className={`${rowBgClass} hover:bg-blue-50 transition-colors`}
+                        >
+                          {/* 🆕 Clickable Emp Code */}
+                          <td
+                            className="px-4 py-3 whitespace-nowrap text-sm text-blue-600 font-medium cursor-pointer hover:text-blue-800 hover:underline"
+                            onClick={() => handleScrollToEmployee(row.empCode)}
+                          >
                             {row.empCode}
                           </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
+
+                          {/* 🆕 Clickable Emp Name */}
+                          <td
+                            className="px-4 py-3 whitespace-nowrap text-sm text-blue-600 cursor-pointer hover:text-blue-800 hover:underline"
+                            onClick={() => handleScrollToEmployee(row.empCode)}
+                          >
                             {row.empName}
                           </td>
+
                           <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 font-semibold">
                             {row.softwareOTHours}
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 font-semibold">
                             {row.hrOTHours ?? "N/A"}
                           </td>
-                          <td className={`px-4 py-3 whitespace-nowrap text-sm ${diffClass}`}>
+                          <td
+                            className={`px-4 py-3 whitespace-nowrap text-sm ${diffClass}`}
+                          >
                             {row.difference === 0 ? (
                               <span className="inline-flex items-center">
                                 ✓ {row.difference}
@@ -786,45 +1090,6 @@ export const OTComparison: React.FC = () => {
                     })}
                   </tbody>
                 </table>
-              </div>
-
-              {/* Legend */}
-              <div className="mt-4 p-3 bg-gray-50 rounded-md border border-gray-200">
-                <div className="text-xs text-gray-600">
-                  <div className="font-semibold mb-2">Legend:</div>
-                  <div className="flex flex-wrap gap-4">
-                    <div className="flex items-center gap-2">
-                      <span className="text-green-600 font-bold">✓ 0.00</span>
-                      <span>= Perfect Match (No difference)</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-red-600 font-bold">±X.XX</span>
-                      <span>= Difference detected (+ = Software higher, - = HR higher)</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-gray-400">N/A</span>
-                      <span>= No HR data available for comparison</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Info Box */}
-              <div className="mt-4 p-3 bg-yellow-50 rounded-md border border-yellow-200">
-                <div className="text-xs text-yellow-800">
-                  <div className="font-semibold mb-1">ℹ️ About this comparison:</div>
-                  <ul className="list-disc list-inside space-y-1">
-                    <li>
-                      <strong>Software Final OT</strong> includes: Base OT + Full Night Stay OT + Custom Timing adjustments - Maintenance deduction (if applicable)
-                    </li>
-                    <li>
-                      <strong>HR (Tulsi) OT</strong> is read from Column I (Staff) or Column F (Worker) in the uploaded HR files
-                    </li>
-                    <li>
-                      <strong>Difference</strong> = Software Final OT - HR OT (positive means software calculated more, negative means HR has more)
-                    </li>
-                  </ul>
-                </div>
               </div>
             </>
           )}

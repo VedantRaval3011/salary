@@ -12,6 +12,7 @@ import { processLunchInOutFile } from "@/lib/processLunchInOut";
 import { processHRFile } from "@/lib/processHRFile";
 import { PresentDayComparison } from "@/components/PresentDayComparison"; // Restored alias path
 import { OTComparison } from "./OTComparison";
+import { LateComparison } from "./LateComparison";
 
 const norm = (s: any) =>
   String(s ?? "")
@@ -493,7 +494,7 @@ export const FileUploader: React.FC = () => {
   );
 
   return (
-    <div className="w-full max-w-4xl mx-auto p-6 bg-white rounded-lg shadow-md">
+    <div className="w-full max-w-7xl mx-auto p-6 bg-white rounded-lg shadow-md">
       <h2 className="text-2xl font-bold mb-2 text-gray-800">
         Excel File Manager
       </h2>
@@ -720,11 +721,14 @@ export const FileUploader: React.FC = () => {
         )}
       </div>
 
+      <PresentDayComparison />
+
+      <div className="mt-10">
+        <LateComparison />
+      </div>
       <div className="mt-10">
         <OTComparison />
       </div>
-
-      <PresentDayComparison />
     </div>
   );
 };

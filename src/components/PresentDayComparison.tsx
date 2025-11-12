@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useCallback } from "react";
 import { useExcel } from "@/context/ExcelContext";
 import { EmployeeData } from "@/lib/types";
 import {
@@ -9,6 +9,11 @@ import {
 } from "@/lib/exportComparison";
 import { useHRDataLookup } from "@/hooks/useHRDataLookup";
 import { calculateEmployeeStats } from "@/lib/statsCalculator"; // <-- IMPORT THE SHARED CALCULATOR
+import { ArrowDown, ArrowUp } from "lucide-react";
+
+// Define the type for the sorting state
+type SortColumn = keyof ComparisonData | "difference";
+type SortDirection = "asc" | "desc";
 
 // Import the same helper functions used in PresentDayStatsGrid
 const canon = (s: string) => (s ?? "").toUpperCase().trim();
@@ -17,7 +22,7 @@ const numericOnly = (s: string) => s.match(/\d+/g)?.join("") ?? "";
 const dropLeadingZeros = (s: string) => s.replace(/^0+/, "");
 const nameKey = (s: string) => stripNonAlnum(s);
 
-// Helper to get Paid Leave
+// Helper to get Paid Leave (Keeping all helper functions unchanged)
 function usePaidLeaveLookup() {
   const { getAllUploadedFiles } = useExcel();
 
@@ -80,7 +85,7 @@ function usePaidLeaveLookup() {
   }, [getAllUploadedFiles]);
 }
 
-// Helper for Staff OT Granted
+// Helper for Staff OT Granted (Keeping all helper functions unchanged)
 function useStaffOTGrantedLookup() {
   const { getAllUploadedFiles } = useExcel();
 
@@ -151,7 +156,7 @@ function useStaffOTGrantedLookup() {
   }, [getAllUploadedFiles]);
 }
 
-// Helper for Full Night OT
+// Helper for Full Night OT (Keeping all helper functions unchanged)
 function useFullNightOTLookup() {
   const { getAllUploadedFiles } = useExcel();
 
@@ -234,7 +239,7 @@ function useFullNightOTLookup() {
   }, [getAllUploadedFiles]);
 }
 
-// Helper for Custom Timing
+// Helper for Custom Timing (Keeping all helper functions unchanged)
 function useCustomTimingLookup() {
   const { getAllUploadedFiles } = useExcel();
 
@@ -335,7 +340,7 @@ function useCustomTimingLookup() {
   }, [getAllUploadedFiles]);
 }
 
-// Helper for Maintenance Deduction
+// Helper for Maintenance Deduction (Keeping all helper functions unchanged)
 function useMaintenanceDeductLookup() {
   const { getAllUploadedFiles } = useExcel();
 
@@ -384,6 +389,8 @@ function useMaintenanceDeductLookup() {
       }
     }
 
+
+
     const isMaintenanceEmployee = (
       emp: Pick<EmployeeData, "empCode" | "empName">
     ): boolean => {
@@ -403,23 +410,24 @@ function useMaintenanceDeductLookup() {
 }
 
 interface PresentDayComparisonProps {
-  // No longer needed from props
-  // selectedHolidaysCount?: number;
-  // baseHolidaysCount?: number;
+  // Props removed as per previous refactoring
 }
 
-export const PresentDayComparison: React.FC<PresentDayComparisonProps> = (
-  {
-    // The props are no longer needed, so we remove them
-    // selectedHolidaysCount = 0,
-    // baseHolidaysCount = 0,
-  }
-) => {
-  const { excelData } = useExcel(); // We get excelData from context
+export const PresentDayComparison: React.FC<
+  PresentDayComparisonProps
+> = ({}) => {
+  const { excelData } = useExcel();
   const [showTable, setShowTable] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [sortConfig, setSortConfig] = useState<{
+    key: SortColumn;
+    direction: SortDirection;
+  }>({
+    key: "empCode", // Default sort column
+    direction: "asc", // Default sort direction
+  });
 
-  // --- REFACTOR: Call all lookup hooks here ---
+  // --- Lookup Hooks ---
   const { getHRPresentDays } = useHRDataLookup();
   const { getPL } = usePaidLeaveLookup();
   const { getGrantForEmployee } = useStaffOTGrantedLookup();
@@ -427,18 +435,10 @@ export const PresentDayComparison: React.FC<PresentDayComparisonProps> = (
   const { getCustomTimingForEmployee } = useCustomTimingLookup();
   const { isMaintenanceEmployee } = useMaintenanceDeductLookup();
 
-  // --- THIS IS THE FIX ---
-  // We get the holiday counts directly from the excelData in context,
-  // NOT from the props (which were incorrect)
   const baseHolidaysCount = (excelData as any)?.baseHolidaysCount ?? 0;
 
-  // Count the actual holidays that have been marked in the employee days
-  // This matches what PresentDayStatsGrid does
   const getSelectedHolidaysCount = () => {
     if (!excelData?.employees?.[0]?.days) return 0;
-
-    // Count days marked as 'H' (Holiday) across all days
-    // We only need to check one employee since holidays are applied globally
     return excelData.employees[0].days.filter(
       (day) => day.attendance.status?.toUpperCase() === "H" && day.isHoliday
     ).length;
@@ -451,12 +451,10 @@ export const PresentDayComparison: React.FC<PresentDayComparisonProps> = (
     setIsLoading(true);
 
     const data = excelData.employees.map((employee: EmployeeData) => {
-      // --- REFACTOR: Call the shared stats function ---
-      // All the complex logic is now in `calculateEmployeeStats`
       const stats = calculateEmployeeStats(
         employee,
-        baseHolidaysCount, // Pass the locally derived baseHolidaysCount
-        selectedHolidaysCount, // Pass the locally derived selectedHolidaysCount
+        baseHolidaysCount,
+        selectedHolidaysCount,
         getPL,
         getGrantForEmployee,
         getFullNightOTForEmployee,
@@ -464,13 +462,9 @@ export const PresentDayComparison: React.FC<PresentDayComparisonProps> = (
         isMaintenanceEmployee
       );
 
-      // --- All calculation logic below is GONE! ---
-
-      // Get HR Present Days
       const hrPresentDays = getHRPresentDays(employee);
 
       let difference: number | string;
-      // Use the GrandTotal from the returned stats object
       const roundedGrandTotal = Number(stats.GrandTotal.toFixed(1));
 
       if (hrPresentDays === null) {
@@ -482,7 +476,7 @@ export const PresentDayComparison: React.FC<PresentDayComparisonProps> = (
       return {
         empCode: employee.empCode,
         empName: employee.empName,
-        softwarePresentDays: roundedGrandTotal, // Use the value from the calc function
+        softwarePresentDays: roundedGrandTotal,
         hrPresentDays,
         difference,
       };
@@ -493,15 +487,131 @@ export const PresentDayComparison: React.FC<PresentDayComparisonProps> = (
   }, [
     excelData,
     showTable,
-    // selectedHolidaysCount, // No longer a prop dependency
-    // baseHolidaysCount,     // No longer a prop dependency
     getHRPresentDays,
     getPL,
     getGrantForEmployee,
     getFullNightOTForEmployee,
     getCustomTimingForEmployee,
     isMaintenanceEmployee,
-  ]); // <-- Pass all lookup functions to dependency array
+    baseHolidaysCount,
+    selectedHolidaysCount,
+  ]);
+
+      // Add after other handlers
+const handleScrollToEmployee = (empCode: string) => {
+  const element = document.getElementById(`employee-${empCode}`);
+  if (element) {
+    element.scrollIntoView({ 
+      behavior: 'smooth', 
+      block: 'center' 
+    });
+    // Optional: Add a highlight effect
+    element.classList.add('ring-4', 'ring-green-400');
+    setTimeout(() => {
+      element.classList.remove('ring-4', 'ring-green-400');
+    }, 2000);
+  }
+};
+  // --- Sorting Logic ---
+  const sortedData = useMemo(() => {
+    if (comparisonData.length === 0) return [];
+    const sortableData = [...comparisonData];
+
+    // Sort logic
+    sortableData.sort((a, b) => {
+      const { key, direction } = sortConfig;
+
+      let aValue: string | number | null = null;
+      let bValue: string | number | null = null;
+
+      // Extract values based on the column key
+      if (key === "difference") {
+        // Handle 'N/A' (treated as extremes) for numerical difference sort
+        aValue =
+          a.difference === "N/A"
+            ? direction === "asc"
+              ? Infinity
+              : -Infinity
+            : (a.difference as number);
+        bValue =
+          b.difference === "N/A"
+            ? direction === "asc"
+              ? Infinity
+              : -Infinity
+            : (b.difference as number);
+      } else if (key === "hrPresentDays") {
+        // Handle null (treated as extremes) for hrPresentDays sort
+        aValue =
+          a.hrPresentDays === null
+            ? direction === "asc"
+              ? Infinity
+              : -Infinity
+            : a.hrPresentDays;
+        bValue =
+          b.hrPresentDays === null
+            ? direction === "asc"
+              ? Infinity
+              : -Infinity
+            : b.hrPresentDays;
+      } else if (key === "empCode" || key === "empName") {
+        aValue = a[key];
+        bValue = b[key];
+      } else if (key === "softwarePresentDays") {
+        aValue = a[key];
+        bValue = b[key];
+      }
+
+      if (aValue === null || bValue === null) return 0;
+
+      if (typeof aValue === "string" && typeof bValue === "string") {
+        const comparison = aValue.localeCompare(bValue);
+        return direction === "asc" ? comparison : -comparison;
+      } else if (typeof aValue === "number" && typeof bValue === "number") {
+        return direction === "asc" ? aValue - bValue : bValue - aValue;
+      }
+      return 0;
+    });
+
+    return sortableData;
+  }, [comparisonData, sortConfig]);
+
+  // Handler to change sorting
+  const requestSort = useCallback(
+    (key: SortColumn) => {
+      let direction: SortDirection = "asc";
+      // If currently sorting by this key, flip the direction
+      if (sortConfig.key === key && sortConfig.direction === "asc") {
+        direction = "desc";
+      }
+      setSortConfig({ key, direction });
+    },
+    [sortConfig]
+  );
+
+  /**
+   * Renders both up and down arrows for all columns.
+   * The active sorting arrow is highlighted (text-gray-900), the inactive is dimmed (text-gray-300).
+   */
+  const getSortArrows = (key: SortColumn) => (
+    <div className="flex flex-col ml-1">
+      <ArrowUp
+        size={10}
+        className={
+          sortConfig.key === key && sortConfig.direction === "asc"
+            ? "text-gray-900"
+            : "text-gray-300"
+        }
+      />
+      <ArrowDown
+        size={10}
+        className={
+          sortConfig.key === key && sortConfig.direction === "desc"
+            ? "text-gray-900"
+            : "text-gray-300"
+        }
+      />
+    </div>
+  );
 
   const handleCompareClick = () => {
     setShowTable(true);
@@ -509,16 +619,23 @@ export const PresentDayComparison: React.FC<PresentDayComparisonProps> = (
 
   const handleExportClick = () => {
     if (comparisonData.length === 0) {
-      // Use a modal or non-blocking notification instead of alert()
       console.warn(
         "Please click 'Compare' first to generate the data for export."
       );
       return;
     }
-    exportComparisonToExcel(comparisonData);
+    exportComparisonToExcel(sortedData);
   };
 
   if (!excelData) return null;
+
+  const tableHeaders: { label: string; key: SortColumn }[] = [
+    { label: "Emp Code", key: "empCode" },
+    { label: "Emp Name", key: "empName" },
+    { label: "Software Grand Total", key: "softwarePresentDays" },
+    { label: "HR (Tulsi)", key: "hrPresentDays" },
+    { label: "Difference", key: "difference" },
+  ];
 
   return (
     <div className="mt-8 pt-6 border-t border-gray-300">
@@ -563,52 +680,60 @@ export const PresentDayComparison: React.FC<PresentDayComparisonProps> = (
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50 sticky top-0">
                 <tr>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Emp Code
-                  </th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Emp Name
-                  </th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Software Grand Total
-                  </th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    HR (Tulsi)
-                  </th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Difference
-                  </th>
+                  {tableHeaders.map((header) => (
+                    <th
+                      key={header.key}
+                      onClick={() => requestSort(header.key)}
+                      className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                    >
+                      <div className="flex items-center">
+                        {header.label}
+                        {/* RENDER BOTH ARROWS FOR ALL HEADERS */}
+                        {getSortArrows(header.key)}
+                      </div>
+                    </th>
+                  ))}
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {comparisonData.map((row) => {
-                  const diffClass =
-                    row.difference === 0
-                      ? "text-green-600"
-                      : "text-red-600 font-bold";
-                  return (
-                    <tr key={row.empCode}>
-                      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">
-                        {row.empCode}
-                      </td>
-                      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">
-                        {row.empName}
-                      </td>
-                      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
-                        {row.softwarePresentDays}
-                      </td>
-                      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
-                        {row.hrPresentDays ?? "N/A"}
-                      </td>
-                      <td
-                        className={`px-4 py-2 whitespace-nowrap text-sm ${diffClass}`}
-                      >
-                        {row.difference}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
+<tbody className="bg-white divide-y divide-gray-200">
+  {sortedData.map((row) => {
+    const diffClass =
+      row.difference === 0
+        ? "text-green-600"
+        : "text-red-600 font-bold";
+    return (
+      <tr key={row.empCode}>
+        {/* 🆕 Clickable Emp Code */}
+        <td 
+          className="px-4 py-2 whitespace-nowrap text-sm text-blue-600 font-medium cursor-pointer hover:text-blue-800 hover:underline"
+          onClick={() => handleScrollToEmployee(row.empCode)}
+        >
+          {row.empCode}
+        </td>
+        
+        {/* 🆕 Clickable Emp Name */}
+        <td 
+          className="px-4 py-2 whitespace-nowrap text-sm text-blue-600 cursor-pointer hover:text-blue-800 hover:underline"
+          onClick={() => handleScrollToEmployee(row.empCode)}
+        >
+          {row.empName}
+        </td>
+        
+        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
+          {row.softwarePresentDays}
+        </td>
+        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
+          {row.hrPresentDays ?? "N/A"}
+        </td>
+        <td
+          className={`px-4 py-2 whitespace-nowrap text-sm ${diffClass}`}
+        >
+          {row.difference}
+        </td>
+      </tr>
+    );
+  })}
+</tbody>
             </table>
           )}
         </div>
