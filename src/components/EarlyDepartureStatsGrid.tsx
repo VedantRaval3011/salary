@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { EmployeeData } from "@/lib/types";
 import { useExcel } from "../context/ExcelContext";
+import { useAttendanceStore } from "@/store/attendanceStore";
 
 // Utility helpers
 const canon = (s: string) => (s ?? "").toUpperCase().trim();
@@ -307,6 +308,9 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
   const [showBreakModal, setShowBreakModal] = useState(false);
   const { getCustomTimingForEmployee } = useCustomTimingLookup();
   const { getLunchDataForEmployee } = useLunchInOutLookup();
+const setLateEarlyStats = useAttendanceStore(
+  (state) => state.setLateEarlyStats
+);
 
   // Break time definitions in minutes
   const BREAKS = [
@@ -641,6 +645,19 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
       finalDifference: Math.round(otGrandTotal - totalCombinedMinutes),
     };
   }, [employee, getCustomTimingForEmployee, lunchBreakAnalysis, otGrandTotal]);
+
+useEffect(() => {
+  setLateEarlyStats({
+    lateArrival: stats.Late_hours_in_minutes,
+    earlyDeparture: stats.earlyDepartureTotalMinutes,
+    breakExcess: stats.breakExcessMinutes,
+    lessThan4Hr: stats.lessThan4HrMins,
+    totalLateEarlyDeparture: stats.totalCombinedMinutes,
+    finalDifference: stats.finalDifference,
+  });
+  // No need to call updateFinalDifference - it's calculated automatically in the store
+}, [stats, setLateEarlyStats]);
+
 
   const tooltipTexts: any = {
     Late_hours_in_minutes:

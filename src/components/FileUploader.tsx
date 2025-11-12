@@ -724,9 +724,6 @@ export const FileUploader: React.FC = () => {
       <PresentDayComparison />
 
       <div className="mt-10">
-        <LateComparison />
-      </div>
-      <div className="mt-10">
         <OTComparison />
       </div>
     </div>

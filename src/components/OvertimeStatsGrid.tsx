@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { EmployeeData } from "@/lib/types";
 import { useExcel } from "@/context/ExcelContext";
+import { useAttendanceStore } from "@/store/attendanceStore";
 
 interface Props {
   employee: EmployeeData;
@@ -457,6 +458,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({ employee, onGrandTotalCalcu
   const { getFullNightOTForEmployee } = useFullNightOTLookup();
   const { getCustomTimingForEmployee } = useCustomTimingLookup();
   const { isMaintenanceEmployee } = useMaintenanceDeductLookup();
+  const setOvertimeStats = useAttendanceStore((state) => state.setOvertimeStats);
 
   const stats = useMemo(() => {
     const customTiming = getCustomTimingForEmployee(employee);
@@ -555,10 +557,6 @@ export const OvertimeStatsGrid: React.FC<Props> = ({ employee, onGrandTotalCalcu
               day.attendance.outTime,
               customTiming.expectedEndMinutes
             );
-            // This is staff, so 9-6 logic shouldn't apply here, but keeping the calculation pattern
-            // if (isWorker && dayOTMinutes > 0) {
-            //   worker9to6OTMinutes += dayOTMinutes;
-            // }
           } else {
             const otField =
               (day.attendance as any).otHours ??
@@ -779,6 +777,27 @@ lateDeductionHours: Number((lateDeductionDays * 8).toFixed(1)),
     getCustomTimingForEmployee,
     isMaintenanceEmployee,
   ]);
+   useEffect(() => {
+    setOvertimeStats({
+      baseOT: stats.baseOTValue,
+      staffGrantedOT: stats.staffGrantedOTMinutes,
+      staffNonGrantedOT: stats.staffNonGrantedOTMinutes,
+      workerGrantedOT: stats.workerGrantedOTMinutes,
+      worker9to6OT: stats.worker9to6OTMinutes,
+      grantedFromSheet: stats.grantedFromSheetStaffMinutes,
+      totalOT: stats.totalMinutes,
+      fullNightOT: stats.fullNightOTInMinutes,
+      lateDeductionOT: Math.round(stats.lateDeductionHours * 60), // Convert to minutes
+      grandTotalOT: stats.grandTotalMinutes,
+    });
+  }, [stats, setOvertimeStats]);
+
+  // Also call the callback if provided
+  useEffect(() => {
+    if (onGrandTotalCalculated) {
+      onGrandTotalCalculated(stats.grandTotalMinutes);
+    }
+  }, [stats.grandTotalMinutes, onGrandTotalCalculated]);
 
   // Add this after the stats useMemo
 useEffect(() => {
