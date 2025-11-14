@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { useExcel } from "@/context/ExcelContext";
 import { processExcelFile } from "@/lib/excelProcessor";
 import { processPaidLeaveFile } from "@/lib/processPaidLeave";
@@ -13,6 +13,8 @@ import { processHRFile } from "@/lib/processHRFile";
 import { PresentDayComparison } from "@/components/PresentDayComparison"; // Restored alias path
 import { OTComparison } from "./OTComparison";
 import { LateComparison } from "./LateComparison";
+import { useAttendanceStore } from "@/store/attendanceStore";
+import { EmployeeStoreDisplay } from "./EmployeeStoreDisplay";
 
 const norm = (s: any) =>
   String(s ?? "")
@@ -108,6 +110,19 @@ export const FileUploader: React.FC = () => {
   );
   const [processingCount, setProcessingCount] = useState(0);
   const [showOTComparison, setShowOTComparison] = useState(false);
+  const [employeeFinalDifferences, setEmployeeFinalDifferences] = useState<Map<string, number>>(new Map());
+  const handleFinalDifferenceUpdate = useCallback(
+  (empCode: string, difference: number) => {
+    setEmployeeFinalDifferences((prev) => {
+      const newMap = new Map(prev);
+      newMap.set(empCode, difference);
+      return newMap;
+    });
+  },
+  []
+);
+
+  const stats = useAttendanceStore((state) => state.stats);
 
   // Derive holiday count from the main excelData object
   // We assume `processExcelFile` adds `baseHolidaysCount` to the excelData at runtime.
@@ -280,6 +295,17 @@ export const FileUploader: React.FC = () => {
         } else {
           const processedData = await processExcelFile(file);
           updateFileData(fileId, processedData);
+          if (isRequired) {
+            setExcelData(processedData);
+            remergeAllPaidLeaveIfAny();
+
+            // ADD THIS CODE HERE - Populate store with employee 1 data
+            if (processedData.employees && processedData.employees.length > 0) {
+              const emp1 = processedData.employees[0] as any;
+              console.log("✅ Populated attendance store with employee 1 data");
+            }
+          }
+
           if (isRequired) {
             setExcelData(processedData);
             remergeAllPaidLeaveIfAny();
@@ -726,6 +752,8 @@ export const FileUploader: React.FC = () => {
       <div className="mt-10">
         <OTComparison />
       </div>
+      {/* Employee 1 Stats from Store */}
+      <EmployeeStoreDisplay />
     </div>
   );
 };

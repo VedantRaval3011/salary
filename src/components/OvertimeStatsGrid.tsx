@@ -3,13 +3,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { EmployeeData } from "@/lib/types";
 import { useExcel } from "@/context/ExcelContext";
-import { useAttendanceStore } from "@/store/attendanceStore";
 
 interface Props {
   employee: EmployeeData;
   onGrandTotalCalculated?: (total: number) => void;
 }
-
 
 // Utility helpers
 const canon = (s: string) => (s ?? "").toUpperCase().trim();
@@ -453,12 +451,15 @@ interface Props {
   employee: EmployeeData;
 }
 
-export const OvertimeStatsGrid: React.FC<Props> = ({ employee, onGrandTotalCalculated }) => {  const [tooltips, setTooltips] = useState<{ [k: string]: boolean }>({});
+export const OvertimeStatsGrid: React.FC<Props> = ({
+  employee,
+  onGrandTotalCalculated,
+}) => {
+  const [tooltips, setTooltips] = useState<{ [k: string]: boolean }>({});
   const { getGrantForEmployee } = useStaffOTGrantedLookup();
   const { getFullNightOTForEmployee } = useFullNightOTLookup();
   const { getCustomTimingForEmployee } = useCustomTimingLookup();
   const { isMaintenanceEmployee } = useMaintenanceDeductLookup();
-  const setOvertimeStats = useAttendanceStore((state) => state.setOvertimeStats);
 
   const stats = useMemo(() => {
     const customTiming = getCustomTimingForEmployee(employee);
@@ -543,38 +544,54 @@ export const OvertimeStatsGrid: React.FC<Props> = ({ employee, onGrandTotalCalcu
     let grantedFromSheetStaffMinutes = 0; // Staff OT when IN granted sheet
 
     if (grant) {
-      // Employee is in OT Granted list (Staff only)
       const fromD = Number(grant.fromDate) || 1;
       const toD = Number(grant.toDate) || 31;
 
       employee.days?.forEach((day) => {
         const dateNum = Number(day.date) || 0;
-        if (dateNum >= fromD && dateNum <= toD) {
-          let dayOTMinutes = 0;
+        if (dateNum < fromD || dateNum > toD) return;
 
-          if (customTiming) {
-            dayOTMinutes = calculateCustomTimingOT(
-              day.attendance.outTime,
-              customTiming.expectedEndMinutes
-            );
-          } else {
-            const otField =
-              (day.attendance as any).otHours ??
-              (day.attendance as any).otHrs ??
-              (day.attendance as any).ot ??
-              (day.attendance as any).workHrs ??
-              (day.attendance as any).workHours ??
-              null;
-            dayOTMinutes = parseMinutes(otField);
-          }
+        const status = (day.attendance.status || "").toUpperCase();
+        const outTime = day.attendance.outTime;
+        let dayOTMinutes = 0;
 
-          const cappedOT = Math.min(dayOTMinutes, 540);
-
-          if (isStaff) {
-            grantedFromSheetStaffMinutes += cappedOT;
-          }
-          // Worker in granted sheet logic removed/simplified as per business rules
+        // 1) Custom timing (if present)
+        if (customTiming) {
+          dayOTMinutes = calculateCustomTimingOT(
+            outTime,
+            customTiming.expectedEndMinutes
+          );
         }
+
+        // 2) ADJ-P override → OT after 6:00 PM only
+        else if (status === "ADJ-P") {
+          if (outTime && outTime !== "-") {
+            const outMin = timeToMinutes(outTime);
+            const cutoff = 18 * 60; // 6:00 PM
+            dayOTMinutes = outMin > cutoff ? outMin - cutoff : 0;
+          } else {
+            dayOTMinutes = 0;
+          }
+        }
+
+        // 3) Normal day → use OT column
+        else {
+          const otField =
+            (day.attendance as any).otHours ??
+            (day.attendance as any).otHrs ??
+            (day.attendance as any).ot ??
+            (day.attendance as any).workHrs ??
+            (day.attendance as any).workHours ??
+            null;
+
+          dayOTMinutes = parseMinutes(otField);
+        }
+
+        // Cap at 9 hours max
+        const cappedOT = Math.min(dayOTMinutes, 540);
+
+        // This employee is STAFF → add here
+        grantedFromSheetStaffMinutes += cappedOT;
       });
     } else {
       // Employee is NOT in OT Granted list
@@ -666,17 +683,22 @@ export const OvertimeStatsGrid: React.FC<Props> = ({ employee, onGrandTotalCalcu
               worker9to6OTMinutes += dayOTMinutes; // Track 9-6 OT separately
             }
           }
-          // Case 2: ADJ-P on Saturday -> only count after 5:30 PM
-          else if (status === "ADJ-P" && dayName === "sa") {
+          // ADJ-P OT rule → OT after 6:00 PM (5:30 PM + 30 min buffer)
+          else if (status === "ADJ-P") {
             const outTime = day.attendance.outTime;
             if (outTime && outTime !== "-") {
               const outMinutes = timeToMinutes(outTime);
-              const endOfShift = 17 * 60 + 30; // 5:30 PM
-              if (outMinutes > endOfShift) {
-                dayOTMinutes = outMinutes - endOfShift;
+
+              const cutoff = 18 * 60; // 6:00 PM = 1080 mins
+
+              if (outMinutes > cutoff) {
+                dayOTMinutes = outMinutes - cutoff;
+              } else {
+                dayOTMinutes = 0;
               }
             }
           }
+
           // Case 3: Normal OT field
           else {
             const otField =
@@ -763,7 +785,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({ employee, onGrandTotalCalcu
       grantedFromSheetStaffMinutes: Math.round(grantedFromSheetStaffMinutes),
       totalMinutes: Math.round(totalMinutes),
       fullNightOTInMinutes: Math.round(fullNightOTInMinutes),
-lateDeductionHours: Number((lateDeductionDays * 8).toFixed(1)),
+      lateDeductionHours: Number((lateDeductionDays * 8).toFixed(1)),
       grandTotalMinutes: Math.round(grandTotalMinutes),
       lateMinsTotal: Math.round(lateMinsTotal),
       wasOTDeducted,
@@ -777,34 +799,12 @@ lateDeductionHours: Number((lateDeductionDays * 8).toFixed(1)),
     getCustomTimingForEmployee,
     isMaintenanceEmployee,
   ]);
-   useEffect(() => {
-    setOvertimeStats({
-      baseOT: stats.baseOTValue,
-      staffGrantedOT: stats.staffGrantedOTMinutes,
-      staffNonGrantedOT: stats.staffNonGrantedOTMinutes,
-      workerGrantedOT: stats.workerGrantedOTMinutes,
-      worker9to6OT: stats.worker9to6OTMinutes,
-      grantedFromSheet: stats.grantedFromSheetStaffMinutes,
-      totalOT: stats.totalMinutes,
-      fullNightOT: stats.fullNightOTInMinutes,
-      lateDeductionOT: Math.round(stats.lateDeductionHours * 60), // Convert to minutes
-      grandTotalOT: stats.grandTotalMinutes,
-    });
-  }, [stats, setOvertimeStats]);
 
-  // Also call the callback if provided
   useEffect(() => {
     if (onGrandTotalCalculated) {
       onGrandTotalCalculated(stats.grandTotalMinutes);
     }
   }, [stats.grandTotalMinutes, onGrandTotalCalculated]);
-
-  // Add this after the stats useMemo
-useEffect(() => {
-  if (onGrandTotalCalculated) {
-    onGrandTotalCalculated(stats.grandTotalMinutes);
-  }
-}, [stats.grandTotalMinutes, onGrandTotalCalculated]);
 
   const tooltipTexts: any = {
     baseOT:
@@ -833,10 +833,10 @@ useEffect(() => {
     let suffix = "";
     let minutesDisplay = "";
 
-if (tooltipKey === "lateDeduction") {
-  suffix = " hrs";
-  displayValue = value; // value will now be hours
-}else if (tooltipKey === "baseOT") {
+    if (tooltipKey === "lateDeduction") {
+      suffix = " hrs";
+      displayValue = value; // value will now be hours
+    } else if (tooltipKey === "baseOT") {
       suffix = "";
       displayValue = value;
     } else {
@@ -857,9 +857,7 @@ if (tooltipKey === "lateDeduction") {
           {suffix}
         </div>
         {minutesDisplay && (
-          <div className="text-sm text-gray-500 mt-0.5">
-            {minutesDisplay}
-          </div>
+          <div className="text-sm text-gray-500 mt-0.5">{minutesDisplay}</div>
         )}
       </div>
     );

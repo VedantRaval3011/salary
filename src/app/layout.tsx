@@ -1,13 +1,14 @@
-import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
-import './globals.css';
-import { ExcelProvider } from '@/context/ExcelContext';
+import type { Metadata } from "next";
+import { Inter } from "next/font/google";
+import "./globals.css";
+import { ExcelProvider } from "@/context/ExcelContext";
+import { FinalDifferenceProvider } from "@/context/FinalDifferenceContext";
 
-const inter = Inter({ subsets: ['latin'] });
+const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'Excel Layout Improver',
-  description: 'Improve Excel attendance layouts for better readability',
+  title: "Excel Layout Improver",
+  description: "Improve Excel attendance layouts for better readability",
 };
 
 export default function RootLayout({
@@ -18,7 +19,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        <ExcelProvider>{children}</ExcelProvider>
+        <ExcelProvider>
+          <FinalDifferenceProvider>{children}</FinalDifferenceProvider>
+        </ExcelProvider>
       </body>
     </html>
   );

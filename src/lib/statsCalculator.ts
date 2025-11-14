@@ -73,7 +73,8 @@ export function calculateEmployeeStats(
   } | null,
   isMaintenanceEmployee: (
     emp: Pick<EmployeeData, "empCode" | "empName">
-  ) => boolean
+  ) => boolean,
+  finalDifference: number = 0 // 🆕 ADD THIS PARAMETER WITH DEFAULT VALUE
 ) {
   // --- 1. Calculate PAA (Present After Adjustment) ---
   let paCount = 0;
@@ -372,26 +373,52 @@ export function calculateEmployeeStats(
   const customTimingOTHours = Number((customTimingOTMinutes / 60).toFixed(2));
 
   // --- 4. Calculate Final Totals ---
+  // --- 4. Calculate Final Totals ---
   let AdditionalOT = 0;
-  if (totalOTMinutes < lateMinsTotal) {
-    const diffInHours = (lateMinsTotal - totalOTMinutes) / 60;
-    if (OT_hours < 4) {
+
+  if (finalDifference < 0) {
+    // finalDifference is negative, meaning deductions exceed OT
+    const negativeHours = Math.abs(finalDifference) / 60; // Convert minutes to hours
+
+    // Deduction Rule:
+    // 0 to < 4 hours = 0.5 day
+    // 4 to < 8 hours = 1.0 day
+    // 8 to < 12 hours = 1.5 days
+    // 12 to < 16 hours = 2.0 days, etc.
+
+    if (negativeHours < 4) {
       AdditionalOT = 0.5;
       console.log(
-        `⚠️ ${employee.empName} - Late (${Late_hours}h) > OT (${OT_hours}h) AND OT < 4h. Applying 0.5 day deduction.`
+        `⚠️ ${employee.empName} - Final Difference: ${(
+          finalDifference / 60
+        ).toFixed(2)}h (< 4h). Deduction: 0.5 days`
       );
     } else {
-      AdditionalOT = 0.5 * Math.floor(diffInHours / 4);
+      // For 4+ hours: 0.5 day for every 4-hour block
+      const blocks = Math.ceil(negativeHours / 4);
+      AdditionalOT = blocks * 0.5;
+
       console.log(
-        `⚠️ ${employee.empName} - Late (${Late_hours}h) > OT (${OT_hours}h). Applying ${AdditionalOT} day deduction.`
+        `⚠️ ${employee.empName} - Final Difference: ${(
+          finalDifference / 60
+        ).toFixed(2)}h (${negativeHours.toFixed(
+          1
+        )}h). Blocks: ${blocks}. Deduction: ${AdditionalOT} days`
       );
     }
+  } else {
+    // finalDifference is positive or zero, no deduction needed
+    AdditionalOT = 0;
+    console.log(
+      `✅ ${employee.empName} - Final Difference: ${(
+        finalDifference / 60
+      ).toFixed(2)}h (positive/zero). No deduction.`
+    );
   }
 
   const ATotal = Math.max(Total - AdditionalOT, 0);
   const pl = getPL(employee) || 0;
   const GrandTotal = Math.max(ATotal + pl, 0);
-
   // --- 5. Return all calculated values ---
   return {
     PD_excel: employee.present || 0,

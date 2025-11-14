@@ -3,7 +3,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { EmployeeData } from "@/lib/types";
 import { useExcel } from "../context/ExcelContext";
-import { useAttendanceStore } from "@/store/attendanceStore";
 
 // Utility helpers
 const canon = (s: string) => (s ?? "").toUpperCase().trim();
@@ -14,7 +13,8 @@ const nameKey = (s: string) => stripNonAlnum(s);
 
 interface Props {
   employee: EmployeeData;
-  otGrandTotal?: number; // Add this
+  otGrandTotal?: number;
+  onFinalDifferenceCalculated?: (difference: number) => void; // 🆕 ADD THIS
 }
 
 // Helper to check if employee is Staff or Worker
@@ -132,7 +132,7 @@ function useLunchInOutLookup() {
         `🔍 Looking up lunch data for: ${emp.empCode} (${emp.empName})`
       );
       console.log(
-        `  Keys: code="${empCodeK}", num="${numCodeK}", name="${empNameK}"`
+        `  Keys: code="${empCodeK}", num="${numCodeK}", name="${empNameK}"`
       );
 
       let found = employeeByCode.get(empCodeK);
@@ -303,14 +303,12 @@ const STAFF_RELAXATION_MINUTES = 4 * 60; // 4 hours in minutes
 export const EarlyDepartureStatsGrid: React.FC<Props> = ({
   employee,
   otGrandTotal = 0,
+  onFinalDifferenceCalculated,
 }) => {
   const [tooltips, setTooltips] = useState<{ [k: string]: boolean }>({});
   const [showBreakModal, setShowBreakModal] = useState(false);
   const { getCustomTimingForEmployee } = useCustomTimingLookup();
   const { getLunchDataForEmployee } = useLunchInOutLookup();
-const setLateEarlyStats = useAttendanceStore(
-  (state) => state.setLateEarlyStats
-);
 
   // Break time definitions in minutes
   const BREAKS = [
@@ -371,7 +369,7 @@ const setLateEarlyStats = useAttendanceStore(
       const punchTimes: PunchTime[] = (punches as Punch[])
         .map((p: Punch) => {
           const minutes = timeToMinutes(p.time);
-          console.log(`  ${p.type} at ${p.time} = ${minutes} minutes`);
+          console.log(`  ${p.type} at ${p.time} = ${minutes} minutes`);
           return {
             type: p.type,
             minutes,
@@ -388,25 +386,26 @@ const setLateEarlyStats = useAttendanceStore(
       // Find Out-In pairs (break periods)
       const breakPeriods: any[] = [];
       for (let i = 0; i < punchTimes.length - 1; i++) {
-        if (punchTimes[i].type === "Out" && punchTimes[i + 1].type === "In") {
+        // VALIDATION: A real break must be Out → In within SAME day and within 9am–7pm
+        if (
+          punchTimes[i].type === "Out" &&
+          punchTimes[i + 1].type === "In" &&
+          punchTimes[i + 1].minutes > punchTimes[i].minutes &&
+          punchTimes[i + 1].minutes - punchTimes[i].minutes <= 180 && // Max 3 hours
+          punchTimes[i].minutes >= 9 * 60 && // Out cannot be before 9am
+          punchTimes[i].minutes <= 19 * 60 // Out cannot be after 7pm
+        ) {
           const outTime = punchTimes[i].minutes;
           const inTime = punchTimes[i + 1].minutes;
           const duration = inTime - outTime;
 
-          if (duration > 0 && duration < 240) {
-            breakPeriods.push({
-              outTime: punchTimes[i].time,
-              inTime: punchTimes[i + 1].time,
-              outMinutes: outTime,
-              inMinutes: inTime,
-              duration,
-            });
-            console.log(
-              `  ✅ Break found: ${punchTimes[i].time} to ${
-                punchTimes[i + 1].time
-              } = ${duration} mins`
-            );
-          }
+          breakPeriods.push({
+            outTime: punchTimes[i].time,
+            inTime: punchTimes[i + 1].time,
+            outMinutes: outTime,
+            inMinutes: inTime,
+            duration,
+          });
         }
       }
 
@@ -421,7 +420,7 @@ const setLateEarlyStats = useAttendanceStore(
         lastInPunch && lastInPunch.minutes >= 17 * 60 + 30;
 
       console.log(
-        `  Post-evening return: ${
+        `  Post-evening return: ${
           hasPostEveningReturn ? "YES" : "NO"
         } (last In: ${lastInPunch?.time})`
       );
@@ -449,7 +448,7 @@ const setLateEarlyStats = useAttendanceStore(
         if (bestMatch) {
           const excess = Math.max(0, bp.duration - bestMatch.allowed);
           console.log(
-            `  ✅ Matched to ${bestMatch.name}: duration=${bp.duration}, allowed=${bestMatch.allowed}, excess=${excess}`
+            `  ✅ Matched to ${bestMatch.name}: duration=${bp.duration}, allowed=${bestMatch.allowed}, excess=${excess}`
           );
 
           matchedBreaks.push({
@@ -468,7 +467,7 @@ const setLateEarlyStats = useAttendanceStore(
           const excess = Math.max(0, bp.duration - postEveningAllowed);
 
           console.log(
-            `  ✅ Post-evening break: duration=${bp.duration}, allowed=${postEveningAllowed}, excess=${excess}`
+            `  ✅ Post-evening break: duration=${bp.duration}, allowed=${postEveningAllowed}, excess=${excess}`
           );
 
           matchedBreaks.push({
@@ -491,7 +490,7 @@ const setLateEarlyStats = useAttendanceStore(
           const bp = breakPeriods[bpIdx];
 
           console.log(
-            `  ⚠️ Unauthorized break: ${bp.outTime} to ${bp.inTime} = ${bp.duration} mins`
+            `  ⚠️ Unauthorized break: ${bp.outTime} to ${bp.inTime} = ${bp.duration} mins`
           );
 
           matchedBreaks.push({
@@ -590,14 +589,14 @@ const setLateEarlyStats = useAttendanceStore(
           }
         } else if (isStaff && status === "ADJ-P") {
           console.log(
-            `  -> Day ${day.date}: Checking ADJ-P for late (is Staff)`
+            `  -> Day ${day.date}: Checking ADJ-P for late (is Staff)`
           );
           if (inMinutes > employeeNormalStartMinutes) {
             dailyLateMins = inMinutes - employeeNormalStartMinutes;
           }
         } else if (isWorker && status === "ADJ-P") {
           console.log(
-            `  -> Day ${day.date}: Skipping ADJ-P for late (is Worker)`
+            `  -> Day ${day.date}: Skipping ADJ-P for late (is Worker)`
           );
         }
 
@@ -614,50 +613,44 @@ const setLateEarlyStats = useAttendanceStore(
 
     const breakExcessMinutes = lunchBreakAnalysis?.totalExcessMinutes || 0;
 
-    // --- New: Calculate Total Combined Minutes before relaxation ---
-    let totalCombinedMinutes =
+    // --- New: Calculate Total Combined Minutes BEFORE relaxation ---
+    let totalBeforeRelaxation =
       lateMinsTotal +
       earlyDepartureTotalMinutes +
       breakExcessMinutes +
       lessThan4HrMins;
 
-    // --- New: Apply Staff Relaxation ---
+    // --- Apply Staff Relaxation ---
+    let totalAfterRelaxation = totalBeforeRelaxation;
     let staffRelaxationApplied = 0;
+
     if (isStaff) {
       staffRelaxationApplied = STAFF_RELAXATION_MINUTES;
-      // Ensure the total doesn't go below zero
-      totalCombinedMinutes = Math.max(
+      totalAfterRelaxation = Math.max(
         0,
-        totalCombinedMinutes - STAFF_RELAXATION_MINUTES
+        totalBeforeRelaxation - STAFF_RELAXATION_MINUTES
       );
     }
-    // --- End Staff Relaxation Logic ---
 
     return {
       Late_hours_in_minutes: Math.round(lateMinsTotal),
       earlyDepartureTotalMinutes: Math.round(earlyDepartureTotalMinutes),
       breakExcessMinutes: Math.round(breakExcessMinutes),
       lessThan4HrMins: Math.round(lessThan4HrMins),
-      totalCombinedMinutes: Math.round(totalCombinedMinutes),
-      isStaff, // Pass the staff status
-      staffRelaxationApplied: Math.round(staffRelaxationApplied), // Pass the applied relaxation
-      otGrandTotal: Math.round(otGrandTotal),
-      finalDifference: Math.round(otGrandTotal - totalCombinedMinutes),
+      totalBeforeRelaxation: Math.round(totalBeforeRelaxation),
+      totalCombinedMinutes: Math.round(totalAfterRelaxation),
+      isStaff,
+      staffRelaxationApplied: Math.round(staffRelaxationApplied),
+      otGrandTotal: Math.round(otGrandTotal), // <-- You have this already
+      finalDifference: Math.round(otGrandTotal - totalAfterRelaxation),
     };
   }, [employee, getCustomTimingForEmployee, lunchBreakAnalysis, otGrandTotal]);
 
-useEffect(() => {
-  setLateEarlyStats({
-    lateArrival: stats.Late_hours_in_minutes,
-    earlyDeparture: stats.earlyDepartureTotalMinutes,
-    breakExcess: stats.breakExcessMinutes,
-    lessThan4Hr: stats.lessThan4HrMins,
-    totalLateEarlyDeparture: stats.totalCombinedMinutes,
-    finalDifference: stats.finalDifference,
-  });
-  // No need to call updateFinalDifference - it's calculated automatically in the store
-}, [stats, setLateEarlyStats]);
-
+  useEffect(() => {
+    if (onFinalDifferenceCalculated) {
+      onFinalDifferenceCalculated(stats.finalDifference);
+    }
+  }, [stats.finalDifference, onFinalDifferenceCalculated]);
 
   const tooltipTexts: any = {
     Late_hours_in_minutes:
@@ -819,6 +812,15 @@ useEffect(() => {
               tooltipKey="lessThan4HrMins"
               hasDetails={false}
             />
+            <StatBox
+              label="Total (Before Relaxation)"
+              value={stats.totalBeforeRelaxation}
+              bgColor="bg-orange-50"
+              textColor="text-orange-800"
+              tooltipKey="totalBeforeRelaxation"
+              hasDetails={false}
+            />
+
             <StatBox
               label="Total"
               value={stats.totalCombinedMinutes}

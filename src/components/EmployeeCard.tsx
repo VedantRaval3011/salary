@@ -9,6 +9,7 @@ import { PresentDayStatsGrid } from "./PresentDayStatsGrid";
 import { useExcel } from "@/context/ExcelContext";
 import { OvertimeStatsGrid } from "./OvertimeStatsGrid";
 import { EarlyDepartureStatsGrid } from "./EarlyDepartureStatsGrid";
+import { useFinalDifference } from "@/context/FinalDifferenceContext";
 
 interface EmployeeCardProps {
   employee: EmployeeData;
@@ -212,6 +213,8 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
     useState<EmployeeData>(employee);
   const { excelData } = useExcel();
   const [otGrandTotal, setOtGrandTotal] = useState<number>(0);
+  const [finalDifference, setFinalDifference] = useState<number>(0);
+  const { updateFinalDifference } = useFinalDifference();
 
   // Get custom timing info
   const customTimingInfo = useCustomTimingInfo(currentEmployee);
@@ -352,16 +355,24 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
           </button>
         </div>
       </div>
-
-      {/* Present Day Calculation Stats Grid */}
       <PresentDayStatsGrid
         employee={currentEmployee}
         baseHolidaysCount={baseHolidaysCount}
         selectedHolidaysCount={selectedHolidaysCount}
+        finalDifference={finalDifference} // 🆕 ADD THIS
       />
-<EarlyDepartureStatsGrid employee={employee} otGrandTotal={otGrandTotal} />
-
- <OvertimeStatsGrid employee={employee} onGrandTotalCalculated={setOtGrandTotal} />
+      <EarlyDepartureStatsGrid
+        employee={employee}
+        otGrandTotal={otGrandTotal}
+        onFinalDifferenceCalculated={(difference) => {
+          setFinalDifference(difference);
+          updateFinalDifference(employee.empCode, difference); // 🆕 ADD THIS LINE
+        }}
+      />
+      <OvertimeStatsGrid
+        employee={employee}
+        onGrandTotalCalculated={(total) => setOtGrandTotal(total)} // valid now
+      />
 
       {/* Expanded Attendance Grid Section */}
       {isExpanded && (
@@ -420,7 +431,6 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
           )}
         </div>
       )}
-
       {/* Adjustment Day Modal */}
       <AdjustmentDayModal
         employee={currentEmployee}
@@ -428,7 +438,6 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
         isOpen={isAdjustmentModalOpen}
         onClose={() => setIsAdjustmentModalOpen(false)}
       />
-
       {/* Quick Stats Summary (Compact view when collapsed) */}
       {!isExpanded && (
         <div className="mt-4 pt-4 border-t border-gray-200 text-xs text-gray-600">

@@ -3,6 +3,7 @@
 import React, { useMemo, useState, useCallback } from "react";
 import { useExcel } from "@/context/ExcelContext";
 import { EmployeeData } from "@/lib/types";
+import { useFinalDifference } from "@/context/FinalDifferenceContext";
 import {
   exportComparisonToExcel,
   ComparisonData,
@@ -389,8 +390,6 @@ function useMaintenanceDeductLookup() {
       }
     }
 
-
-
     const isMaintenanceEmployee = (
       emp: Pick<EmployeeData, "empCode" | "empName">
     ): boolean => {
@@ -409,9 +408,7 @@ function useMaintenanceDeductLookup() {
   }, [getAllUploadedFiles]);
 }
 
-interface PresentDayComparisonProps {
-  // Props removed as per previous refactoring
-}
+interface PresentDayComparisonProps {}
 
 export const PresentDayComparison: React.FC<
   PresentDayComparisonProps
@@ -426,6 +423,11 @@ export const PresentDayComparison: React.FC<
     key: "empCode", // Default sort column
     direction: "asc", // Default sort direction
   });
+  const { employeeFinalDifferences } = useFinalDifference();
+
+  const [finalDifferences, setFinalDifferences] = useState<Map<string, number>>(
+    new Map()
+  );
 
   // --- Lookup Hooks ---
   const { getHRPresentDays } = useHRDataLookup();
@@ -451,6 +453,10 @@ export const PresentDayComparison: React.FC<
     setIsLoading(true);
 
     const data = excelData.employees.map((employee: EmployeeData) => {
+      // 🆕 Get the finalDifference for this employee
+      const finalDifference =
+        employeeFinalDifferences.get(employee.empCode) || 0;
+
       const stats = calculateEmployeeStats(
         employee,
         baseHolidaysCount,
@@ -459,7 +465,8 @@ export const PresentDayComparison: React.FC<
         getGrantForEmployee,
         getFullNightOTForEmployee,
         getCustomTimingForEmployee,
-        isMaintenanceEmployee
+        isMaintenanceEmployee,
+        finalDifference // 🆕 Pass it here
       );
 
       const hrPresentDays = getHRPresentDays(employee);
@@ -495,23 +502,24 @@ export const PresentDayComparison: React.FC<
     isMaintenanceEmployee,
     baseHolidaysCount,
     selectedHolidaysCount,
+    employeeFinalDifferences, // 🆕 Add this dependency
   ]);
 
-      // Add after other handlers
-const handleScrollToEmployee = (empCode: string) => {
-  const element = document.getElementById(`employee-${empCode}`);
-  if (element) {
-    element.scrollIntoView({ 
-      behavior: 'smooth', 
-      block: 'center' 
-    });
-    // Optional: Add a highlight effect
-    element.classList.add('ring-4', 'ring-green-400');
-    setTimeout(() => {
-      element.classList.remove('ring-4', 'ring-green-400');
-    }, 2000);
-  }
-};
+  // Add after other handlers
+  const handleScrollToEmployee = (empCode: string) => {
+    const element = document.getElementById(`employee-${empCode}`);
+    if (element) {
+      element.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+      // Optional: Add a highlight effect
+      element.classList.add("ring-4", "ring-green-400");
+      setTimeout(() => {
+        element.classList.remove("ring-4", "ring-green-400");
+      }, 2000);
+    }
+  };
   // --- Sorting Logic ---
   const sortedData = useMemo(() => {
     if (comparisonData.length === 0) return [];
@@ -695,45 +703,45 @@ const handleScrollToEmployee = (empCode: string) => {
                   ))}
                 </tr>
               </thead>
-<tbody className="bg-white divide-y divide-gray-200">
-  {sortedData.map((row) => {
-    const diffClass =
-      row.difference === 0
-        ? "text-green-600"
-        : "text-red-600 font-bold";
-    return (
-      <tr key={row.empCode}>
-        {/* 🆕 Clickable Emp Code */}
-        <td 
-          className="px-4 py-2 whitespace-nowrap text-sm text-blue-600 font-medium cursor-pointer hover:text-blue-800 hover:underline"
-          onClick={() => handleScrollToEmployee(row.empCode)}
-        >
-          {row.empCode}
-        </td>
-        
-        {/* 🆕 Clickable Emp Name */}
-        <td 
-          className="px-4 py-2 whitespace-nowrap text-sm text-blue-600 cursor-pointer hover:text-blue-800 hover:underline"
-          onClick={() => handleScrollToEmployee(row.empCode)}
-        >
-          {row.empName}
-        </td>
-        
-        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
-          {row.softwarePresentDays}
-        </td>
-        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
-          {row.hrPresentDays ?? "N/A"}
-        </td>
-        <td
-          className={`px-4 py-2 whitespace-nowrap text-sm ${diffClass}`}
-        >
-          {row.difference}
-        </td>
-      </tr>
-    );
-  })}
-</tbody>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {sortedData.map((row) => {
+                  const diffClass =
+                    row.difference === 0
+                      ? "text-green-600"
+                      : "text-red-600 font-bold";
+                  return (
+                    <tr key={row.empCode}>
+                      {/* 🆕 Clickable Emp Code */}
+                      <td
+                        className="px-4 py-2 whitespace-nowrap text-sm text-blue-600 font-medium cursor-pointer hover:text-blue-800 hover:underline"
+                        onClick={() => handleScrollToEmployee(row.empCode)}
+                      >
+                        {row.empCode}
+                      </td>
+
+                      {/* 🆕 Clickable Emp Name */}
+                      <td
+                        className="px-4 py-2 whitespace-nowrap text-sm text-blue-600 cursor-pointer hover:text-blue-800 hover:underline"
+                        onClick={() => handleScrollToEmployee(row.empCode)}
+                      >
+                        {row.empName}
+                      </td>
+
+                      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
+                        {row.softwarePresentDays}
+                      </td>
+                      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
+                        {row.hrPresentDays ?? "N/A"}
+                      </td>
+                      <td
+                        className={`px-4 py-2 whitespace-nowrap text-sm ${diffClass}`}
+                      >
+                        {row.difference}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
             </table>
           )}
         </div>

@@ -61,19 +61,21 @@ export function parseLunchSheetFromBuffer(buf: Buffer): EmployeeRecord[] {
       const empName = get(r, 2);
 
       if (!empCode || !empName) continue;
-      if (typeof empCode === "string" && empCode.toLowerCase().includes("emp")) continue;
+      if (typeof empCode === "string" && empCode.toLowerCase().includes("emp"))
+        continue;
 
-      const empDays = new Map<string, Session[]>();
+      const empDays = new Map<
+        string,
+        Array<{ time: string; type: "in" | "out" }>
+      >();
 
-      // Assuming:
-      // Row 1 (0-based index 1) has the date headers like 01/10/2025
-      // Row 5 (0-based index 5) has "In" / "Out" labels
+      // Collect all punches with their timestamps
+      // Group by date first, then sort by time to determine IN/OUT sequence
       for (let c = 4; c < 160; c++) {
         const dateHeader = get(1, c);
-        const label = get(5, c);
         const cellVal = get(r, c);
 
-        if (!cellVal || !label || !dateHeader) continue;
+        if (!cellVal || !dateHeader) continue;
 
         const dateISO = parseDateString(String(dateHeader));
         if (!dateISO) continue;
@@ -83,22 +85,50 @@ export function parseLunchSheetFromBuffer(buf: Buffer): EmployeeRecord[] {
 
         if (!empDays.has(dateISO)) empDays.set(dateISO, []);
 
-        const sessions = empDays.get(dateISO)!;
-        if (label.toLowerCase() === "in") {
-          sessions.push({ in: timeISO });
-        } else if (label.toLowerCase() === "out") {
-          // Try to pair with previous incomplete 'in'
-          const last = sessions[sessions.length - 1];
-          if (last && last.in && !last.out) last.out = timeISO;
-          else sessions.push({ out: timeISO });
-        }
+        const punches = empDays.get(dateISO)!;
+        // Store time without type - we'll determine it by sequence
+        punches.push({ time: timeISO, type: "in" }); // placeholder, will be corrected
       }
 
+      // Convert punches to sessions with proper IN → OUT pairing
       const days: DayRecord[] = Array.from(empDays.entries()).map(
-        ([date, sessions]) => ({
-          date,
-          sessions,
-        })
+        ([date, punches]) => {
+          // Sort punches by time
+          punches.sort((a, b) => a.time.localeCompare(b.time));
+
+          const sessions: Session[] = [];
+          let currentSession: Session | null = null;
+
+          for (const punch of punches) {
+            if (punch.type === "in") {
+              // If there's an open session, close it first (shouldn't happen with clean data)
+              if (currentSession && currentSession.in && !currentSession.out) {
+                sessions.push(currentSession);
+              }
+              // Start new session
+              currentSession = { in: punch.time };
+            } else if (punch.type === "out") {
+              if (currentSession && currentSession.in && !currentSession.out) {
+                // Complete the current session
+                currentSession.out = punch.time;
+                sessions.push(currentSession);
+                currentSession = null;
+              } else {
+                // OUT without IN - skip this punch or log warning
+                console.warn(
+                  `⚠️ OUT punch without IN for ${empCode} on ${date} at ${punch.time}`
+                );
+              }
+            }
+          }
+
+          // If there's an unclosed session, add it
+          if (currentSession && currentSession.in) {
+            sessions.push(currentSession);
+          }
+
+          return { date, sessions };
+        }
       );
 
       if (days.length > 0) {
