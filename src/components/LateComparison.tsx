@@ -1,3 +1,4 @@
+// src/components/LateComparison.tsx
 "use client";
 
 import React, { useMemo, useState, useCallback } from "react";
@@ -11,13 +12,12 @@ import {
   LateComparisonExportData,
 } from "@/lib/exportComparisonUtils";
 
-// --- Import new hook ---
+// --- Import new hook (HR lookup) ---
 import { useHRLateLookup } from "@/hooks/useHRLateLookup";
 
-// ------------------------------------------------
-// UTILITY FUNCTIONS
-// ------------------------------------------------
-
+/* ============================================================
+   Utility helpers (same as your other file)
+   ============================================================ */
 const timeToMinutes = (timeStr: string): number => {
   if (!timeStr || timeStr === "-") return 0;
   const parts = timeStr.split(":").map(Number);
@@ -33,53 +33,275 @@ const minutesToHHMM = (totalMinutes: number): string => {
   return `${hours}:${minutes.toString().padStart(2, "0")}`;
 };
 
+const canon = (s: string) => (s ?? "").toUpperCase().trim();
+const stripNonAlnum = (s: string) => canon(s).replace(/[^A-Z0-9]/g, "");
+const numericOnly = (s: string) => s.match(/\d+/g)?.join("") ?? "";
+const nameKey = (s: string) => stripNonAlnum(s);
+
+/* ============================================================
+   Employee type helper: detect Staff vs Worker
+   (kept identical to your other file)
+   ============================================================ */
 const getIsStaff = (emp: EmployeeData): boolean => {
   const inStr = `${emp.companyName ?? ""} ${
     emp.department ?? ""
   }`.toLowerCase();
   if (inStr.includes("worker")) return false;
   if (inStr.includes("staff")) return true;
-  return true;
+  return true; // default to staff
 };
 
-// ------------------------------------------------
-// INTERFACES & TYPES
-// ------------------------------------------------
+/* ============================================================
+   In-file Hook: useLunchInOutLookup
+   - Finds the uploaded lunch file and builds lookup maps
+   - Returns getLunchDataForEmployee(emp)
+   ============================================================ */
+function useLunchInOutLookup() {
+  const { getAllUploadedFiles } = useExcel();
 
-interface LateComparisonData {
-  empCode: string;
-  empName: string;
-  softwareTotalHours: number;
-  hrLateHours: number | null;
-  difference: number | string;
+  return useMemo(() => {
+    const files = getAllUploadedFiles?.() ?? [];
+
+    const lunchFile = files.find((f: any) => {
+      const n = (f?.fileName || "").toString().toLowerCase();
+      return (
+        f.status === "success" && (n.includes("lunch") || n.includes("04."))
+      );
+    });
+
+    if (!lunchFile) {
+      // no lunch file
+      return { getLunchDataForEmployee: () => null };
+    }
+
+    let lunchEmployees: any[] = [];
+
+    if (
+      (lunchFile as any).lunchInOutData &&
+      Array.isArray((lunchFile as any).lunchInOutData)
+    ) {
+      lunchEmployees = (lunchFile as any).lunchInOutData;
+    } else if (
+      (lunchFile as any).data?.employees &&
+      Array.isArray((lunchFile as any).data.employees)
+    ) {
+      lunchEmployees = (lunchFile as any).data.employees;
+    } else if (Array.isArray((lunchFile as any).employees)) {
+      lunchEmployees = (lunchFile as any).employees;
+    } else {
+      // fallback: try to find something reasonable
+      if ((lunchFile as any).data && Array.isArray((lunchFile as any).data)) {
+        lunchEmployees = (lunchFile as any).data;
+      }
+    }
+
+    const key = (s: string) => canon(s).replace(/[^A-Z0-9]/g, "");
+    const numOnly = (s: string) => s.match(/\d+/g)?.join("") ?? "";
+
+    const employeeByCode = new Map<string, any>();
+    const employeeByName = new Map<string, any>();
+
+    for (const emp of lunchEmployees) {
+      if (!emp) continue;
+      if (emp.empCode) {
+        const codeKey = key(emp.empCode);
+        const numKey = numOnly(emp.empCode);
+        employeeByCode.set(codeKey, emp);
+        if (numKey) employeeByCode.set(numKey, emp);
+      }
+      if (emp.empName) {
+        const nkey = key(emp.empName);
+        employeeByName.set(nkey, emp);
+      }
+    }
+
+    const getLunchDataForEmployee = (
+      emp: Pick<EmployeeData, "empCode" | "empName">
+    ) => {
+      const empCodeK = key(emp.empCode ?? "");
+      const empNameK = key(emp.empName ?? "");
+      const numCodeK = numericOnly(emp.empCode ?? "");
+
+      let found = employeeByCode.get(empCodeK);
+      if (!found && numCodeK) found = employeeByCode.get(numCodeK);
+      if (!found) found = employeeByName.get(empNameK);
+      return found || null;
+    };
+
+    return { getLunchDataForEmployee };
+  }, [getAllUploadedFiles]);
 }
 
-type SortColumn = keyof LateComparisonData | "difference" | "category";
-type SortDirection = "asc" | "desc";
-type DifferenceCategory = "N/A" | "Match" | "Minor" | "Medium" | "Major";
+/* ============================================================
+   In-file Hook: useCustomTimingLookup
+   - Finds the 09-06 (time granted) file and builds lookup maps
+   - Returns getCustomTimingForEmployee(emp)
+   ============================================================ */
+function useCustomTimingLookup() {
+  const { getAllUploadedFiles } = useExcel();
 
-interface SortableLateComparisonData extends LateComparisonData {
-  category: DifferenceCategory;
+  return useMemo(() => {
+    const files = getAllUploadedFiles?.() ?? [];
+
+    const customTimingFile = files.find((f: any) => {
+      const n = (f?.fileName || "").toString().toLowerCase();
+      return (
+        f.status === "success" &&
+        ((n.includes("09") && n.includes("06") && n.includes("time")) ||
+          (n.includes("9") && n.includes("6") && n.includes("granted")))
+      );
+    });
+
+    if (!customTimingFile) {
+      return { getCustomTimingForEmployee: () => null };
+    }
+
+    let customTimingEmployees: any[] = [];
+
+    if (
+      (customTimingFile as any).customTimingOTData &&
+      Array.isArray((customTimingFile as any).customTimingOTData)
+    ) {
+      customTimingEmployees = (customTimingFile as any).customTimingOTData;
+    } else if (
+      (customTimingFile as any).data?.employees &&
+      Array.isArray((customTimingFile as any).data.employees)
+    ) {
+      customTimingEmployees = (customTimingFile as any).data.employees;
+    } else if (Array.isArray((customTimingFile as any).employees)) {
+      customTimingEmployees = (customTimingFile as any).employees;
+    } else if (
+      (customTimingFile as any).data &&
+      Array.isArray((customTimingFile as any).data)
+    ) {
+      customTimingEmployees = (customTimingFile as any).data;
+    }
+
+    const norm = (s: string) => (s ?? "").toString().toUpperCase().trim();
+    const key = (s: string) => norm(s).replace(/[^A-Z0-9]/g, "");
+    const numOnly = (s: string) => s.match(/\d+/g)?.join("") ?? "";
+
+    const employeeByCode = new Map<string, any>();
+    const employeeByName = new Map<string, any>();
+
+    for (const emp of customTimingEmployees) {
+      if (!emp) continue;
+      if (emp.empCode) {
+        const codeKey = key(emp.empCode);
+        const numKey = numOnly(emp.empCode);
+        employeeByCode.set(codeKey, emp);
+        if (numKey) employeeByCode.set(numKey, emp);
+      }
+      if (emp.empName) {
+        const nameK = key(emp.empName);
+        employeeByName.set(nameK, emp);
+      }
+    }
+
+    const getCustomTimingForEmployee = (
+      emp: Pick<EmployeeData, "empCode" | "empName">
+    ) => {
+      const empCodeK = key(emp.empCode ?? "");
+      const empNameK = key(emp.empName ?? "");
+      const numCodeK = numericOnly(emp.empCode ?? "");
+
+      let found = employeeByCode.get(empCodeK);
+      if (!found && numCodeK) found = employeeByCode.get(numCodeK);
+      if (!found) found = employeeByName.get(empNameK);
+
+      if (!found || !found.customTime) return null;
+
+      const timeStr = found.customTime;
+      const match = timeStr.match(
+        /(\d{1,2}):(\d{2})\s*TO\s*(\d{1,2}):(\d{2})/i
+      );
+      if (match) {
+        const startHour = parseInt(match[1], 10);
+        const startMin = parseInt(match[2] || "0", 10);
+        const expectedStartMinutes = startHour * 60 + startMin;
+
+        const endHour = parseInt(match[3], 10);
+        const endMin = parseInt(match[4] || "0", 10);
+        const expectedEndMinutes = endHour * 60 + endMin;
+
+        return {
+          customTime: timeStr,
+          expectedEndMinutes,
+          expectedStartMinutes,
+        };
+      }
+
+      return null;
+    };
+
+    return { getCustomTimingForEmployee };
+  }, [getAllUploadedFiles]);
 }
 
-// ------------------------------------------------
-// CORE COMPARISON LOGIC & HELPERS
-// ------------------------------------------------
+/* ============================================================
+   Final combined calculation (copied & adapted from
+   EarlyDepartureStatsGrid's stats logic)
+   - Returns totalCombinedMinutes (after staff relaxation)
+   - Also returns detailed breakdown (late, earlyDep, breakExcess, lessThan4Hr)
+   ============================================================ */
 
-const calculateSoftwareLateMinutes = (employee: EmployeeData): number => {
+const STAFF_RELAXATION_MINUTES = 4 * 60; // 4 hours in minutes
+
+const BREAK_DEFINITIONS = [
+  { name: "Tea Break 1", start: 10 * 60 + 15, end: 10 * 60 + 30, allowed: 15 },
+  { name: "Lunch Break", start: 12 * 60 + 45, end: 13 * 60 + 15, allowed: 30 },
+  { name: "Tea Break 2", start: 15 * 60 + 15, end: 15 * 60 + 30, allowed: 15 },
+];
+
+const calculateFinalSoftwareMinutes = (
+  employee: EmployeeData,
+  lunchData: any | null,
+  customTiming: {
+    expectedStartMinutes: number;
+    expectedEndMinutes: number;
+  } | null
+) => {
+  // Standard timing rules
   const STANDARD_START_MINUTES = 8 * 60 + 30;
   const EVENING_SHIFT_START_MINUTES = 12 * 60 + 45;
   const MORNING_EVENING_CUTOFF_MINUTES = 10 * 60;
   const PERMISSIBLE_LATE_MINS = 5;
 
-  const employeeNormalStartMinutes = STANDARD_START_MINUTES;
-  let lateMinsTotal = 0;
+  const employeeNormalStartMinutes =
+    customTiming?.expectedStartMinutes ?? STANDARD_START_MINUTES;
   const isStaff = getIsStaff(employee);
 
+  // 1) Late minutes
+  let lateMinsTotal = 0;
+
+  // 2) Early departure
+  let earlyDepartureTotalMinutes = 0;
+
+  // 3) Less than 4 hrs (P/A)
+  let lessThan4HrMins = 0;
+
+  // 4) Break excess minutes (from lunchData)
+  let breakExcessMinutes = 0;
+
+  // a) compute late, early depart, less-than-4 across days
   employee.days?.forEach((day) => {
     const status = (day.attendance.status || "").toUpperCase();
     const inTime = day.attendance.inTime;
 
+    // Less than 4hr check
+    const workHours = day.attendance.workHrs || 0;
+    let workMins = 0;
+    if (typeof workHours === "string" && workHours.includes(":")) {
+      const [h, m] = workHours.split(":").map(Number);
+      workMins = h * 60 + (m || 0);
+    } else if (!isNaN(Number(workHours))) {
+      workMins = Number(workHours) * 60;
+    }
+    if ((status === "P/A" || status === "PA") && workMins < 240) {
+      lessThan4HrMins += 240 - workMins;
+    }
+
+    // Late calculation
     if (inTime && inTime !== "-") {
       const inMinutes = timeToMinutes(inTime);
       let dailyLateMins = 0;
@@ -108,63 +330,167 @@ const calculateSoftwareLateMinutes = (employee: EmployeeData): number => {
         lateMinsTotal += dailyLateMins;
       }
     }
-  });
 
-  return Math.round(lateMinsTotal);
-};
-
-// Calculate total combined minutes (same logic as EarlyDepartureStatsGrid)
-const calculateSoftwareTotalMinutes = (employee: EmployeeData): number => {
-  const STAFF_RELAXATION_MINUTES = 4 * 60;
-
-  // Calculate late minutes
-  const lateMinsTotal = calculateSoftwareLateMinutes(employee);
-
-  // Calculate early departure
-  let earlyDepartureTotalMinutes = 0;
-  employee.days?.forEach((day) => {
+    // Early departure: from day.attendance.earlyDep
     const earlyDepMins = Number(day.attendance.earlyDep) || 0;
     if (earlyDepMins > 0) {
       earlyDepartureTotalMinutes += earlyDepMins;
     }
   });
 
-  // Calculate less than 4 hours
-  let lessThan4HrMins = 0;
-  employee.days?.forEach((day) => {
-    const status = (day.attendance.status || "").toUpperCase();
-    const workHours = day.attendance.workHrs || 0;
+  // b) compute break excess using lunchData (if present)
+  if (lunchData && Array.isArray(lunchData.dailyPunches)) {
+    // We replicate the same break detection logic used in your grid
+    let totalExcess = 0;
 
-    let workMins = 0;
-    if (typeof workHours === "string" && workHours.includes(":")) {
-      const [h, m] = workHours.split(":").map(Number);
-      workMins = h * 60 + (m || 0);
-    } else if (!isNaN(Number(workHours))) {
-      workMins = Number(workHours) * 60;
+    for (const dayData of lunchData.dailyPunches) {
+      const punches = dayData.punches || [];
+      if (!Array.isArray(punches) || punches.length < 2) continue;
+
+      type Punch = { type: string; time: string };
+      type PunchTime = { type: string; minutes: number; time: string };
+
+      const punchTimes: PunchTime[] = (punches as Punch[])
+        .map((p: Punch) => {
+          const minutes = timeToMinutes(p.time);
+          return { type: p.type, minutes, time: p.time };
+        })
+        .filter((p) => p.minutes > 0);
+
+      if (punchTimes.length < 2) continue;
+
+      // Build break periods (Out -> In)
+      const breakPeriods: any[] = [];
+      for (let i = 0; i < punchTimes.length - 1; i++) {
+        if (
+          punchTimes[i].type === "Out" &&
+          punchTimes[i + 1].type === "In" &&
+          punchTimes[i + 1].minutes > punchTimes[i].minutes &&
+          punchTimes[i + 1].minutes - punchTimes[i].minutes <= 180 && // max 3 hours
+          punchTimes[i].minutes >= 9 * 60 &&
+          punchTimes[i].minutes <= 19 * 60
+        ) {
+          const outTime = punchTimes[i].minutes;
+          const inTime = punchTimes[i + 1].minutes;
+          const duration = inTime - outTime;
+          breakPeriods.push({
+            outTime: punchTimes[i].time,
+            inTime: punchTimes[i + 1].time,
+            outMinutes: outTime,
+            inMinutes: inTime,
+            duration,
+          });
+        }
+      }
+
+      if (breakPeriods.length === 0) continue;
+
+      // check lastInPunch for post-evening return logic
+      const lastInPunch = punchTimes.filter((p) => p.type === "In").pop();
+      const hasPostEveningReturn =
+        lastInPunch && lastInPunch.minutes >= 17 * 60 + 30;
+
+      const processed = new Set<number>();
+      const matchedBreaks: any[] = [];
+
+      for (let bpIdx = 0; bpIdx < breakPeriods.length; bpIdx++) {
+        const bp = breakPeriods[bpIdx];
+        let bestMatch: any = null;
+        let bestOverlap = 0;
+        for (const defBreak of BREAK_DEFINITIONS) {
+          const overlapStart = Math.max(bp.outMinutes, defBreak.start);
+          const overlapEnd = Math.min(bp.inMinutes, defBreak.end);
+          const overlap = Math.max(0, overlapEnd - overlapStart);
+          if (overlap > 0 && overlap > bestOverlap) {
+            bestOverlap = overlap;
+            bestMatch = defBreak;
+          }
+        }
+
+        if (bestMatch) {
+          const excess = Math.max(0, bp.duration - bestMatch.allowed);
+          matchedBreaks.push({
+            name: bestMatch.name,
+            duration: bp.duration,
+            allowed: bestMatch.allowed,
+            excess,
+          });
+          totalExcess += excess;
+          processed.add(bpIdx);
+        } else if (hasPostEveningReturn && bp.outMinutes >= 17 * 60 + 30) {
+          const postEveningAllowed = 15;
+          const excess = Math.max(0, bp.duration - postEveningAllowed);
+          matchedBreaks.push({
+            name: "Post-Evening Break",
+            duration: bp.duration,
+            allowed: postEveningAllowed,
+            excess,
+          });
+          totalExcess += excess;
+          processed.add(bpIdx);
+        }
+      }
+
+      // Any unprocessed break periods considered unauthorized
+      for (let bpIdx = 0; bpIdx < breakPeriods.length; bpIdx++) {
+        if (!processed.has(bpIdx)) {
+          const bp = breakPeriods[bpIdx];
+          matchedBreaks.push({
+            name: "Unauthorized Break",
+            duration: bp.duration,
+            allowed: 0,
+            excess: bp.duration,
+          });
+          totalExcess += bp.duration;
+        }
+      }
     }
 
-    if ((status === "P/A" || status === "PA") && workMins < 240) {
-      lessThan4HrMins += 240 - workMins;
-    }
-  });
+    breakExcessMinutes = totalExcess;
+  }
 
-  // Note: Break excess would require lunch data lookup, skipping for now
-  // You can add this if needed by importing the lunch lookup hook
+  // c) final total before relaxation
+  let totalBeforeRelaxation =
+    lateMinsTotal +
+    earlyDepartureTotalMinutes +
+    breakExcessMinutes +
+    lessThan4HrMins;
 
-  let totalCombinedMinutes =
-    lateMinsTotal + earlyDepartureTotalMinutes + lessThan4HrMins;
-
-  // Apply staff relaxation
-  const isStaff = getIsStaff(employee);
+  // d) apply staff relaxation
+  let totalAfterRelaxation = totalBeforeRelaxation;
   if (isStaff) {
-    totalCombinedMinutes = Math.max(
+    totalAfterRelaxation = Math.max(
       0,
-      totalCombinedMinutes - STAFF_RELAXATION_MINUTES
+      totalBeforeRelaxation - STAFF_RELAXATION_MINUTES
     );
   }
 
-  return Math.round(totalCombinedMinutes);
+  return {
+    Late_hours_in_minutes: Math.round(lateMinsTotal),
+    earlyDepartureTotalMinutes: Math.round(earlyDepartureTotalMinutes),
+    breakExcessMinutes: Math.round(breakExcessMinutes),
+    lessThan4HrMins: Math.round(lessThan4HrMins),
+    totalBeforeRelaxation: Math.round(totalBeforeRelaxation),
+    totalCombinedMinutes: Math.round(totalAfterRelaxation),
+  };
 };
+
+/* ============================================================
+   Types & Sorting Helpers (same as your file)
+   ============================================================ */
+interface LateComparisonData {
+  empCode: string;
+  empName: string;
+  softwareTotalHours: number;
+  hrLateHours: number | null;
+  difference: number | string;
+}
+type SortColumn = keyof LateComparisonData | "difference" | "category";
+type SortDirection = "asc" | "desc";
+type DifferenceCategory = "N/A" | "Match" | "Minor" | "Medium" | "Major";
+interface SortableLateComparisonData extends LateComparisonData {
+  category: DifferenceCategory;
+}
 
 const getDifferenceCategory = (
   diff: number | string
@@ -173,36 +499,24 @@ const getDifferenceCategory = (
     return { category: "N/A", sortValue: 0 };
   }
   const absDiff = Math.abs(diff as number);
-
-  if (absDiff === 0) {
-    return { category: "Match", sortValue: 5 };
-  } else if (absDiff > 2) {
-    return { category: "Major", sortValue: 4 };
-  } else if (absDiff > 1) {
-    return { category: "Medium", sortValue: 3 };
-  } else {
-    return { category: "Minor", sortValue: 2 };
-  }
+  if (absDiff === 0) return { category: "Match", sortValue: 5 };
+  else if (absDiff > 2) return { category: "Major", sortValue: 4 };
+  else if (absDiff > 1) return { category: "Medium", sortValue: 3 };
+  else return { category: "Minor", sortValue: 2 };
 };
 
 const handleScrollToEmployee = (empCode: string) => {
   const element = document.getElementById(`employee-${empCode}`);
   if (element) {
-    element.scrollIntoView({
-      behavior: "smooth",
-      block: "center",
-    });
+    element.scrollIntoView({ behavior: "smooth", block: "center" });
     element.classList.add("ring-4", "ring-blue-400");
-    setTimeout(() => {
-      element.classList.remove("ring-4", "ring-blue-400");
-    }, 2000);
+    setTimeout(() => element.classList.remove("ring-4", "ring-blue-400"), 2000);
   }
 };
 
-// ------------------------------------------------
-// COMPONENT
-// ------------------------------------------------
-
+/* ============================================================
+   Component: LateComparison (FULL)
+   ============================================================ */
 export const LateComparison: React.FC = () => {
   const { excelData } = useExcel();
   const [showTable, setShowTable] = useState(false);
@@ -210,10 +524,13 @@ export const LateComparison: React.FC = () => {
 
   const { getHRLateValue } = useHRLateLookup();
 
+  // Use the in-file hooks
+  const { getLunchDataForEmployee } = useLunchInOutLookup();
+  const { getCustomTimingForEmployee } = useCustomTimingLookup();
+
   const [filterCategory, setFilterCategory] = useState<
     DifferenceCategory | "All" | null
   >(null);
-
   const [sortConfig, setSortConfig] = useState<{
     key: SortColumn;
     direction: SortDirection;
@@ -222,27 +539,41 @@ export const LateComparison: React.FC = () => {
     direction: "asc",
   });
 
-  // Calculate and annotate data with category
+  // Calculate and annotate data with category (NOW using final calculation)
   const categorizedData: SortableLateComparisonData[] = useMemo(() => {
     if (!excelData || !excelData.employees || !showTable) return [];
     setIsLoading(true);
 
     const data: SortableLateComparisonData[] = excelData.employees.map(
       (employee: EmployeeData) => {
-        // Calculate total combined hours
-        const softwareTotalMinutes = calculateSoftwareTotalMinutes(employee);
+        // Acquire lunch & custom timings for this employee
+        const lunchData = getLunchDataForEmployee({
+          empCode: employee.empCode,
+          empName: employee.empName,
+        });
+        const customTiming = getCustomTimingForEmployee({
+          empCode: employee.empCode,
+          empName: employee.empName,
+        });
+
+        // Calculate total combined minutes using the full logic
+        const totals = calculateFinalSoftwareMinutes(
+          employee,
+          lunchData,
+          customTiming
+        );
+        const softwareTotalMinutes = totals.totalCombinedMinutes;
         const softwareTotalHours: number = Number(
           (softwareTotalMinutes / 60).toFixed(2)
         );
 
         const hrLateHours: number | null = getHRLateValue(employee);
 
-        // Difference is now: Software Total - HR Late
+        // Difference is: Software Total - HR Late
         const difference: number | string =
           hrLateHours === null
             ? "N/A"
             : Number((softwareTotalHours - hrLateHours).toFixed(2));
-
         const { category } = getDifferenceCategory(difference);
 
         return {
@@ -258,9 +589,15 @@ export const LateComparison: React.FC = () => {
 
     setIsLoading(false);
     return data;
-  }, [excelData, showTable, getHRLateValue]);
+  }, [
+    excelData,
+    showTable,
+    getHRLateValue,
+    getLunchDataForEmployee,
+    getCustomTimingForEmployee,
+  ]);
 
-  // Sorting Logic
+  /* ------------------ Sorting ------------------ */
   const sortedData = useMemo(() => {
     if (categorizedData.length === 0) return [];
     const sortableData = [...categorizedData];
@@ -274,7 +611,6 @@ export const LateComparison: React.FC = () => {
       if (key === "category") {
         const { sortValue: aSortValue } = getDifferenceCategory(a.difference);
         const { sortValue: bSortValue } = getDifferenceCategory(b.difference);
-
         return direction === "asc"
           ? aSortValue - bSortValue
           : bSortValue - aSortValue;
@@ -309,8 +645,8 @@ export const LateComparison: React.FC = () => {
         key === "empName" ||
         key === "softwareTotalHours"
       ) {
-        aValue = a[key];
-        bValue = b[key];
+        aValue = (a as any)[key];
+        bValue = (b as any)[key];
       }
 
       if (aValue === null || bValue === null) return 0;
@@ -327,20 +663,17 @@ export const LateComparison: React.FC = () => {
     return sortableData;
   }, [categorizedData, sortConfig]);
 
-  // Filtering Logic
+  /* ------------------ Filtering ------------------ */
   const filteredData = useMemo(() => {
-    if (!filterCategory || filterCategory === "All") {
-      return sortedData;
-    }
+    if (!filterCategory || filterCategory === "All") return sortedData;
     return sortedData.filter((row) => row.category === filterCategory);
   }, [sortedData, filterCategory]);
 
   const requestSort = useCallback(
     (key: SortColumn) => {
       let direction: SortDirection = "asc";
-      if (sortConfig.key === key && sortConfig.direction === "asc") {
+      if (sortConfig.key === key && sortConfig.direction === "asc")
         direction = "desc";
-      }
       setSortConfig({ key, direction });
     },
     [sortConfig]
@@ -416,14 +749,12 @@ export const LateComparison: React.FC = () => {
       console.warn("Please click 'Compare' first to generate data.");
       return;
     }
-
     const exportData: LateComparisonExportData[] = categorizedData.map(
       ({ category, ...rest }) => ({
         ...rest,
         DifferenceCategory: category,
       })
     );
-
     exportLateComparisonToExcel(exportData, "Late_Comparison.xlsx");
   };
 
@@ -437,6 +768,7 @@ export const LateComparison: React.FC = () => {
     { label: "Difference", key: "difference" },
   ];
 
+  /* ------------------ Render ------------------ */
   return (
     <div className="mt-8 pt-6 border-t border-gray-300">
       <h3 className="text-lg font-bold text-gray-800 mb-4">
@@ -469,7 +801,6 @@ export const LateComparison: React.FC = () => {
               Hide Comparison
             </button>
 
-            {/* Filter Buttons */}
             <div className="flex gap-2 flex-wrap">
               <button
                 onClick={() => setFilterCategory("All")}
@@ -537,6 +868,7 @@ export const LateComparison: React.FC = () => {
                     ))}
                   </tr>
                 </thead>
+
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredData.map((row, index) => {
                     const diffClass = getDiffClass(row.category);
@@ -589,3 +921,5 @@ export const LateComparison: React.FC = () => {
     </div>
   );
 };
+
+export default LateComparison;

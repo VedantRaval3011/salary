@@ -438,27 +438,7 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
         isOpen={isAdjustmentModalOpen}
         onClose={() => setIsAdjustmentModalOpen(false)}
       />
-      {/* Quick Stats Summary (Compact view when collapsed) */}
-      {!isExpanded && (
-        <div className="mt-4 pt-4 border-t border-gray-200 text-xs text-gray-600">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <span>
-                <strong>Days Summary:</strong> {currentEmployee.present || 0}P |{" "}
-                {currentEmployee.absent || 0}A | {currentEmployee.holiday || 0}H
-              </span>
-              {customTimingInfo.hasCustomTiming && (
-                <span className="text-purple-600 font-semibold">
-                  🕐 Custom Timing: {customTimingInfo.customTime}
-                </span>
-              )}
-            </div>
-            <span className="text-blue-600 font-semibold cursor-pointer hover:text-blue-800">
-              Click "View Details" for full breakdown →
-            </span>
-          </div>
-        </div>
-      )}
+
     </div>
   );
 };

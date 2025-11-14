@@ -1,11 +1,11 @@
 // app/page.tsx
-'use client';
+"use client";
 
-import React, { useState } from 'react';
-import { FileUploader } from '@/components/FileUploader';
-import { EmployeeCard } from '@/components/EmployeeCard';
-import { useExcel } from '@/context/ExcelContext';
-import { EmployeeData } from '@/lib/types';
+import React, { useState } from "react";
+import { FileUploader } from "@/components/FileUploader";
+import { EmployeeCard } from "@/components/EmployeeCard";
+import { useExcel } from "@/context/ExcelContext";
+import { EmployeeData } from "@/lib/types";
 
 interface MonthConfig {
   month: string;
@@ -16,42 +16,56 @@ interface MonthConfig {
 
 export default function Home() {
   const { excelData, applyAdjustment, applyHolidays } = useExcel();
-  
+
   // Setup wizard state
   const [setupComplete, setSetupComplete] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
-  
+
   // Month configuration
-  const [selectedMonth, setSelectedMonth] = useState('');
+  const [selectedMonth, setSelectedMonth] = useState("");
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-  
+
   // Adjustment configuration
-  const [adjustments, setAdjustments] = useState<Array<{ originalDate: number; adjustedDate: number }>>([]);
-  const [currentOriginalDate, setCurrentOriginalDate] = useState('');
-  const [currentAdjustedDate, setCurrentAdjustedDate] = useState('');
-  
+  const [adjustments, setAdjustments] = useState<
+    Array<{ originalDate: number; adjustedDate: number }>
+  >([]);
+  const [currentOriginalDate, setCurrentOriginalDate] = useState("");
+  const [currentAdjustedDate, setCurrentAdjustedDate] = useState("");
+
   // Holiday configuration
   const [numberOfHolidays, setNumberOfHolidays] = useState(0);
   const [selectedHolidays, setSelectedHolidays] = useState<number[]>([]);
-  const [currentHoliday, setCurrentHoliday] = useState('');
-  
+  const [currentHoliday, setCurrentHoliday] = useState("");
+
   // Track if configurations have been applied
   const [configurationsApplied, setConfigurationsApplied] = useState(false);
 
   const months = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
   ];
 
-  const years = Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - 5 + i);
+  const years = Array.from(
+    { length: 10 },
+    (_, i) => new Date().getFullYear() - 5 + i
+  );
 
   // Get days in selected month
-const getDaysInMonth = () => {
-  if (!selectedMonth || !selectedYear) return 31;
-  const monthIndex = months.indexOf(selectedMonth);
-  return new Date(selectedYear, monthIndex + 1, 0).getDate(); // This correctly returns 31 for October
-};
-
+  const getDaysInMonth = () => {
+    if (!selectedMonth || !selectedYear) return 31;
+    const monthIndex = months.indexOf(selectedMonth);
+    return new Date(selectedYear, monthIndex + 1, 0).getDate(); // This correctly returns 31 for October
+  };
 
   const daysInMonth = getDaysInMonth();
   const availableDates = Array.from({ length: daysInMonth }, (_, i) => i + 1);
@@ -62,28 +76,39 @@ const getDaysInMonth = () => {
     const adjusted = parseInt(currentAdjustedDate);
 
     if (!original || !adjusted) {
-      alert('Please select both original and adjusted dates');
+      alert("Please select both original and adjusted dates");
       return;
     }
 
     if (original === adjusted) {
-      alert('Original and adjusted dates cannot be the same');
+      alert("Original and adjusted dates cannot be the same");
       return;
     }
 
-    if (adjustments.some(adj => adj.originalDate === original || adj.adjustedDate === original)) {
-      alert('This date is already used in an adjustment');
+    if (
+      adjustments.some(
+        (adj) => adj.originalDate === original || adj.adjustedDate === original
+      )
+    ) {
+      alert("This date is already used in an adjustment");
       return;
     }
 
-    if (adjustments.some(adj => adj.originalDate === adjusted || adj.adjustedDate === adjusted)) {
-      alert('This date is already used in an adjustment');
+    if (
+      adjustments.some(
+        (adj) => adj.originalDate === adjusted || adj.adjustedDate === adjusted
+      )
+    ) {
+      alert("This date is already used in an adjustment");
       return;
     }
 
-    setAdjustments([...adjustments, { originalDate: original, adjustedDate: adjusted }]);
-    setCurrentOriginalDate('');
-    setCurrentAdjustedDate('');
+    setAdjustments([
+      ...adjustments,
+      { originalDate: original, adjustedDate: adjusted },
+    ]);
+    setCurrentOriginalDate("");
+    setCurrentAdjustedDate("");
   };
 
   // Remove adjustment
@@ -96,90 +121,100 @@ const getDaysInMonth = () => {
     const holiday = parseInt(currentHoliday);
 
     if (!holiday) {
-      alert('Please select a holiday date');
+      alert("Please select a holiday date");
       return;
     }
 
     if (selectedHolidays.includes(holiday)) {
-      alert('This date is already marked as holiday');
+      alert("This date is already marked as holiday");
       return;
     }
 
-    if (adjustments.some(adj => adj.originalDate === holiday || adj.adjustedDate === holiday)) {
-      alert('This date is used in an adjustment');
+    if (
+      adjustments.some(
+        (adj) => adj.originalDate === holiday || adj.adjustedDate === holiday
+      )
+    ) {
+      alert("This date is used in an adjustment");
       return;
     }
 
     setSelectedHolidays([...selectedHolidays, holiday].sort((a, b) => a - b));
-    setCurrentHoliday('');
+    setCurrentHoliday("");
   };
 
   // Remove holiday
   const handleRemoveHoliday = (date: number) => {
-    setSelectedHolidays(selectedHolidays.filter(d => d !== date));
+    setSelectedHolidays(selectedHolidays.filter((d) => d !== date));
   };
 
   // Complete setup and apply configurations
   const handleCompleteSetup = () => {
     if (!selectedMonth || !selectedYear) {
-      alert('Please select month and year');
+      alert("Please select month and year");
       return;
     }
 
     setSetupComplete(true);
   };
 
-// Apply configurations to uploaded data
-React.useEffect(() => {
-  if (excelData && setupComplete && !configurationsApplied) {
-    // RESET: Clear all previous adjustments for all employees
-    excelData.employees.forEach((employee) => {
-      employee.adjustments = [];
-      // Reset any adjustment flags on days
-      employee.days.forEach((day) => {
-        if (day.isAdjustmentOriginal || day.isAdjustmentTarget) {
-          if (day.originalStatus) {
-            day.attendance.status = day.originalStatus;
-          }
-          delete day.originalStatus;
-          day.isAdjustmentOriginal = false;
-          day.isAdjustmentTarget = false;
-        }
-      });
-    });
-
-    // Apply holidays to all employees first
-    if (selectedHolidays.length > 0) {
-      try {
-        applyHolidays(selectedHolidays);
-      } catch (error) {
-        console.error('Error applying holidays:', error);
-      }
-    }
-
-    // Apply ONLY current adjustments
-    if (adjustments.length > 0) {
-      excelData.employees.forEach((_, employeeIndex) => {
-        adjustments.forEach(adj => {
-          try {
-            applyAdjustment(employeeIndex, adj.originalDate, adj.adjustedDate);
-          } catch (error) {
-            console.error(`Error applying adjustment for employee ${employeeIndex}:`, error);
+  // Apply configurations to uploaded data
+  React.useEffect(() => {
+    if (excelData && setupComplete && !configurationsApplied) {
+      // RESET: Clear all previous adjustments for all employees
+      excelData.employees.forEach((employee) => {
+        employee.adjustments = [];
+        // Reset any adjustment flags on days
+        employee.days.forEach((day) => {
+          if (day.isAdjustmentOriginal || day.isAdjustmentTarget) {
+            if (day.originalStatus) {
+              day.attendance.status = day.originalStatus;
+            }
+            delete day.originalStatus;
+            day.isAdjustmentOriginal = false;
+            day.isAdjustmentTarget = false;
           }
         });
       });
+
+      // Apply holidays to all employees first
+      if (selectedHolidays.length > 0) {
+        try {
+          applyHolidays(selectedHolidays);
+        } catch (error) {
+          console.error("Error applying holidays:", error);
+        }
+      }
+
+      // Apply ONLY current adjustments
+      if (adjustments.length > 0) {
+        excelData.employees.forEach((_, employeeIndex) => {
+          adjustments.forEach((adj) => {
+            try {
+              applyAdjustment(
+                employeeIndex,
+                adj.originalDate,
+                adj.adjustedDate
+              );
+            } catch (error) {
+              console.error(
+                `Error applying adjustment for employee ${employeeIndex}:`,
+                error
+              );
+            }
+          });
+        });
+      }
+
+      setConfigurationsApplied(true);
     }
-
-    setConfigurationsApplied(true);
-  }
-}, [excelData, setupComplete, configurationsApplied]);
-
+  }, [excelData, setupComplete, configurationsApplied]);
 
   // Reset setup
   const handleResetSetup = () => {
     setSetupComplete(false);
     setCurrentStep(1);
-    setSelectedMonth('');
+    setSelectedMonth("");
     setSelectedYear(new Date().getFullYear());
     setAdjustments([]);
     setSelectedHolidays([]);
@@ -210,18 +245,18 @@ React.useEffect(() => {
                   <div
                     className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm transition-all ${
                       currentStep === step
-                        ? 'bg-blue-600 text-white ring-4 ring-blue-200'
+                        ? "bg-blue-600 text-white ring-4 ring-blue-200"
                         : currentStep > step
-                        ? 'bg-green-500 text-white'
-                        : 'bg-gray-300 text-gray-600'
+                        ? "bg-green-500 text-white"
+                        : "bg-gray-300 text-gray-600"
                     }`}
                   >
-                    {currentStep > step ? '✓' : step}
+                    {currentStep > step ? "✓" : step}
                   </div>
                   {step < 3 && (
                     <div
                       className={`w-16 h-1 ${
-                        currentStep > step ? 'bg-green-500' : 'bg-gray-300'
+                        currentStep > step ? "bg-green-500" : "bg-gray-300"
                       }`}
                     />
                   )}
@@ -240,7 +275,8 @@ React.useEffect(() => {
                   Step 1: Select Month & Year
                 </h2>
                 <p className="text-gray-600 mb-6">
-                  Choose the month and year for which you're processing attendance data
+                  Choose the month and year for which you're processing
+                  attendance data
                 </p>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -270,7 +306,9 @@ React.useEffect(() => {
                     </label>
                     <select
                       value={selectedYear}
-                      onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                      onChange={(e) =>
+                        setSelectedYear(parseInt(e.target.value))
+                      }
                       className="w-full p-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base"
                     >
                       {years.map((year) => (
@@ -285,7 +323,8 @@ React.useEffect(() => {
                 {selectedMonth && selectedYear && (
                   <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
                     <p className="text-blue-800 font-semibold">
-                      ✓ Selected: {selectedMonth} {selectedYear} ({daysInMonth} days)
+                      ✓ Selected: {selectedMonth} {selectedYear} ({daysInMonth}{" "}
+                      days)
                     </p>
                   </div>
                 )}
@@ -310,12 +349,15 @@ React.useEffect(() => {
                   Step 2: Adjustment Days
                 </h2>
                 <p className="text-gray-600 mb-6">
-                  Set up day adjustments where holidays/week-offs are swapped with working days
+                  Set up day adjustments where holidays/week-offs are swapped
+                  with working days
                 </p>
 
                 {/* Add Adjustment Form */}
                 <div className="bg-gradient-to-r from-orange-50 to-red-50 p-6 rounded-lg border-2 border-orange-200 mb-6">
-                  <h3 className="text-sm font-bold text-gray-700 mb-4">Add New Adjustment</h3>
+                  <h3 className="text-sm font-bold text-gray-700 mb-4">
+                    Add New Adjustment
+                  </h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-semibold text-gray-600 mb-2">
@@ -367,7 +409,9 @@ React.useEffect(() => {
                   </h3>
                   {adjustments.length === 0 ? (
                     <div className="p-4 bg-gray-50 rounded-lg text-center border-2 border-dashed border-gray-300">
-                      <p className="text-gray-500 text-sm">No adjustments added yet (Optional)</p>
+                      <p className="text-gray-500 text-sm">
+                        No adjustments added yet (Optional)
+                      </p>
                     </div>
                   ) : (
                     <div className="space-y-2">
@@ -422,7 +466,8 @@ React.useEffect(() => {
                   Step 3: Holiday Dates
                 </h2>
                 <p className="text-gray-600 mb-6">
-                  Select the dates that should be marked as holidays for all employees
+                  Select the dates that should be marked as holidays for all
+                  employees
                 </p>
 
                 {/* Number of Holidays */}
@@ -435,18 +480,23 @@ React.useEffect(() => {
                     min="0"
                     max={daysInMonth}
                     value={numberOfHolidays}
-                    onChange={(e) => setNumberOfHolidays(parseInt(e.target.value) || 0)}
+                    onChange={(e) =>
+                      setNumberOfHolidays(parseInt(e.target.value) || 0)
+                    }
                     className="w-full p-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 text-base"
                     placeholder="e.g., 3"
                   />
                   <p className="text-xs text-gray-600 mt-2">
-                    ℹ️ Currently {selectedHolidays.length} of {numberOfHolidays} holidays selected
+                    ℹ️ Currently {selectedHolidays.length} of {numberOfHolidays}{" "}
+                    holidays selected
                   </p>
                 </div>
 
                 {/* Add Holiday Form */}
                 <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-lg border-2 border-blue-200 mb-6">
-                  <h3 className="text-sm font-bold text-gray-700 mb-4">Add Holiday Date</h3>
+                  <h3 className="text-sm font-bold text-gray-700 mb-4">
+                    Add Holiday Date
+                  </h3>
                   <div className="flex gap-3">
                     <select
                       value={currentHoliday}
@@ -455,8 +505,15 @@ React.useEffect(() => {
                     >
                       <option value="">-- Select Holiday Date --</option>
                       {availableDates.map((date) => (
-                        <option key={date} value={date} disabled={selectedHolidays.includes(date)}>
-                          {date} {selectedHolidays.includes(date) ? '(Already added)' : ''}
+                        <option
+                          key={date}
+                          value={date}
+                          disabled={selectedHolidays.includes(date)}
+                        >
+                          {date}{" "}
+                          {selectedHolidays.includes(date)
+                            ? "(Already added)"
+                            : ""}
                         </option>
                       ))}
                     </select>
@@ -476,7 +533,9 @@ React.useEffect(() => {
                   </h3>
                   {selectedHolidays.length === 0 ? (
                     <div className="p-4 bg-gray-50 rounded-lg text-center border-2 border-dashed border-gray-300">
-                      <p className="text-gray-500 text-sm">No holidays added yet (Optional)</p>
+                      <p className="text-gray-500 text-sm">
+                        No holidays added yet (Optional)
+                      </p>
                     </div>
                   ) : (
                     <div className="flex flex-wrap gap-2">
@@ -519,16 +578,20 @@ React.useEffect(() => {
           {/* Summary Card */}
           {currentStep === 3 && (
             <div className="mt-6 bg-white rounded-xl shadow-lg p-6 border-2 border-blue-300">
-              <h3 className="text-lg font-bold text-gray-800 mb-4">📋 Configuration Summary</h3>
+              <h3 className="text-lg font-bold text-gray-800 mb-4">
+                📋 Configuration Summary
+              </h3>
               <div className="space-y-2 text-sm">
                 <p>
-                  <strong>Month:</strong> {selectedMonth} {selectedYear} ({daysInMonth} days)
+                  <strong>Month:</strong> {selectedMonth} {selectedYear} (
+                  {daysInMonth} days)
                 </p>
                 <p>
                   <strong>Adjustments:</strong> {adjustments.length} configured
                 </p>
                 <p>
-                  <strong>Holidays:</strong> {selectedHolidays.length} dates marked
+                  <strong>Holidays:</strong> {selectedHolidays.length} dates
+                  marked
                 </p>
               </div>
             </div>
@@ -576,9 +639,13 @@ React.useEffect(() => {
                     key={index}
                     className="flex items-center gap-2 text-xs bg-orange-50 p-2 rounded border border-orange-200"
                   >
-                    <span className="font-bold text-orange-700">{adj.originalDate}</span>
+                    <span className="font-bold text-orange-700">
+                      {adj.originalDate}
+                    </span>
                     <span className="text-orange-500">→</span>
-                    <span className="font-bold text-green-700">{adj.adjustedDate}</span>
+                    <span className="font-bold text-green-700">
+                      {adj.adjustedDate}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -629,23 +696,26 @@ React.useEffect(() => {
 
             {/* Employee Cards */}
             <div className="space-y-4">
-              {excelData.employees.map((employee: EmployeeData, index: number) => (
-   <EmployeeCard
-      key={employee.empCode}
-      employee={employee}
-      index={index}
-      baseHolidaysCount={0}
-      selectedHolidaysCount={selectedHolidays.length}
-    />
-))}
-
+              {excelData.employees.map(
+                (employee: EmployeeData, index: number) => (
+                  <EmployeeCard
+                    key={employee.empCode}
+                    employee={employee}
+                    index={index}
+                    baseHolidaysCount={0}
+                    selectedHolidaysCount={selectedHolidays.length}
+                  />
+                )
+              )}
             </div>
           </div>
         )}
 
         {!excelData && (
           <div className="mt-12 text-center text-gray-500">
-            <p className="text-lg">Upload Excel files to process attendance data</p>
+            <p className="text-lg">
+              Upload Excel files to process attendance data
+            </p>
           </div>
         )}
       </div>

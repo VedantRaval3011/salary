@@ -1,14 +1,14 @@
 // processLunchInOutFile.ts
-// Robust parser for the "04. Lunch In-Out Time Sheet.xlsx" style reports.
+// Robust parser for "04. Lunch In-Out Time Sheet.xlsx" style reports.
 // - Section-aware: detects new sections when "Company Name" row appears and builds per-section date->column maps.
-// - Robustly finds date header row (chooses row with most date-like cells inside section).
-// - Robustly finds In/Out label row (chooses row after date row with most "In"/"Out").
-// - Handles Excel date serials (full date+time like 44900.355) and time fractions (0.36).
-// - Handles merged cells (carries last-seen date forward).
+// - Finds best date header row and in/out row per section.
+// - Handles Excel date serials, time fractions, merged cells.
+// - Infers IN/OUT types more reliably (uses header when available, else uses time ordering fallback).
 // - Produces an array of employees with dailyPunches { date, punches: [{type, time}] }.
 //
-// Usage: import { processLunchInOutFile, LunchInOutData } from "./processLunchInOutFile";
-//         const result = await processLunchInOutFile(file);
+// Usage:
+//   import { processLunchInOutFile, LunchInOutData } from "./processLunchInOutFile";
+//   const result = await processLunchInOutFile(file);
 
 import * as XLSX from "xlsx";
 
@@ -135,6 +135,13 @@ function formatTime(
   return null;
 }
 
+function toMinutes(timeStr: string | null | undefined): number {
+  if (!timeStr) return -1;
+  const parts = timeStr.split(":").map((p) => Number(p));
+  if (parts.length < 2 || isNaN(parts[0]) || isNaN(parts[1])) return -1;
+  return parts[0] * 60 + parts[1];
+}
+
 /* ---------- Main Parser ---------- */
 
 export async function processLunchInOutFile(
@@ -163,7 +170,7 @@ export async function processLunchInOutFile(
     return cell.v ?? cell.w ?? null;
   };
 
-  // Detect rows that start a new section (we decided: "Company Name" marks new section)
+  // Detect rows that start a new section (we use: "Company Name" marks new section)
   const isSectionStartRow = (r: number) => {
     for (let c = 0; c <= Math.min(maxCol, 6); c++) {
       const v = cellRaw(r, c);
@@ -178,11 +185,10 @@ export async function processLunchInOutFile(
   type Section = {
     startRow: number;
     endRow: number;
-    // Will fill these later:
-    dateRow: number; // best date header row inside section
-    inOutRow: number; // best in/out row inside section
-    colToDate: Map<number, string>; // column->date mapping for section
-    headerRow: number; // header row containing EMP CODE inside section
+    dateRow: number;
+    inOutRow: number;
+    colToDate: Map<number, string>;
+    headerRow: number;
   };
 
   const sections: Section[] = [];
@@ -190,7 +196,6 @@ export async function processLunchInOutFile(
 
   for (let r = 0; r <= maxRow; r++) {
     if (isSectionStartRow(r) && r !== currentStart) {
-      // finish previous
       sections.push({
         startRow: currentStart,
         endRow: r - 1,
@@ -202,7 +207,7 @@ export async function processLunchInOutFile(
       currentStart = r;
     }
   }
-  // push final
+  // push final section
   sections.push({
     startRow: currentStart,
     endRow: maxRow,
@@ -212,13 +217,7 @@ export async function processLunchInOutFile(
     headerRow: -1,
   });
 
-  // If no explicit "Company Name" was found and only one section exists, that's ok.
-  // Now for each section we will:
-  // 1) find header row inside section (EMP CODE)
-  // 2) find best date row above header row (inside section)
-  // 3) find best in/out row between date row and header row
-  // 4) build col->date map for that section
-
+  // For each section: find header (EMP CODE), best date row, best in/out row, and build col->date map
   for (const sec of sections) {
     // 1) find header row with EMP CODE inside this section
     let headerFound = -1;
@@ -258,29 +257,25 @@ export async function processLunchInOutFile(
       }
     }
 
-    // if still not found, skip section (no employees likely)
     if (headerFound === -1) {
+      // no header in this section - skip
       sec.headerRow = -1;
       sec.dateRow = -1;
       sec.inOutRow = -1;
       sec.colToDate = new Map();
       continue;
     }
-
     sec.headerRow = headerFound;
 
     // 2) find best candidate date row ABOVE headerFound (but inside this section)
     let bestDateRow = -1;
     let bestDateScore = 0;
-
     for (let r = sec.startRow; r < sec.headerRow; r++) {
       let score = 0;
       for (let c = 0; c <= maxCol; c++) {
         const raw = cellRaw(r, c);
         if (raw == null) continue;
-        // if cell contains date-like value, increase score
         if (formatDate(raw)) score++;
-        // accept numeric excel serials > 1 too (formatDate will handle)
         else if (typeof raw === "number" && raw > 1 && formatDate(raw)) score++;
       }
       if (score > bestDateScore) {
@@ -289,7 +284,7 @@ export async function processLunchInOutFile(
       }
     }
 
-    // fallback: choose row just above header
+    // fallback choose row just above header
     if (bestDateRow === -1 || bestDateScore < 1) {
       const guess = Math.max(sec.startRow, sec.headerRow - 2);
       bestDateRow = guess;
@@ -317,7 +312,6 @@ export async function processLunchInOutFile(
       }
     }
     if (bestInOutRow === -1) {
-      // fallback to dateRow + 1 typically
       bestInOutRow = Math.min(sec.dateRow + 1, sec.headerRow);
     }
     sec.inOutRow = bestInOutRow;
@@ -331,7 +325,6 @@ export async function processLunchInOutFile(
       if (maybeDate) {
         lastDate = maybeDate;
       } else if (dateCellVal && typeof dateCellVal === "string") {
-        // attempt to clean rotated text
         const cleaned = String(dateCellVal).replace(/\n/g, " ").trim();
         const p = formatDate(cleaned);
         if (p) lastDate = p;
@@ -361,15 +354,12 @@ export async function processLunchInOutFile(
         }
       }
 
-      // Heuristic: sometimes there are no IN/OUT labels but times exist in sample employee rows.
-      // We'll not aggressively mark here to avoid false positives. The employee scanning stage will attempt to use .w formatted values if needed.
+      // Heuristic: if the employee data rows (below header) contain values in this column for many rows,
+      // we can still treat it as a mapped column. We'll not aggressively add here to avoid false positives.
     }
 
     sec.colToDate = colToDate;
   } // end sections loop
-
-  // DEBUG info
-  // console.log("Sections:", sections.map(s => ({ start: s.startRow, end: s.endRow, header: s.headerRow, dateRow: s.dateRow, inOutRow: s.inOutRow, mappedCols: Array.from(s.colToDate.keys()) })) );
 
   // Now parse employees section-by-section using the corresponding section.colToDate map.
   const employees: LunchInOutData[] = [];
@@ -408,8 +398,7 @@ export async function processLunchInOutFile(
   for (const sec of sections) {
     if (sec.headerRow === -1) continue; // no header -> skip
     if (!sec.colToDate || sec.colToDate.size === 0) {
-      // If there's no mapping for this section, skip employee extraction for it.
-      // (This may happen for short sections without date rows)
+      // skip sections without mapping
       continue;
     }
 
@@ -448,7 +437,6 @@ export async function processLunchInOutFile(
 
       // Iterate section-specific mapped columns
       for (const [col, dateStr] of sec.colToDate.entries()) {
-        // read raw cell value; prefer raw value v (if exists) else w
         const addr = XLSX.utils.encode_cell({ r, c: col });
         const cell = ws[addr];
         const rawVal = cell?.v ?? cell?.w ?? null;
@@ -462,11 +450,11 @@ export async function processLunchInOutFile(
         }
 
         if (!timeStr) {
-          // maybe it contains date+time excel serial (should be handled by formatTime), but if not, skip
+          // can't parse time, skip
           continue;
         }
 
-        // determine type from in/out header at section.inOutRow (and fallback to inOutRow+1)
+        // determine type from header cell at sec.inOutRow (and fallback to inOutRow+1)
         let typeGuess: "In" | "Out" = "In";
         const headerCell = cellRaw(sec.inOutRow, col);
         const headerCell2 = cellRaw(sec.inOutRow + 1, col);
@@ -477,24 +465,46 @@ export async function processLunchInOutFile(
           headerStr = String(headerCell2).trim().toUpperCase();
 
         if (headerStr) {
+          // explicit label present — use it (robustly)
           if (headerStr.startsWith("O") || headerStr === "OUT")
             typeGuess = "Out";
           else typeGuess = "In";
         } else {
-          // Heuristic fallback: if two consecutive columns map to same date, often they are In/Out pairs.
-          // We'll attempt parity inference per date by checking other columns for the same date.
-          // Find mapped column indices for this date and infer parity.
+          // NO explicit header label — fallback inference by time order within this date
+          // Get all mapped columns for this date, sorted
           const allColsForDate: number[] = [];
           for (const [cc, ds] of sec.colToDate.entries()) {
             if (ds === dateStr) allColsForDate.push(cc);
           }
           allColsForDate.sort((a, b) => a - b);
-          if (allColsForDate.length >= 2) {
-            const idx = allColsForDate.indexOf(col);
-            if (idx >= 0) {
-              // assume even index -> In, odd -> Out
+          const idx = allColsForDate.indexOf(col);
+
+          if (idx === 0) {
+            // first mapped column for the date → treat as IN
+            typeGuess = "In";
+          } else if (idx > 0) {
+            // compare with previous column's time
+            const prevCol = allColsForDate[idx - 1];
+            const prevAddr = XLSX.utils.encode_cell({ r, c: prevCol });
+            const prevCell = ws[prevAddr];
+            const prevRaw = prevCell?.v ?? prevCell?.w ?? null;
+            const prevTimeStr =
+              formatTime(prevRaw) ??
+              (prevCell?.w ? formatTime(prevCell.w) : null);
+
+            const thisMins = toMinutes(timeStr);
+            const prevMins = toMinutes(prevTimeStr);
+
+            if (prevMins >= 0 && thisMins >= 0) {
+              // if time increased relative to previous -> Out, else In (handles weird duplicates)
+              typeGuess = thisMins > prevMins ? "Out" : "In";
+            } else {
+              // as last fallback, use parity (even => In, odd => Out)
               typeGuess = idx % 2 === 0 ? "In" : "Out";
             }
+          } else {
+            // column not found in array (shouldn't happen) -> fallback parity by col index
+            typeGuess = col % 2 === 0 ? "In" : "Out";
           }
         }
 
@@ -520,7 +530,7 @@ export async function processLunchInOutFile(
           dailyPunches,
         });
       } else {
-        // if no punches mapped, skip (could optionally push empty record)
+        // no punches for this employee in this section - skip
       }
     } // end rows inside section
   } // end sections

@@ -471,6 +471,12 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
     const MORNING_EVENING_CUTOFF_MINUTES = 10 * 60;
     const PERMISSIBLE_LATE_MINS = 5;
 
+    // ADJ-P handling: allow a leave buffer (minutes) before OT starts.
+    // Example: shift end 17:30 + buffer 30 => 18:00. Use cutoffMinutes for OT calc.
+    const ADJ_P_BUFFER_MINUTES = 30;
+    const ADJ_P_SHIFT_END_MINUTES = 17 * 60 + 30; // employee scheduled end (17:30)
+    const ADJ_P_CUTOFF_MINUTES = ADJ_P_SHIFT_END_MINUTES + ADJ_P_BUFFER_MINUTES; // 1080 (18:00)
+
     const employeeNormalStartMinutes =
       customTiming?.expectedStartMinutes ?? STANDARD_START_MINUTES;
 
@@ -616,14 +622,29 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
                 customTiming.expectedEndMinutes
               );
             } else {
-              const otField =
-                (day.attendance as any).otHours ??
-                (day.attendance as any).otHrs ??
-                (day.attendance as any).ot ??
-                (day.attendance as any).workHrs ??
-                (day.attendance as any).workHours ??
-                null;
-              dayOTMinutes = parseMinutes(otField);
+              // ADJ-P (holiday-adjusted present) — ignore raw OT field and compute OT only after cutoff
+              if (status === "ADJ-P") {
+                const outTime = day.attendance.outTime;
+                if (outTime && outTime !== "-") {
+                  const outMin = timeToMinutes(outTime);
+                  dayOTMinutes =
+                    outMin > ADJ_P_CUTOFF_MINUTES
+                      ? outMin - ADJ_P_CUTOFF_MINUTES
+                      : 0;
+                } else {
+                  dayOTMinutes = 0;
+                }
+              } else {
+                // For other cases (Sa, ADJ-M, WO-I etc) use the OT field as before
+                const otField =
+                  (day.attendance as any).otHours ??
+                  (day.attendance as any).otHrs ??
+                  (day.attendance as any).ot ??
+                  (day.attendance as any).workHrs ??
+                  (day.attendance as any).workHours ??
+                  null;
+                dayOTMinutes = parseMinutes(otField);
+              }
             }
 
             const cappedOT = Math.min(dayOTMinutes, 540);
@@ -856,29 +877,25 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
           {displayValue}
           {suffix}
         </div>
-        {minutesDisplay && (
-          <div className="text-sm text-gray-500 mt-0.5">{minutesDisplay}</div>
-        )}
       </div>
     );
   };
 
   return (
     <div className="mt-6 pt-4 border-t-2 border-gray-300">
-      <h4 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+      <h4 className="text-sm font-bold text-gray-800 mb-4 flex items-center gap-2">
         <span className="text-indigo-600">📊 Overtime (OT) Calculation</span>
       </h4>
 
       {/* MAIN LAYOUT - Two rows */}
-      <div className="flex flex-wrap gap-4 justify-center">
+      <div className="flex flex-wrap  justify-start gap-2">
         {/* Column 1: Base OT */}
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2">
           <StatBox
             label="Base OT (From Excel)"
             value={stats.baseOTValue}
             bgColor="bg-gray-50"
             textColor="text-gray-800 border-gray-300"
-            tooltipKey="baseOT"
           />
         </div>
 
@@ -889,14 +906,12 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
             value={stats.staffGrantedOTMinutes}
             bgColor="bg-orange-50"
             textColor="text-orange-700 border-orange-300"
-            tooltipKey="staffGrantedOT"
           />
           <StatBox
             label="Staff Non Granted OT"
             value={stats.staffNonGrantedOTMinutes}
             bgColor="bg-amber-50"
             textColor="text-amber-700 border-amber-300"
-            tooltipKey="staffNonGrantedOT"
           />
         </div>
 
@@ -907,25 +922,22 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
             value={stats.workerGrantedOTMinutes}
             bgColor="bg-orange-50"
             textColor="text-orange-700 border-orange-300"
-            tooltipKey="workerGrantedOT"
           />
           <StatBox
             label="Worker 9 to 6 OT"
             value={stats.worker9to6OTMinutes}
             bgColor="bg-purple-50"
             textColor="text-purple-700 border-purple-300"
-            tooltipKey="worker9to6OT"
           />
         </div>
 
         {/* Column 4: Granted From Sheet (Staff) */}
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2">
           <StatBox
-            label="Granted From Sheet (Staff)"
+            label="Granted Sheet (Staff)"
             value={stats.grantedFromSheetStaffMinutes}
             bgColor="bg-blue-50"
             textColor="text-blue-700 border-blue-300"
-            tooltipKey="grantedFromSheet"
           />
         </div>
 
@@ -936,7 +948,6 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
             value={stats.totalMinutes}
             bgColor="bg-cyan-50"
             textColor="text-cyan-700 border-cyan-300"
-            tooltipKey="total"
           />
         </div>
 
@@ -947,7 +958,6 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
             value={stats.fullNightOTInMinutes}
             bgColor="bg-indigo-50"
             textColor="text-indigo-700 border-indigo-300"
-            tooltipKey="fullNightOT"
           />
         </div>
 
@@ -958,7 +968,6 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
             value={stats.lateDeductionHours}
             bgColor="bg-red-50"
             textColor="text-red-700 border-red-300"
-            tooltipKey="lateDeduction"
           />
         </div>
 
@@ -969,7 +978,6 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
             value={stats.grandTotalMinutes}
             bgColor="bg-green-50"
             textColor="text-green-700 border-green-400"
-            tooltipKey="grandTotal"
           />
         </div>
       </div>
@@ -985,12 +993,6 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
         {stats.wasOTDeducted && (
           <div className="text-xs text-red-700 italic bg-red-50 p-2 rounded border border-red-200">
             * **5% OT deduction applied** (Maintenance Employee)
-          </div>
-        )}
-        {stats.lateMinsTotal > 0 && (
-          <div className="text-xs text-gray-700 bg-gray-50 p-2 rounded border border-gray-200">
-            * Total Late Minutes: {minutesToHHMM(stats.lateMinsTotal)} (
-            {stats.lateMinsTotal} mins)
           </div>
         )}
       </div>

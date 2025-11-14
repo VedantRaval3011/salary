@@ -462,6 +462,7 @@ function useMaintenanceDeductLookup() {
  * FINAL OT CALCULATION (Unchanged)
  * ===========================
  */
+// ---- REPLACE the existing calculateFinalOT with this implementation ----
 function calculateFinalOT(
   employee: EmployeeData,
   getGrantForEmployee: any,
@@ -469,10 +470,15 @@ function calculateFinalOT(
   getCustomTimingForEmployee: any,
   isMaintenanceEmployee: any
 ): number {
+  // Reuse helpers already defined in this file:
+  // - timeToMinutes
+  // - minutesToHHMM (not needed here but exists)
+  // - getIsStaff
   const isStaff = getIsStaff(employee);
   const grant = getGrantForEmployee(employee);
   const customTiming = getCustomTimingForEmployee(employee);
 
+  // Parse OT fields which may be "HH:MM" or decimal hours
   const parseMinutes = (val?: string | number | null): number => {
     if (!val) return 0;
     const str = String(val).trim();
@@ -491,16 +497,149 @@ function calculateFinalOT(
     return ot < 5 ? 0 : ot;
   };
 
-  let otWithoutGrantInMinutes = 0;
+  // Timing constants (matches OvertimeStatsGrid)
+  const STANDARD_START_MINUTES = 8 * 60 + 30;
+  const EVENING_SHIFT_START_MINUTES = 12 * 60 + 45;
+  const MORNING_EVENING_CUTOFF_MINUTES = 10 * 60;
+  const PERMISSIBLE_LATE_MINS = 5;
 
-  // --- CASE 1: NOT GRANTED OT ---
-  if (!grant) {
+  // ADJ-P cutoff: shift end (17:30) + 30 mins buffer -> 18:00 (1080)
+  const ADJ_P_BUFFER_MINUTES = 30;
+  const ADJ_P_SHIFT_END_MINUTES = 17 * 60 + 30;
+  const ADJ_P_CUTOFF_MINUTES = ADJ_P_SHIFT_END_MINUTES + ADJ_P_BUFFER_MINUTES;
+
+  // 1) Calculate Late minutes total (same rules as stats grid)
+  let lateMinsTotal = 0;
+  const employeeNormalStartMinutes =
+    customTiming?.expectedStartMinutes ?? STANDARD_START_MINUTES;
+
+  employee.days?.forEach((day) => {
+    const status = (day.attendance.status || "").toUpperCase();
+    const inTime = day.attendance.inTime;
+    if (!inTime || inTime === "-") return;
+
+    const inMinutes = timeToMinutes(inTime);
+    let dailyLateMins = 0;
+
+    if (status === "P/A" || status === "PA") {
+      if (inMinutes < MORNING_EVENING_CUTOFF_MINUTES) {
+        if (inMinutes > employeeNormalStartMinutes) {
+          dailyLateMins = inMinutes - employeeNormalStartMinutes;
+        }
+      } else {
+        if (inMinutes > EVENING_SHIFT_START_MINUTES) {
+          dailyLateMins = inMinutes - EVENING_SHIFT_START_MINUTES;
+        }
+      }
+    } else if (status === "P" || status === "ADJ-P") {
+      if (inMinutes > employeeNormalStartMinutes) {
+        dailyLateMins = inMinutes - employeeNormalStartMinutes;
+      }
+    }
+
+    if (dailyLateMins > PERMISSIBLE_LATE_MINS) {
+      lateMinsTotal += dailyLateMins;
+    }
+  });
+
+  // 2) Compute OT minutes depending on whether employee is in the "grant" sheet
+  let grantedFromSheetStaffMinutes = 0;
+  let staffGrantedOTMinutes = 0; // Saturdays/Holidays for staff not in grant sheet
+  let staffNonGrantedOTMinutes = 0; // Working days for staff not in grant sheet
+  let workerGrantedOTMinutes = 0;
+  let worker9to6OTMinutes = 0;
+
+  // Helper to get OT field fallback
+  const getOtFieldMinutes = (attendanceObj: any) => {
+    const otField =
+      attendanceObj.otHours ??
+      attendanceObj.otHrs ??
+      attendanceObj.ot ??
+      attendanceObj.workHrs ??
+      attendanceObj.workHours ??
+      null;
+    return parseMinutes(otField);
+  };
+
+  if (grant) {
+    // If in granted sheet, OT counted only for days within grant.fromDate..grant.toDate
+    const fromD = Number(grant.fromDate) || 1;
+    const toD = Number(grant.toDate) || 31;
+    employee.days?.forEach((day) => {
+      const dateNum = Number(day.date) || 0;
+      if (dateNum < fromD || dateNum > toD) return;
+
+      const status = (day.attendance.status || "").toUpperCase();
+      const outTime = day.attendance.outTime;
+      let dayOTMinutes = 0;
+
+      if (customTiming) {
+        dayOTMinutes = calculateCustomTimingOT(
+          outTime,
+          customTiming.expectedEndMinutes
+        );
+      } else if (status === "ADJ-P") {
+        // ADJ-P → ignore raw OT field; count OT only after ADJ_P_CUTOFF_MINUTES
+        if (outTime && outTime !== "-") {
+          const outMin = timeToMinutes(outTime);
+          dayOTMinutes =
+            outMin > ADJ_P_CUTOFF_MINUTES ? outMin - ADJ_P_CUTOFF_MINUTES : 0;
+        }
+      } else {
+        dayOTMinutes = getOtFieldMinutes(day.attendance);
+      }
+
+      grantedFromSheetStaffMinutes += Math.min(dayOTMinutes, 540);
+    });
+  } else {
+    // Not in granted sheet -> different handling for staff and workers
+    const isStaff = getIsStaff(employee);
     if (isStaff) {
-      // STAFF (Not Granted): count only non-ADJ-P Saturdays
+      // Staff: first, Saturdays / Holidays (and ADJ-P / ADJ-M / WO-I types) => staffGrantedOTMinutes
       employee.days?.forEach((day) => {
         const dayName = (day.day || "").toLowerCase();
         const status = (day.attendance.status || "").toUpperCase();
-        if (dayName === "sa" && status !== "ADJ-P") {
+
+        if (
+          dayName === "sa" ||
+          status === "ADJ-P" ||
+          status === "WO-I" ||
+          status === "ADJ-M"
+        ) {
+          let dayOTMinutes = 0;
+          if (customTiming) {
+            dayOTMinutes = calculateCustomTimingOT(
+              day.attendance.outTime,
+              customTiming.expectedEndMinutes
+            );
+          } else if (status === "ADJ-P") {
+            // ADJ-P uses cutoff + buffer
+            const outTime = day.attendance.outTime;
+            if (outTime && outTime !== "-") {
+              const outMin = timeToMinutes(outTime);
+              dayOTMinutes =
+                outMin > ADJ_P_CUTOFF_MINUTES
+                  ? outMin - ADJ_P_CUTOFF_MINUTES
+                  : 0;
+            }
+          } else {
+            dayOTMinutes = getOtFieldMinutes(day.attendance);
+          }
+          staffGrantedOTMinutes += Math.min(dayOTMinutes, 540);
+        }
+      });
+
+      // Staff Non-Granted: normal working days (exclude SA/ADJ-P/ADJ-M/WO-I)
+      employee.days?.forEach((day) => {
+        const dayName = (day.day || "").toLowerCase();
+        const status = (day.attendance.status || "").toUpperCase();
+
+        if (
+          dayName !== "sa" &&
+          status !== "ADJ-P" &&
+          status !== "ADJ-M" &&
+          status !== "WO-I"
+        ) {
           let dayOTMinutes = 0;
           if (customTiming) {
             dayOTMinutes = calculateCustomTimingOT(
@@ -508,116 +647,95 @@ function calculateFinalOT(
               customTiming.expectedEndMinutes
             );
           } else {
-            const otField =
-              (day.attendance as any).otHours ??
-              (day.attendance as any).otHrs ??
-              (day.attendance as any).ot ??
-              (day.attendance as any).workHrs ??
-              (day.attendance as any).workHours ??
-              null;
-            dayOTMinutes = parseMinutes(otField);
+            dayOTMinutes = getOtFieldMinutes(day.attendance);
           }
-          otWithoutGrantInMinutes += Math.min(dayOTMinutes, 540);
+          staffNonGrantedOTMinutes += Math.min(dayOTMinutes, 540);
         }
       });
     } else {
-      // WORKER (Not Granted)
+      // Worker (not in granted sheet) -> sum OT for all days with ADJ-P special handling
       employee.days?.forEach((day) => {
         const status = (day.attendance.status || "").toUpperCase();
         const dayName = (day.day || "").toLowerCase();
         let dayOTMinutes = 0;
 
-        // ✅ Case 1: ADJ-P Saturday → OT only after 5:30 PM
-        if (status === "ADJ-P" && dayName === "sa") {
-          const outTime = day.attendance.outTime;
-          if (outTime && outTime !== "-") {
-            const outMinutes = timeToMinutes(outTime);
-            const endOfShift = 17 * 60 + 30;
-            if (outMinutes > endOfShift) {
-              dayOTMinutes = outMinutes - endOfShift;
-              console.log(
-                `🟢 ADJ-P Saturday → ${employee.empName}: ${minutesToHHMM(
-                  dayOTMinutes
-                )}`
-              );
-            }
-          }
-        }
-
-        // 🟡 Case 2: all other non-ADJ-P days
-        else if (status !== "ADJ-P") {
-          if (customTiming) {
-            dayOTMinutes = calculateCustomTimingOT(
-              day.attendance.outTime,
-              customTiming.expectedEndMinutes
-            );
-          } else {
-            const otField =
-              (day.attendance as any).otHours ??
-              (day.attendance as any).otHrs ??
-              (day.attendance as any).ot ??
-              (day.attendance as any).workHrs ??
-              (day.attendance as any).workHours ??
-              null;
-            dayOTMinutes = parseMinutes(otField);
-          }
-        }
-
-        otWithoutGrantInMinutes += Math.min(dayOTMinutes, 540);
-      });
-    }
-  }
-
-  // --- CASE 2: GRANTED OT ---
-  let otWithGrantInMinutes = 0;
-  if (grant) {
-    const fromD = Number(grant.fromDate) || 1;
-    const toD = Number(grant.toDate) || 31;
-    employee.days?.forEach((day) => {
-      const dateNum = Number(day.date) || 0;
-      if (dateNum >= fromD && dateNum <= toD) {
-        let dayOTMinutes = 0;
         if (customTiming) {
           dayOTMinutes = calculateCustomTimingOT(
             day.attendance.outTime,
             customTiming.expectedEndMinutes
           );
+          if (dayOTMinutes > 0) worker9to6OTMinutes += dayOTMinutes;
+        } else if (status === "ADJ-P") {
+          const outTime = day.attendance.outTime;
+          if (outTime && outTime !== "-") {
+            const outMinutes = timeToMinutes(outTime);
+            // For workers we use ADJ_P_CUTOFF_MINUTES as well
+            if (outMinutes > ADJ_P_CUTOFF_MINUTES) {
+              dayOTMinutes = outMinutes - ADJ_P_CUTOFF_MINUTES;
+            }
+          }
         } else {
-          const otField =
-            (day.attendance as any).otHours ??
-            (day.attendance as any).otHrs ??
-            (day.attendance as any).ot ??
-            (day.attendance as any).workHrs ??
-            (day.attendance as any).workHours ??
-            null;
-          dayOTMinutes = parseMinutes(otField);
+          dayOTMinutes = getOtFieldMinutes(day.attendance);
         }
-        otWithGrantInMinutes += Math.min(dayOTMinutes, 540);
-      }
-    });
+
+        workerGrantedOTMinutes += Math.min(dayOTMinutes, 540);
+      });
+    }
   }
 
-  // Pick correct base
-  const baseMinutes = grant ? otWithGrantInMinutes : otWithoutGrantInMinutes;
-  let totalOTMinutes = baseMinutes;
+  // Determine final OT for deduction and grand total basis
+  const isWorker = !getIsStaff(employee);
+  const totalFromStaffGrantLogic =
+    grantedFromSheetStaffMinutes + staffGrantedOTMinutes;
+  let finalOTForDeduction = isStaff
+    ? totalFromStaffGrantLogic
+    : workerGrantedOTMinutes;
 
-  // Add Full-Night Stay OT
-  const fullNightOTDecimal = getFullNightOTForEmployee(employee);
-  totalOTMinutes += Math.round(fullNightOTDecimal * 60);
+  // Add staffNonGrantedOTMinutes only if needed in your rules; previous stats grid used:
+  // totalMinutes = grantedFromSheetStaffMinutes + staffGrantedOTMinutes
+  // (so staffNonGrantedOTMinutes does not add into 'total'—we keep same behavior here)
 
-  // Apply 5 % maintenance deduction
+  // Apply maintenance deduction (5%) if applicable
+  let wasOTDeducted = false;
   if (isMaintenanceEmployee(employee)) {
-    totalOTMinutes *= 0.95;
+    finalOTForDeduction = finalOTForDeduction * 0.95;
+    wasOTDeducted = true;
   }
 
-  return Math.round(totalOTMinutes);
+  // Late Deduction calculation (same rules as stats grid)
+  let lateDeductionDays = 0;
+  if (finalOTForDeduction < lateMinsTotal) {
+    const finalOTInHours = finalOTForDeduction / 60;
+    if (finalOTInHours < 4) {
+      lateDeductionDays = 0.5;
+    } else {
+      const diffInHours = (lateMinsTotal - finalOTForDeduction) / 60;
+      lateDeductionDays = 0.5 * Math.floor(diffInHours / 4);
+      if (lateDeductionDays === 0 && diffInHours > 0) lateDeductionDays = 0.5;
+    }
+  }
+  const lateDeductionMinutes = lateDeductionDays * 8 * 60;
+
+  // Full Night OT
+  const fullNightOTDecimal = getFullNightOTForEmployee(employee) || 0;
+  const fullNightOTInMinutes = Math.round(fullNightOTDecimal * 60);
+
+  // Grand total logic (same as stats grid):
+  let grandTotalMinutes = 0;
+  if (isStaff) {
+    grandTotalMinutes =
+      totalFromStaffGrantLogic + fullNightOTInMinutes - lateDeductionMinutes;
+  } else {
+    grandTotalMinutes =
+      workerGrantedOTMinutes + fullNightOTInMinutes - lateDeductionMinutes;
+  }
+
+  // Prevent negative totals
+  grandTotalMinutes = Math.max(0, Math.round(grandTotalMinutes));
+
+  return grandTotalMinutes;
 }
 
-/**
- * ===========================
- * MAIN COMPONENT
- * ===========================
- */
 export const OTComparison: React.FC = () => {
   const { excelData } = useExcel();
   const [showTable, setShowTable] = useState(false);

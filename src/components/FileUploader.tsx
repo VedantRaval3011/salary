@@ -110,17 +110,19 @@ export const FileUploader: React.FC = () => {
   );
   const [processingCount, setProcessingCount] = useState(0);
   const [showOTComparison, setShowOTComparison] = useState(false);
-  const [employeeFinalDifferences, setEmployeeFinalDifferences] = useState<Map<string, number>>(new Map());
+  const [employeeFinalDifferences, setEmployeeFinalDifferences] = useState<
+    Map<string, number>
+  >(new Map());
   const handleFinalDifferenceUpdate = useCallback(
-  (empCode: string, difference: number) => {
-    setEmployeeFinalDifferences((prev) => {
-      const newMap = new Map(prev);
-      newMap.set(empCode, difference);
-      return newMap;
-    });
-  },
-  []
-);
+    (empCode: string, difference: number) => {
+      setEmployeeFinalDifferences((prev) => {
+        const newMap = new Map(prev);
+        newMap.set(empCode, difference);
+        return newMap;
+      });
+    },
+    []
+  );
 
   const stats = useAttendanceStore((state) => state.stats);
 
@@ -750,10 +752,12 @@ export const FileUploader: React.FC = () => {
       <PresentDayComparison />
 
       <div className="mt-10">
+        <LateComparison />
+      </div>
+
+      <div className="mt-10">
         <OTComparison />
       </div>
-      {/* Employee 1 Stats from Store */}
-      <EmployeeStoreDisplay />
     </div>
   );
 };

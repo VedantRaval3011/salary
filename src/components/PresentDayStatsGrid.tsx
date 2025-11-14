@@ -1105,26 +1105,9 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
   };
 
   const StatBox = ({ label, value, bgColor, textColor, tooltipKey }: any) => (
-    // ... (existing code, no changes)
     <div
       className={`relative text-center p-2 w-[130px] ${bgColor} rounded-md border ${textColor} transition-all hover:shadow`}
     >
-      <div className="absolute top-1 right-1">
-        <button
-          onClick={() =>
-            setTooltips((p) => ({ ...p, [tooltipKey]: !p[tooltipKey] }))
-          }
-          className="w-4 h-4 bg-gray-400 hover:bg-gray-600 text-white rounded-full text-[10px]"
-        >
-          ?
-        </button>
-        {tooltips[tooltipKey] && (
-          <div className="absolute top-full right-0 mt-2 w-56 bg-gray-900 text-white p-2 rounded shadow-lg z-50 text-xs">
-            {tooltipTexts[tooltipKey]}
-          </div>
-        )}
-      </div>
-
       <div className="text-[11px] text-gray-600">{label}</div>
       <div className="text-xl font-bold mt-1">{value}</div>
     </div>
