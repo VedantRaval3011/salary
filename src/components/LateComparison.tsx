@@ -5,6 +5,7 @@ import React, { useMemo, useState, useCallback } from "react";
 import { useExcel } from "@/context/ExcelContext";
 import { EmployeeData } from "@/lib/types";
 import { ArrowDown, ArrowUp } from "lucide-react";
+import { useFinalDifference } from "@/context/FinalDifferenceContext";
 
 // --- Import fixed export utility and interface ---
 import {
@@ -333,16 +334,17 @@ const calculateFinalSoftwareMinutes = (
 
     // Early departure: from day.attendance.earlyDep
     const earlyDepMins = Number(day.attendance.earlyDep) || 0;
-    if (earlyDepMins > 0) {
-      earlyDepartureTotalMinutes += earlyDepMins;
+
+    // ❗ RULE: Skip early departure if status is P/A or PA
+    if (status !== "P/A" && status !== "PA") {
+      if (earlyDepMins > 0) {
+        earlyDepartureTotalMinutes += earlyDepMins;
+      }
     }
   });
 
   // b) compute break excess using lunchData (if present)
   if (lunchData && Array.isArray(lunchData.dailyPunches)) {
-    // We replicate the same break detection logic used in your grid
-    let totalExcess = 0;
-
     for (const dayData of lunchData.dailyPunches) {
       const punches = dayData.punches || [];
       if (!Array.isArray(punches) || punches.length < 2) continue;
@@ -351,110 +353,70 @@ const calculateFinalSoftwareMinutes = (
       type PunchTime = { type: string; minutes: number; time: string };
 
       const punchTimes: PunchTime[] = (punches as Punch[])
-        .map((p: Punch) => {
-          const minutes = timeToMinutes(p.time);
-          return { type: p.type, minutes, time: p.time };
-        })
+        .map((p: Punch) => ({
+          type: p.type,
+          time: p.time,
+          minutes: timeToMinutes(p.time),
+        }))
         .filter((p) => p.minutes > 0);
 
       if (punchTimes.length < 2) continue;
 
-      // Build break periods (Out -> In)
+      // Find Out → In break pairs
       const breakPeriods: any[] = [];
       for (let i = 0; i < punchTimes.length - 1; i++) {
         if (
           punchTimes[i].type === "Out" &&
           punchTimes[i + 1].type === "In" &&
           punchTimes[i + 1].minutes > punchTimes[i].minutes &&
-          punchTimes[i + 1].minutes - punchTimes[i].minutes <= 180 && // max 3 hours
           punchTimes[i].minutes >= 9 * 60 &&
           punchTimes[i].minutes <= 19 * 60
         ) {
-          const outTime = punchTimes[i].minutes;
-          const inTime = punchTimes[i + 1].minutes;
-          const duration = inTime - outTime;
           breakPeriods.push({
-            outTime: punchTimes[i].time,
-            inTime: punchTimes[i + 1].time,
-            outMinutes: outTime,
-            inMinutes: inTime,
-            duration,
+            outMinutes: punchTimes[i].minutes,
+            inMinutes: punchTimes[i + 1].minutes,
+            duration: punchTimes[i + 1].minutes - punchTimes[i].minutes,
           });
         }
       }
 
       if (breakPeriods.length === 0) continue;
 
-      // check lastInPunch for post-evening return logic
-      const lastInPunch = punchTimes.filter((p) => p.type === "In").pop();
-      const hasPostEveningReturn =
-        lastInPunch && lastInPunch.minutes >= 17 * 60 + 30;
+      // Was there a return after 5:30 PM?
+      const lastIn = punchTimes.filter((p) => p.type === "In").pop();
+      const hasPostEvening = lastIn && lastIn.minutes >= 17 * 60 + 30;
 
-      const processed = new Set<number>();
-      const matchedBreaks: any[] = [];
+      for (const bp of breakPeriods) {
+        let allowed = 0;
 
-      for (let bpIdx = 0; bpIdx < breakPeriods.length; bpIdx++) {
-        const bp = breakPeriods[bpIdx];
-        let bestMatch: any = null;
-        let bestOverlap = 0;
+        // Allowed break overlaps
         for (const defBreak of BREAK_DEFINITIONS) {
           const overlapStart = Math.max(bp.outMinutes, defBreak.start);
           const overlapEnd = Math.min(bp.inMinutes, defBreak.end);
           const overlap = Math.max(0, overlapEnd - overlapStart);
-          if (overlap > 0 && overlap > bestOverlap) {
-            bestOverlap = overlap;
-            bestMatch = defBreak;
-          }
+          allowed += Math.min(overlap, defBreak.allowed);
         }
 
-        if (bestMatch) {
-          const excess = Math.max(0, bp.duration - bestMatch.allowed);
-          matchedBreaks.push({
-            name: bestMatch.name,
-            duration: bp.duration,
-            allowed: bestMatch.allowed,
-            excess,
-          });
-          totalExcess += excess;
-          processed.add(bpIdx);
-        } else if (hasPostEveningReturn && bp.outMinutes >= 17 * 60 + 30) {
-          const postEveningAllowed = 15;
-          const excess = Math.max(0, bp.duration - postEveningAllowed);
-          matchedBreaks.push({
-            name: "Post-Evening Break",
-            duration: bp.duration,
-            allowed: postEveningAllowed,
-            excess,
-          });
-          totalExcess += excess;
-          processed.add(bpIdx);
+        // Post evening rule (minimum 15 mins)
+        if (bp.outMinutes >= 17 * 60 + 30 || bp.inMinutes >= 17 * 60 + 30) {
+          allowed = Math.max(allowed, 15);
         }
-      }
 
-      // Any unprocessed break periods considered unauthorized
-      for (let bpIdx = 0; bpIdx < breakPeriods.length; bpIdx++) {
-        if (!processed.has(bpIdx)) {
-          const bp = breakPeriods[bpIdx];
-          matchedBreaks.push({
-            name: "Unauthorized Break",
-            duration: bp.duration,
-            allowed: 0,
-            excess: bp.duration,
-          });
-          totalExcess += bp.duration;
-        }
+        // Excess
+        breakExcessMinutes += Math.max(0, bp.duration - allowed);
       }
     }
-
-    breakExcessMinutes = totalExcess;
   }
 
   // c) final total before relaxation
+  // At the end of calculateFinalSoftwareMinutes function, replace the return with:
+
+  // c) final total before relaxation
   let totalBeforeRelaxation =
-    lateMinsTotal +
-    earlyDepartureTotalMinutes +
-    breakExcessMinutes +
-    lessThan4HrMins;
+    Math.round(lateMinsTotal) +
+    Math.round(earlyDepartureTotalMinutes) +
+    Math.round(breakExcessMinutes) +
+    Math.round(lessThan4HrMins);
 
   // d) apply staff relaxation
   let totalAfterRelaxation = totalBeforeRelaxation;
@@ -465,7 +427,8 @@ const calculateFinalSoftwareMinutes = (
     );
   }
 
-  return {
+  // Return with guaranteed integers
+  const ret = {
     Late_hours_in_minutes: Math.round(lateMinsTotal),
     earlyDepartureTotalMinutes: Math.round(earlyDepartureTotalMinutes),
     breakExcessMinutes: Math.round(breakExcessMinutes),
@@ -473,6 +436,8 @@ const calculateFinalSoftwareMinutes = (
     totalBeforeRelaxation: Math.round(totalBeforeRelaxation),
     totalCombinedMinutes: Math.round(totalAfterRelaxation),
   };
+
+  return ret;
 };
 
 /* ============================================================
@@ -490,6 +455,7 @@ type SortDirection = "asc" | "desc";
 type DifferenceCategory = "N/A" | "Match" | "Minor" | "Medium" | "Major";
 interface SortableLateComparisonData extends LateComparisonData {
   category: DifferenceCategory;
+  company: string; // <-- ADD THIS
 }
 
 const getDifferenceCategory = (
@@ -519,6 +485,10 @@ const handleScrollToEmployee = (empCode: string) => {
    ============================================================ */
 export const LateComparison: React.FC = () => {
   const { excelData } = useExcel();
+
+  // 🆕 Get Total(-4hrs) from context
+  const { totalMinus4 } = useFinalDifference();
+
   const [showTable, setShowTable] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -538,43 +508,52 @@ export const LateComparison: React.FC = () => {
     key: "empCode",
     direction: "asc",
   });
+  const [filterCompany, setFilterCompany] = useState<string>("All");
+
+  const companies = [
+    "INDIANA OPHTHALMICS LLP",
+    "NUTRACEUTICO",
+    "SCI PREC",
+    "SCI PREC LIFESCIENCES",
+  ];
 
   // Calculate and annotate data with category (NOW using final calculation)
   const categorizedData: SortableLateComparisonData[] = useMemo(() => {
     if (!excelData || !excelData.employees || !showTable) return [];
     setIsLoading(true);
 
+    // In the categorizedData useMemo, replace this section:
+
+    // In LateComparison.tsx, in the categorizedData useMemo:
+
     const data: SortableLateComparisonData[] = excelData.employees.map(
       (employee: EmployeeData) => {
-        // Acquire lunch & custom timings for this employee
-        const lunchData = getLunchDataForEmployee({
-          empCode: employee.empCode,
-          empName: employee.empName,
-        });
-        const customTiming = getCustomTimingForEmployee({
-          empCode: employee.empCode,
-          empName: employee.empName,
-        });
+        const softwareTotalMinutes = totalMinus4.get(employee.empCode) ?? 0;
 
-        // Calculate total combined minutes using the full logic
-        const totals = calculateFinalSoftwareMinutes(
-          employee,
-          lunchData,
-          customTiming
-        );
-        const softwareTotalMinutes = totals.totalCombinedMinutes;
-        const softwareTotalHours: number = Number(
+        // Convert to decimal hours
+        const softwareTotalHours = Number(
           (softwareTotalMinutes / 60).toFixed(2)
         );
 
         const hrLateHours: number | null = getHRLateValue(employee);
 
-        // Difference is: Software Total - HR Late
         const difference: number | string =
           hrLateHours === null
             ? "N/A"
             : Number((softwareTotalHours - hrLateHours).toFixed(2));
+
         const { category } = getDifferenceCategory(difference);
+
+        console.log("COMPARE DEBUG:", {
+          empCode: employee.empCode,
+          empName: employee.empName,
+          softwareTotalMinutes,
+          softwareTotalHours,
+          calculatedHHMM: minutesToHHMM(softwareTotalMinutes),
+          // Show the math:
+          exactDecimal: softwareTotalMinutes / 60,
+          roundedDecimal: Number((softwareTotalMinutes / 60).toFixed(2)),
+        });
 
         return {
           empCode: employee.empCode,
@@ -583,6 +562,7 @@ export const LateComparison: React.FC = () => {
           hrLateHours,
           difference,
           category,
+          company: employee.companyName,
         };
       }
     );
@@ -665,9 +645,20 @@ export const LateComparison: React.FC = () => {
 
   /* ------------------ Filtering ------------------ */
   const filteredData = useMemo(() => {
-    if (!filterCategory || filterCategory === "All") return sortedData;
-    return sortedData.filter((row) => row.category === filterCategory);
-  }, [sortedData, filterCategory]);
+    let data = sortedData;
+
+    // Category filter
+    if (filterCategory && filterCategory !== "All") {
+      data = data.filter((row) => row.category === filterCategory);
+    }
+
+    // Company filter
+    if (filterCompany !== "All") {
+      data = data.filter((row) => row.company === filterCompany);
+    }
+
+    return data;
+  }, [sortedData, filterCategory, filterCompany]);
 
   const requestSort = useCallback(
     (key: SortColumn) => {
@@ -779,7 +770,7 @@ export const LateComparison: React.FC = () => {
         {!showTable ? (
           <button
             onClick={handleCompareClick}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400 transition-colors"
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
             disabled={isLoading}
           >
             {isLoading
@@ -788,6 +779,25 @@ export const LateComparison: React.FC = () => {
           </button>
         ) : (
           <>
+            <div className="px-4 py-2 flex gap-3 items-center">
+              <span className="text-sm font-medium text-gray-700">
+                Company:
+              </span>
+
+              <select
+                value={filterCompany}
+                onChange={(e) => setFilterCompany(e.target.value)}
+                className="px-3 py-1 text-sm border rounded-md bg-white"
+              >
+                <option value="All">All</option>
+                {companies.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <button
               onClick={handleExportClick}
               className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
@@ -801,44 +811,57 @@ export const LateComparison: React.FC = () => {
               Hide Comparison
             </button>
 
-            <div className="flex gap-2 flex-wrap">
-              <button
-                onClick={() => setFilterCategory("All")}
-                className={getCategoryButtonClass("All")}
-              >
-                All ({sortedData.length})
-              </button>
-              <button
-                onClick={() => setFilterCategory("Match")}
-                className={getCategoryButtonClass("Match")}
-              >
-                ✓ Match
-              </button>
-              <button
-                onClick={() => setFilterCategory("Minor")}
-                className={getCategoryButtonClass("Minor")}
-              >
-                Minor Diff
-              </button>
-              <button
-                onClick={() => setFilterCategory("Medium")}
-                className={getCategoryButtonClass("Medium")}
-              >
-                Medium Diff
-              </button>
-              <button
-                onClick={() => setFilterCategory("Major")}
-                className={getCategoryButtonClass("Major")}
-              >
-                Major Diff
-              </button>
-              <button
-                onClick={() => setFilterCategory("N/A")}
-                className={getCategoryButtonClass("N/A")}
-              >
-                N/A
-              </button>
-            </div>
+            <span className="text-sm font-medium text-gray-700 ml-4">
+              Filter by:
+            </span>
+            <button
+              onClick={() => setFilterCategory("All")}
+              className={getCategoryButtonClass("All")}
+            >
+              All ({categorizedData.length})
+            </button>
+            <button
+              onClick={() => setFilterCategory("Major")}
+              className={getCategoryButtonClass("Major")}
+            >
+              Major (
+              {categorizedData.filter((row) => row.category === "Major").length}
+              )
+            </button>
+            <button
+              onClick={() => setFilterCategory("Medium")}
+              className={getCategoryButtonClass("Medium")}
+            >
+              Medium (
+              {
+                categorizedData.filter((row) => row.category === "Medium")
+                  .length
+              }
+              )
+            </button>
+            <button
+              onClick={() => setFilterCategory("Minor")}
+              className={getCategoryButtonClass("Minor")}
+            >
+              Minor (
+              {categorizedData.filter((row) => row.category === "Minor").length}
+              )
+            </button>
+            <button
+              onClick={() => setFilterCategory("Match")}
+              className={getCategoryButtonClass("Match")}
+            >
+              Match (
+              {categorizedData.filter((row) => row.category === "Match").length}
+              )
+            </button>
+            <button
+              onClick={() => setFilterCategory("N/A")}
+              className={getCategoryButtonClass("N/A")}
+            >
+              N/A (
+              {categorizedData.filter((row) => row.category === "N/A").length})
+            </button>
           </>
         )}
       </div>
@@ -850,76 +873,141 @@ export const LateComparison: React.FC = () => {
               <div className="text-gray-600">Loading comparison data...</div>
             </div>
           ) : (
-            <div className="max-h-[600px] overflow-y-auto border border-gray-300 rounded-md">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50 sticky top-0 z-10">
-                  <tr>
-                    {tableHeaders.map((header) => (
-                      <th
-                        key={header.key}
-                        onClick={() => requestSort(header.key)}
-                        className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-300 cursor-pointer hover:bg-gray-100 transition-colors"
-                      >
-                        <div className="flex items-center">
-                          {header.label}
-                          {getSortArrows(header.key)}
-                        </div>
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
+            <>
+              {/* Summary Stats */}
+              <div className="mb-4 p-4 bg-blue-50 rounded-md border border-blue-200">
+                <div className="text-sm font-semibold text-blue-800 mb-2">
+                  📊 Comparison Summary
+                </div>
+                <div className="grid grid-cols-5 gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-600">Total Employees:</span>{" "}
+                    <span className="font-bold">{categorizedData.length}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Matches:</span>{" "}
+                    <span className="font-bold text-green-600">
+                      {
+                        categorizedData.filter(
+                          (row) => row.category === "Match"
+                        ).length
+                      }
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Minor Diff:</span>{" "}
+                    <span className="font-bold text-gray-900">
+                      {
+                        categorizedData.filter(
+                          (row) => row.category === "Minor"
+                        ).length
+                      }
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Medium Diff:</span>{" "}
+                    <span className="font-bold text-orange-600">
+                      {
+                        categorizedData.filter(
+                          (row) => row.category === "Medium"
+                        ).length
+                      }
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Major Diff:</span>{" "}
+                    <span className="font-bold text-red-600">
+                      {
+                        categorizedData.filter(
+                          (row) => row.category === "Major"
+                        ).length
+                      }
+                    </span>
+                  </div>
+                </div>
+              </div>
 
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredData.map((row, index) => {
-                    const diffClass = getDiffClass(row.category);
-                    const rowBgClass =
-                      index % 2 === 0 ? "bg-white" : "bg-gray-50";
+              {/* Comparison Table */}
+              <div className="max-h-[600px] overflow-y-auto border border-gray-300 rounded-md">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50 sticky top-0 z-10">
+                    <tr>
+                      {tableHeaders.map((header) => (
+                        <th
+                          key={header.key}
+                          onClick={() => requestSort(header.key)}
+                          className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-300 cursor-pointer hover:bg-gray-100 transition-colors"
+                        >
+                          <div className="flex items-center">
+                            {header.label}
+                            {getSortArrows(header.key)}
+                          </div>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {filteredData.map((row, index) => {
+                      const diffClass = getDiffClass(row.category);
+                      const rowBgClass =
+                        index % 2 === 0 ? "bg-white" : "bg-gray-50";
 
-                    return (
-                      <tr
-                        key={`${row.empCode}-${index}`}
-                        className={`${rowBgClass} hover:bg-indigo-50 transition-colors`}
-                      >
-                        <td
-                          className="px-4 py-3 whitespace-nowrap text-sm text-blue-600 font-medium cursor-pointer hover:text-blue-800 hover:underline"
-                          onClick={() => handleScrollToEmployee(row.empCode)}
+                      return (
+                        <tr
+                          key={`${row.empCode}-${index}`}
+                          className={`${rowBgClass} hover:bg-blue-50 transition-colors`}
                         >
-                          {row.empCode}
-                        </td>
-                        <td
-                          className="px-4 py-3 whitespace-nowrap text-sm text-blue-600 cursor-pointer hover:text-blue-800 hover:underline"
-                          onClick={() => handleScrollToEmployee(row.empCode)}
-                        >
-                          {row.empName}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-blue-900 font-bold bg-blue-50">
-                          {row.softwareTotalHours}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 font-semibold">
-                          {row.hrLateHours ?? "N/A"}
-                        </td>
-                        <td
-                          className={`px-4 py-3 whitespace-nowrap text-sm ${diffClass}`}
-                        >
-                          {row.difference === 0 ? (
-                            <span className="inline-flex items-center">
-                              ✓ {row.difference}
+                          {/* Clickable Emp Code */}
+                          <td
+                            className="px-4 py-3 whitespace-nowrap text-sm text-blue-600 font-medium cursor-pointer hover:text-blue-800 hover:underline"
+                            onClick={() => handleScrollToEmployee(row.empCode)}
+                          >
+                            {row.empCode}
+                          </td>
+
+                          {/* Clickable Emp Name */}
+                          <td
+                            className="px-4 py-3 whitespace-nowrap text-sm text-blue-600 cursor-pointer hover:text-blue-800 hover:underline"
+                            onClick={() => handleScrollToEmployee(row.empCode)}
+                          >
+                            {row.empName}
+                          </td>
+
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 font-semibold">
+                            {row.softwareTotalHours}{" "}
+                            <span className="text-xs text-gray-500">
+                              (
+                              {minutesToHHMM(
+                                Math.round(row.softwareTotalHours * 60)
+                              )}
+                              )
                             </span>
-                          ) : (
-                            row.difference
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                          </td>
+
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 font-semibold">
+                            {row.hrLateHours ?? "N/A"}
+                          </td>
+                          <td
+                            className={`px-4 py-3 whitespace-nowrap text-sm ${diffClass}`}
+                          >
+                            {row.difference === 0 ? (
+                              <span className="inline-flex items-center">
+                                ✓ {row.difference}
+                              </span>
+                            ) : (
+                              row.difference
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
       )}
     </div>
   );
 };
-
-export default LateComparison;

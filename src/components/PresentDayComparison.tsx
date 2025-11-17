@@ -9,12 +9,21 @@ import {
   ComparisonData,
 } from "@/lib/exportComparison";
 import { useHRDataLookup } from "@/hooks/useHRDataLookup";
-import { calculateEmployeeStats } from "@/lib/statsCalculator"; // <-- IMPORT THE SHARED CALCULATOR
+import { calculateEmployeeStats } from "@/lib/statsCalculator";
 import { ArrowDown, ArrowUp } from "lucide-react";
 
 // Define the type for the sorting state
-type SortColumn = keyof ComparisonData | "difference";
+type SortColumn = keyof ComparisonData | "difference" | "category";
 type SortDirection = "asc" | "desc";
+
+// Define the Difference Category type
+type DifferenceCategory = "N/A" | "Match" | "Minor" | "Medium" | "Major";
+
+// Extend ComparisonData type locally to include category for sorting and coloring
+interface SortableComparisonData extends ComparisonData {
+  category: DifferenceCategory;
+  company: string;
+}
 
 // Import the same helper functions used in PresentDayStatsGrid
 const canon = (s: string) => (s ?? "").toUpperCase().trim();
@@ -23,7 +32,34 @@ const numericOnly = (s: string) => s.match(/\d+/g)?.join("") ?? "";
 const dropLeadingZeros = (s: string) => s.replace(/^0+/, "");
 const nameKey = (s: string) => stripNonAlnum(s);
 
-// Helper to get Paid Leave (Keeping all helper functions unchanged)
+/**
+ * Determines the category of the difference and returns a numeric sort value.
+ * Category definition:
+ * - Major: |Diff| > 2
+ * - Medium: 1 < |Diff| <= 2
+ * - Minor: 0 < |Diff| <= 1
+ * - Match: Diff = 0
+ */
+const getDifferenceCategory = (
+  diff: number | string
+): { category: DifferenceCategory; sortValue: number } => {
+  if (diff === "N/A") {
+    return { category: "N/A", sortValue: 0 };
+  }
+  const absDiff = Math.abs(diff as number);
+
+  if (absDiff === 0) {
+    return { category: "Match", sortValue: 5 };
+  } else if (absDiff > 2) {
+    return { category: "Major", sortValue: 4 };
+  } else if (absDiff > 1) {
+    return { category: "Medium", sortValue: 3 };
+  } else {
+    return { category: "Minor", sortValue: 2 };
+  }
+};
+
+// Helper to get Paid Leave
 function usePaidLeaveLookup() {
   const { getAllUploadedFiles } = useExcel();
 
@@ -86,7 +122,7 @@ function usePaidLeaveLookup() {
   }, [getAllUploadedFiles]);
 }
 
-// Helper for Staff OT Granted (Keeping all helper functions unchanged)
+// Helper for Staff OT Granted
 function useStaffOTGrantedLookup() {
   const { getAllUploadedFiles } = useExcel();
 
@@ -157,7 +193,7 @@ function useStaffOTGrantedLookup() {
   }, [getAllUploadedFiles]);
 }
 
-// Helper for Full Night OT (Keeping all helper functions unchanged)
+// Helper for Full Night OT
 function useFullNightOTLookup() {
   const { getAllUploadedFiles } = useExcel();
 
@@ -240,7 +276,7 @@ function useFullNightOTLookup() {
   }, [getAllUploadedFiles]);
 }
 
-// Helper for Custom Timing (Keeping all helper functions unchanged)
+// Helper for Custom Timing
 function useCustomTimingLookup() {
   const { getAllUploadedFiles } = useExcel();
 
@@ -341,7 +377,7 @@ function useCustomTimingLookup() {
   }, [getAllUploadedFiles]);
 }
 
-// Helper for Maintenance Deduction (Keeping all helper functions unchanged)
+// Helper for Maintenance Deduction
 function useMaintenanceDeductLookup() {
   const { getAllUploadedFiles } = useExcel();
 
@@ -408,6 +444,20 @@ function useMaintenanceDeductLookup() {
   }, [getAllUploadedFiles]);
 }
 
+const handleScrollToEmployee = (empCode: string) => {
+  const element = document.getElementById(`employee-${empCode}`);
+  if (element) {
+    element.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+    element.classList.add("ring-4", "ring-green-400");
+    setTimeout(() => {
+      element.classList.remove("ring-4", "ring-green-400");
+    }, 2000);
+  }
+};
+
 interface PresentDayComparisonProps {}
 
 export const PresentDayComparison: React.FC<
@@ -416,12 +466,27 @@ export const PresentDayComparison: React.FC<
   const { excelData } = useExcel();
   const [showTable, setShowTable] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [filterCompany, setFilterCompany] = useState<string>(
+    "INDIANA OPHTHALMICS LLP"
+  );
+  const companies = [
+    "INDIANA OPHTHALMICS LLP",
+    "NUTRACEUTICO",
+    "SCI PREC",
+    "SCI PREC LIFESCIENCES",
+  ];
+
+  // New state for filtering
+  const [filterCategory, setFilterCategory] = useState<
+    DifferenceCategory | "All" | null
+  >(null);
+
   const [sortConfig, setSortConfig] = useState<{
     key: SortColumn;
     direction: SortDirection;
   }>({
-    key: "empCode", // Default sort column
-    direction: "asc", // Default sort direction
+    key: "empCode",
+    direction: "asc",
   });
   const { employeeFinalDifferences } = useFinalDifference();
 
@@ -448,46 +513,52 @@ export const PresentDayComparison: React.FC<
 
   const selectedHolidaysCount = getSelectedHolidaysCount();
 
-  const comparisonData: ComparisonData[] = useMemo(() => {
+  // 1. Calculate and annotate data with category
+  const categorizedData: SortableComparisonData[] = useMemo(() => {
     if (!excelData || !excelData.employees || !showTable) return [];
     setIsLoading(true);
 
-    const data = excelData.employees.map((employee: EmployeeData) => {
-      // 🆕 Get the finalDifference for this employee
-      const finalDifference =
-        employeeFinalDifferences.get(employee.empCode) || 0;
+    const data: SortableComparisonData[] = excelData.employees.map(
+      (employee: EmployeeData) => {
+        const finalDifference =
+          employeeFinalDifferences.get(employee.empCode) || 0;
 
-      const stats = calculateEmployeeStats(
-        employee,
-        baseHolidaysCount,
-        selectedHolidaysCount,
-        getPL,
-        getGrantForEmployee,
-        getFullNightOTForEmployee,
-        getCustomTimingForEmployee,
-        isMaintenanceEmployee,
-        finalDifference // 🆕 Pass it here
-      );
+        const stats = calculateEmployeeStats(
+          employee,
+          baseHolidaysCount,
+          selectedHolidaysCount,
+          getPL,
+          getGrantForEmployee,
+          getFullNightOTForEmployee,
+          getCustomTimingForEmployee,
+          isMaintenanceEmployee,
+          finalDifference
+        );
 
-      const hrPresentDays = getHRPresentDays(employee);
+        const hrPresentDays = getHRPresentDays(employee);
 
-      let difference: number | string;
-      const roundedGrandTotal = Number(stats.GrandTotal.toFixed(1));
+        let difference: number | string;
+        const roundedGrandTotal = Number(stats.GrandTotal.toFixed(1));
 
-      if (hrPresentDays === null) {
-        difference = "N/A";
-      } else {
-        difference = Number((roundedGrandTotal - hrPresentDays).toFixed(2));
+        if (hrPresentDays === null) {
+          difference = "N/A";
+        } else {
+          difference = Number((roundedGrandTotal - hrPresentDays).toFixed(2));
+        }
+
+        const { category } = getDifferenceCategory(difference);
+
+        return {
+          empCode: employee.empCode,
+          empName: employee.empName,
+          company: employee.companyName,
+          softwarePresentDays: roundedGrandTotal,
+          hrPresentDays,
+          difference,
+          category,
+        };
       }
-
-      return {
-        empCode: employee.empCode,
-        empName: employee.empName,
-        softwarePresentDays: roundedGrandTotal,
-        hrPresentDays,
-        difference,
-      };
-    });
+    );
 
     setIsLoading(false);
     return data;
@@ -502,39 +573,28 @@ export const PresentDayComparison: React.FC<
     isMaintenanceEmployee,
     baseHolidaysCount,
     selectedHolidaysCount,
-    employeeFinalDifferences, // 🆕 Add this dependency
+    employeeFinalDifferences,
   ]);
 
-  // Add after other handlers
-  const handleScrollToEmployee = (empCode: string) => {
-    const element = document.getElementById(`employee-${empCode}`);
-    if (element) {
-      element.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
-      // Optional: Add a highlight effect
-      element.classList.add("ring-4", "ring-green-400");
-      setTimeout(() => {
-        element.classList.remove("ring-4", "ring-green-400");
-      }, 2000);
-    }
-  };
-  // --- Sorting Logic ---
+  // 2. Sorting Logic (Updated to handle category sort)
   const sortedData = useMemo(() => {
-    if (comparisonData.length === 0) return [];
-    const sortableData = [...comparisonData];
+    if (categorizedData.length === 0) return [];
+    const sortableData = [...categorizedData];
 
-    // Sort logic
     sortableData.sort((a, b) => {
       const { key, direction } = sortConfig;
 
       let aValue: string | number | null = null;
       let bValue: string | number | null = null;
 
-      // Extract values based on the column key
-      if (key === "difference") {
-        // Handle 'N/A' (treated as extremes) for numerical difference sort
+      if (key === "category") {
+        const { sortValue: aSortValue } = getDifferenceCategory(a.difference);
+        const { sortValue: bSortValue } = getDifferenceCategory(b.difference);
+
+        return direction === "asc"
+          ? aSortValue - bSortValue
+          : bSortValue - aSortValue;
+      } else if (key === "difference") {
         aValue =
           a.difference === "N/A"
             ? direction === "asc"
@@ -548,7 +608,6 @@ export const PresentDayComparison: React.FC<
               : -Infinity
             : (b.difference as number);
       } else if (key === "hrPresentDays") {
-        // Handle null (treated as extremes) for hrPresentDays sort
         aValue =
           a.hrPresentDays === null
             ? direction === "asc"
@@ -561,10 +620,11 @@ export const PresentDayComparison: React.FC<
               ? Infinity
               : -Infinity
             : b.hrPresentDays;
-      } else if (key === "empCode" || key === "empName") {
-        aValue = a[key];
-        bValue = b[key];
-      } else if (key === "softwarePresentDays") {
+      } else if (
+        key === "empCode" ||
+        key === "empName" ||
+        key === "softwarePresentDays"
+      ) {
         aValue = a[key];
         bValue = b[key];
       }
@@ -581,13 +641,29 @@ export const PresentDayComparison: React.FC<
     });
 
     return sortableData;
-  }, [comparisonData, sortConfig]);
+  }, [categorizedData, sortConfig]);
+
+  // 3. Filtering Logic
+  const filteredData = useMemo(() => {
+    let data = sortedData;
+
+    // Category filter
+    if (filterCategory && filterCategory !== "All") {
+      data = data.filter((row) => row.category === filterCategory);
+    }
+
+    // Company filter
+    if (filterCompany !== "All") {
+      data = data.filter((row) => row.company === filterCompany);
+    }
+
+    return data;
+  }, [sortedData, filterCategory, filterCompany]);
 
   // Handler to change sorting
   const requestSort = useCallback(
     (key: SortColumn) => {
       let direction: SortDirection = "asc";
-      // If currently sorting by this key, flip the direction
       if (sortConfig.key === key && sortConfig.direction === "asc") {
         direction = "desc";
       }
@@ -596,10 +672,6 @@ export const PresentDayComparison: React.FC<
     [sortConfig]
   );
 
-  /**
-   * Renders both up and down arrows for all columns.
-   * The active sorting arrow is highlighted (text-gray-900), the inactive is dimmed (text-gray-300).
-   */
   const getSortArrows = (key: SortColumn) => (
     <div className="flex flex-col ml-1">
       <ArrowUp
@@ -621,18 +693,67 @@ export const PresentDayComparison: React.FC<
     </div>
   );
 
+  /**
+   * Get CSS class for the Difference cell based on category
+   */
+  const getDiffClass = (category: DifferenceCategory): string => {
+    switch (category) {
+      case "Major":
+        return "text-red-600 font-extrabold";
+      case "Medium":
+        return "text-orange-600 font-bold";
+      case "Minor":
+        return "text-gray-900 font-medium";
+      case "Match":
+        return "text-green-600 font-semibold";
+      case "N/A":
+        return "text-gray-400";
+      default:
+        return "text-gray-700";
+    }
+  };
+
+  const getCategoryButtonClass = (
+    buttonCategory: DifferenceCategory | "All" | null
+  ) => {
+    const baseClass =
+      "px-3 py-1 text-xs font-semibold rounded-full transition-colors";
+    if (filterCategory === buttonCategory) {
+      switch (buttonCategory) {
+        case "Major":
+          return `${baseClass} bg-red-600 text-white`;
+        case "Medium":
+          return `${baseClass} bg-orange-600 text-white`;
+        case "Minor":
+          return `${baseClass} bg-gray-600 text-white`;
+        case "Match":
+          return `${baseClass} bg-green-600 text-white`;
+        case "N/A":
+          return `${baseClass} bg-gray-400 text-white`;
+        case "All":
+        default:
+          return `${baseClass} bg-blue-600 text-white`;
+      }
+    }
+    return `${baseClass} bg-gray-200 text-gray-700 hover:bg-gray-300`;
+  };
+
   const handleCompareClick = () => {
     setShowTable(true);
   };
 
   const handleExportClick = () => {
-    if (comparisonData.length === 0) {
+    if (categorizedData.length === 0) {
       console.warn(
         "Please click 'Compare' first to generate the data for export."
       );
       return;
     }
-    exportComparisonToExcel(sortedData);
+    const exportData = categorizedData.map(({ category, ...rest }) => ({
+      ...rest,
+      DifferenceCategory: category,
+    }));
+    exportComparisonToExcel(exportData);
   };
 
   if (!excelData) return null;
@@ -651,11 +772,11 @@ export const PresentDayComparison: React.FC<
         Present Day Comparison
       </h3>
 
-      <div className="flex gap-4">
+      <div className="flex gap-4 mb-4 items-center flex-wrap">
         {!showTable ? (
           <button
             onClick={handleCompareClick}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400"
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
             disabled={isLoading}
           >
             {isLoading
@@ -664,85 +785,221 @@ export const PresentDayComparison: React.FC<
           </button>
         ) : (
           <>
+            <div className=" px-4 py-2 flex gap-3 items-center">
+              <span className="text-sm font-medium text-gray-700">
+                Company:
+              </span>
+
+              <select
+                value={filterCompany}
+                onChange={(e) => setFilterCompany(e.target.value)}
+                className="px-3 py-1 text-sm border rounded-md bg-white"
+              >
+                <option value="All">All</option>
+                {companies.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
             <button
               onClick={handleExportClick}
-              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
             >
               Export Comparison
             </button>
             <button
               onClick={() => setShowTable(false)}
-              className="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600"
+              className="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors"
             >
               Hide Comparison
             </button>
+            <span className="text-sm font-medium text-gray-700 ml-4">
+              Filter by:
+            </span>
+            <button
+              onClick={() => setFilterCategory("All")}
+              className={getCategoryButtonClass("All")}
+            >
+              All ({categorizedData.length})
+            </button>
+            <button
+              onClick={() => setFilterCategory("Major")}
+              className={getCategoryButtonClass("Major")}
+            >
+              Major (
+              {categorizedData.filter((row) => row.category === "Major").length}
+              )
+            </button>
+            <button
+              onClick={() => setFilterCategory("Medium")}
+              className={getCategoryButtonClass("Medium")}
+            >
+              Medium (
+              {
+                categorizedData.filter((row) => row.category === "Medium")
+                  .length
+              }
+              )
+            </button>
+            <button
+              onClick={() => setFilterCategory("Minor")}
+              className={getCategoryButtonClass("Minor")}
+            >
+              Minor (
+              {categorizedData.filter((row) => row.category === "Minor").length}
+              )
+            </button>
+            <button
+              onClick={() => setFilterCategory("Match")}
+              className={getCategoryButtonClass("Match")}
+            >
+              Match (
+              {categorizedData.filter((row) => row.category === "Match").length}
+              )
+            </button>
+            <button
+              onClick={() => setFilterCategory("N/A")}
+              className={getCategoryButtonClass("N/A")}
+            >
+              N/A (
+              {categorizedData.filter((row) => row.category === "N/A").length})
+            </button>
+            {/* Company Filter */}
           </>
         )}
       </div>
 
       {showTable && (
-        <div className="mt-6 max-h-[600px] overflow-y-auto">
+        <div className="mt-6">
           {isLoading ? (
-            <p>Loading...</p>
+            <div className="flex items-center justify-center py-8">
+              <div className="text-gray-600">Loading comparison data...</div>
+            </div>
           ) : (
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50 sticky top-0">
-                <tr>
-                  {tableHeaders.map((header) => (
-                    <th
-                      key={header.key}
-                      onClick={() => requestSort(header.key)}
-                      className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                    >
-                      <div className="flex items-center">
-                        {header.label}
-                        {/* RENDER BOTH ARROWS FOR ALL HEADERS */}
-                        {getSortArrows(header.key)}
-                      </div>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {sortedData.map((row) => {
-                  const diffClass =
-                    row.difference === 0
-                      ? "text-green-600"
-                      : "text-red-600 font-bold";
-                  return (
-                    <tr key={row.empCode}>
-                      {/* 🆕 Clickable Emp Code */}
-                      <td
-                        className="px-4 py-2 whitespace-nowrap text-sm text-blue-600 font-medium cursor-pointer hover:text-blue-800 hover:underline"
-                        onClick={() => handleScrollToEmployee(row.empCode)}
-                      >
-                        {row.empCode}
-                      </td>
+            <>
+              {/* Summary Stats */}
+              <div className="mb-4 p-4 bg-blue-50 rounded-md border border-blue-200">
+                <div className="text-sm font-semibold text-blue-800 mb-2">
+                  📊 Comparison Summary
+                </div>
+                <div className="grid grid-cols-5 gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-600">Total Employees:</span>{" "}
+                    <span className="font-bold">{categorizedData.length}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Matches:</span>{" "}
+                    <span className="font-bold text-green-600">
+                      {
+                        categorizedData.filter(
+                          (row) => row.category === "Match"
+                        ).length
+                      }
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Minor Diff:</span>{" "}
+                    <span className="font-bold text-gray-900">
+                      {
+                        categorizedData.filter(
+                          (row) => row.category === "Minor"
+                        ).length
+                      }
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Medium Diff:</span>{" "}
+                    <span className="font-bold text-orange-600">
+                      {
+                        categorizedData.filter(
+                          (row) => row.category === "Medium"
+                        ).length
+                      }
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Major Diff:</span>{" "}
+                    <span className="font-bold text-red-600">
+                      {
+                        categorizedData.filter(
+                          (row) => row.category === "Major"
+                        ).length
+                      }
+                    </span>
+                  </div>
+                </div>
+              </div>
 
-                      {/* 🆕 Clickable Emp Name */}
-                      <td
-                        className="px-4 py-2 whitespace-nowrap text-sm text-blue-600 cursor-pointer hover:text-blue-800 hover:underline"
-                        onClick={() => handleScrollToEmployee(row.empCode)}
-                      >
-                        {row.empName}
-                      </td>
-
-                      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
-                        {row.softwarePresentDays}
-                      </td>
-                      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
-                        {row.hrPresentDays ?? "N/A"}
-                      </td>
-                      <td
-                        className={`px-4 py-2 whitespace-nowrap text-sm ${diffClass}`}
-                      >
-                        {row.difference}
-                      </td>
+              {/* Comparison Table with Sorting and Filtering */}
+              <div className="max-h-[600px] overflow-y-auto border border-gray-300 rounded-md">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50 sticky top-0 z-10">
+                    <tr>
+                      {tableHeaders.map((header) => (
+                        <th
+                          key={header.key}
+                          onClick={() => requestSort(header.key)}
+                          className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-300 cursor-pointer hover:bg-gray-100 transition-colors"
+                        >
+                          <div className="flex items-center">
+                            {header.label}
+                            {getSortArrows(header.key)}
+                          </div>
+                        </th>
+                      ))}
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {filteredData.map((row, index) => {
+                      const diffClass = getDiffClass(row.category);
+                      const rowBgClass =
+                        index % 2 === 0 ? "bg-white" : "bg-gray-50";
+
+                      return (
+                        <tr
+                          key={`${row.empCode}-${index}`}
+                          className={`${rowBgClass} hover:bg-blue-50 transition-colors`}
+                        >
+                          <td
+                            className="px-4 py-3 whitespace-nowrap text-sm text-blue-600 font-medium cursor-pointer hover:text-blue-800 hover:underline"
+                            onClick={() => handleScrollToEmployee(row.empCode)}
+                          >
+                            {row.empCode}
+                          </td>
+
+                          <td
+                            className="px-4 py-3 whitespace-nowrap text-sm text-blue-600 cursor-pointer hover:text-blue-800 hover:underline"
+                            onClick={() => handleScrollToEmployee(row.empCode)}
+                          >
+                            {row.empName}
+                          </td>
+
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 font-semibold">
+                            {row.softwarePresentDays}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 font-semibold">
+                            {row.hrPresentDays ?? "N/A"}
+                          </td>
+                          <td
+                            className={`px-4 py-3 whitespace-nowrap text-sm ${diffClass}`}
+                          >
+                            {row.difference === 0 ? (
+                              <span className="inline-flex items-center">
+                                ✓ {row.difference}
+                              </span>
+                            ) : (
+                              row.difference
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
       )}

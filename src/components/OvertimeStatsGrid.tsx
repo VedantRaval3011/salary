@@ -573,7 +573,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
         else if (status === "ADJ-P") {
           if (outTime && outTime !== "-") {
             const outMin = timeToMinutes(outTime);
-            const cutoff = 18 * 60; // 6:00 PM
+            const cutoff = 17 * 60 + 30; // 5:30 PM
             dayOTMinutes = outMin > cutoff ? outMin - cutoff : 0;
           } else {
             dayOTMinutes = 0;
@@ -594,7 +594,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
         }
 
         // Cap at 9 hours max
-        const cappedOT = Math.min(dayOTMinutes, 540);
+        const cappedOT = dayOTMinutes;
 
         // This employee is STAFF → add here
         grantedFromSheetStaffMinutes += cappedOT;
@@ -603,53 +603,82 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
       // Employee is NOT in OT Granted list
       if (isStaff) {
         // Staff Granted OT (Saturdays/Holidays) - logic for Staff NOT in granted sheet
+        // Staff Granted OT (Saturdays/Holidays) - logic for Staff NOT in granted sheet
         employee.days?.forEach((day) => {
           const dayName = (day.day || "").toLowerCase();
           const status = (day.attendance.status || "").toUpperCase();
+          const outTime = day.attendance.outTime;
 
-          // OT for Saturday (Sa) and Holidays (ADJ-P means holiday pay applied)
-          if (
-            dayName === "sa" ||
-            status === "ADJ-P" ||
-            status === "WO-I" ||
-            status === "ADJ-M"
-          ) {
+          // We'll handle ADJ-P in its own block so it isn't double-counted with "sa".
+          // Saturday (sa) but NOT ADJ-P should be processed using the OT field (or custom timing).
+          if (dayName === "sa" && status !== "ADJ-P") {
             let dayOTMinutes = 0;
-
             if (customTiming) {
               dayOTMinutes = calculateCustomTimingOT(
-                day.attendance.outTime,
+                outTime,
                 customTiming.expectedEndMinutes
               );
             } else {
-              // ADJ-P (holiday-adjusted present) — ignore raw OT field and compute OT only after cutoff
-              if (status === "ADJ-P") {
-                const outTime = day.attendance.outTime;
-                if (outTime && outTime !== "-") {
-                  const outMin = timeToMinutes(outTime);
-                  dayOTMinutes =
-                    outMin > ADJ_P_CUTOFF_MINUTES
-                      ? outMin - ADJ_P_CUTOFF_MINUTES
-                      : 0;
-                } else {
-                  dayOTMinutes = 0;
-                }
-              } else {
-                // For other cases (Sa, ADJ-M, WO-I etc) use the OT field as before
-                const otField =
-                  (day.attendance as any).otHours ??
-                  (day.attendance as any).otHrs ??
-                  (day.attendance as any).ot ??
-                  (day.attendance as any).workHrs ??
-                  (day.attendance as any).workHours ??
-                  null;
-                dayOTMinutes = parseMinutes(otField);
-              }
+              const otField =
+                (day.attendance as any).otHours ??
+                (day.attendance as any).otHrs ??
+                (day.attendance as any).ot ??
+                (day.attendance as any).workHrs ??
+                (day.attendance as any).workHours ??
+                null;
+              dayOTMinutes = parseMinutes(otField);
             }
 
-            const cappedOT = Math.min(dayOTMinutes, 540);
+            const cappedOT = dayOTMinutes;
             staffGrantedOTMinutes += cappedOT;
+            return; // next day
           }
+
+          // ADJ-P (holiday-present) handling: only count OT if buffer (till 18:00) is exceeded.
+          if (status === "ADJ-P") {
+            if (outTime && outTime !== "-") {
+              const outMin = timeToMinutes(outTime);
+
+              const ADJ_P_SHIFT_END = 17 * 60 + 30; // 17:30
+              const ADJ_P_BUFFER = 30; // minutes
+              const ADJ_P_BUFFER_END = ADJ_P_SHIFT_END + ADJ_P_BUFFER; // 18:00
+
+              // Only if buffer is exceeded (out > 18:00), OT = out - 17:30 (includes the 30min buffer).
+              if (outMin > ADJ_P_BUFFER_END) {
+                const dayOTMinutes = outMin - ADJ_P_SHIFT_END;
+                const capped = Math.min(dayOTMinutes, 540);
+                staffGrantedOTMinutes += capped;
+              } else {
+                // buffer not exceeded -> no OT
+              }
+            }
+            return; // ADJ-P handled, next day
+          }
+
+          // Other holiday-like statuses (WO-I, ADJ-M) — use OT field as before
+          if (status === "WO-I" || status === "ADJ-M") {
+            let dayOTMinutes = 0;
+            if (customTiming) {
+              dayOTMinutes = calculateCustomTimingOT(
+                outTime,
+                customTiming.expectedEndMinutes
+              );
+            } else {
+              const otField =
+                (day.attendance as any).otHours ??
+                (day.attendance as any).otHrs ??
+                (day.attendance as any).ot ??
+                (day.attendance as any).workHrs ??
+                (day.attendance as any).workHours ??
+                null;
+              dayOTMinutes = parseMinutes(otField);
+            }
+            const cappedOT = dayOTMinutes;
+            staffGrantedOTMinutes += cappedOT;
+            return;
+          }
+
+          // Everything else (non-saturday working days) is not part of this block.
         });
 
         // Staff Non Granted OT (Working Days) - for Staff NOT in granted sheet
@@ -682,7 +711,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
               dayOTMinutes = parseMinutes(otField);
             }
 
-            const cappedOT = Math.min(dayOTMinutes, 540);
+            const cappedOT = dayOTMinutes;
             staffNonGrantedOTMinutes += cappedOT;
           }
         });
@@ -710,10 +739,13 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
             if (outTime && outTime !== "-") {
               const outMinutes = timeToMinutes(outTime);
 
-              const cutoff = 18 * 60; // 6:00 PM = 1080 mins
+              const ADJ_P_SHIFT_END = 17 * 60 + 30; // 17:30
+              const ADJ_P_BUFFER = 30; // minutes
+              const ADJ_P_BUFFER_END = ADJ_P_SHIFT_END + ADJ_P_BUFFER; // 18:00
 
-              if (outMinutes > cutoff) {
-                dayOTMinutes = outMinutes - cutoff;
+              // Only if buffer is exceeded do we count OT, and then include the buffer in OT.
+              if (outMinutes > ADJ_P_BUFFER_END) {
+                dayOTMinutes = outMinutes - ADJ_P_SHIFT_END;
               } else {
                 dayOTMinutes = 0;
               }
@@ -732,7 +764,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
             dayOTMinutes = parseMinutes(otField);
           }
 
-          const cappedOT = Math.min(dayOTMinutes, 540);
+          const cappedOT = dayOTMinutes;
           workerGrantedOTMinutes += cappedOT;
         });
       }

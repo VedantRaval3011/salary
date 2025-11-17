@@ -67,7 +67,7 @@ export interface EmployeeData {
   empName: string;
   isOTGranted?: boolean; // Flag if employee is in OT granted sheets
   otGrantedType?: "staff" | "fullnight" | "special" | "09to06";
-
+  company: string;
   // Attendance Counts
   present: number;
   od: number;
@@ -156,7 +156,7 @@ export interface UploadedFile {
   data: ProcessedExcelData | null; // Processed data from the file (null until processing completes)
   status: "pending" | "processing" | "success" | "error"; // Current processing status
   error?: string; // Error message if status is 'error'
-  
+
   // Specialized data fields for different file types
   paidLeaveData?: PaidLeaveData[];
   otGrantedData?: OTGrantedEmployee[]; // For Staff OT Granted sheet
@@ -164,7 +164,7 @@ export interface UploadedFile {
   fullNightOTData?: OTGrantedEmployee[];
   customTimingOTData?: OTGrantedEmployee[];
   hrData?: HRData[];
-  
+
   // NEW: Add these missing properties
   hrLateData?: HRLateEmployee[]; // For HR/Tulsi Late data
   lunchInOutData?: LunchInOutEmployee[]; // For Lunch In/Out Time data

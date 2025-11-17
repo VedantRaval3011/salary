@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { EmployeeData } from "@/lib/types";
 import { useExcel } from "../context/ExcelContext";
+import { EyeIcon } from "lucide-react";
 
 // Utility helpers
 const canon = (s: string) => (s ?? "").toUpperCase().trim();
@@ -15,6 +16,7 @@ interface Props {
   employee: EmployeeData;
   otGrandTotal?: number;
   onFinalDifferenceCalculated?: (difference: number) => void; // 🆕 ADD THIS
+  onTotalMinus4Calculated?: (empCode: string, totalMinus4: number) => void;
 }
 
 // Helper to check if employee is Staff or Worker
@@ -304,6 +306,7 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
   employee,
   otGrandTotal = 0,
   onFinalDifferenceCalculated,
+  onTotalMinus4Calculated,
 }) => {
   const [tooltips, setTooltips] = useState<{ [k: string]: boolean }>({});
   const [showBreakModal, setShowBreakModal] = useState(false);
@@ -391,9 +394,8 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
           punchTimes[i].type === "Out" &&
           punchTimes[i + 1].type === "In" &&
           punchTimes[i + 1].minutes > punchTimes[i].minutes &&
-          punchTimes[i + 1].minutes - punchTimes[i].minutes <= 180 && // Max 3 hours
-          punchTimes[i].minutes >= 9 * 60 && // Out cannot be before 9am
-          punchTimes[i].minutes <= 19 * 60 // Out cannot be after 7pm
+          punchTimes[i].minutes >= 9 * 60 &&
+          punchTimes[i].minutes <= 19 * 60
         ) {
           const outTime = punchTimes[i].minutes;
           const inTime = punchTimes[i + 1].minutes;
@@ -606,8 +608,11 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
       }
 
       const earlyDepMins = Number(day.attendance.earlyDep) || 0;
-      if (earlyDepMins > 0) {
-        earlyDepartureTotalMinutes += earlyDepMins;
+
+      if (status !== "P/A" && status !== "PA") {
+        if (earlyDepMins > 0) {
+          earlyDepartureTotalMinutes += earlyDepMins;
+        }
       }
     });
 
@@ -651,6 +656,12 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
       onFinalDifferenceCalculated(stats.finalDifference);
     }
   }, [stats.finalDifference, onFinalDifferenceCalculated]);
+
+  useEffect(() => {
+    if (onTotalMinus4Calculated) {
+      onTotalMinus4Calculated(employee.empCode, stats.totalCombinedMinutes);
+    }
+  }, [stats.totalCombinedMinutes, onTotalMinus4Calculated]);
 
   const tooltipTexts: any = {
     Late_hours_in_minutes:
@@ -697,6 +708,10 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
           {sign}
           {displayDecimalHours}
         </div>
+        <div className="text-[10px] text-gray-500">
+          {sign}
+          {displayMins}
+        </div>
 
         {hasDetails && value > 0 && (
           <button
@@ -711,7 +726,7 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
       shadow
     "
           >
-            👁️
+            <EyeIcon size={10}></EyeIcon>
           </button>
         )}
       </div>
@@ -918,17 +933,42 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
                                     punch.type === "Out" && next.type === "In";
 
                                   // Allowed break rules
+                                  // Allowed break rules — compute overlap with defined BREAKS
                                   let allowed = 0;
                                   if (isBreak) {
                                     const outMin = punch.minutes;
+                                    const inMin = next.minutes;
 
-                                    if (outMin >= 615 && outMin <= 630)
-                                      allowed = 15; // Tea 1
-                                    else if (outMin >= 765 && outMin <= 795)
-                                      allowed = 30; // Lunch
-                                    else if (outMin >= 915 && outMin <= 930)
-                                      allowed = 15; // Tea 2
-                                    else if (outMin >= 1050) allowed = 15; // Post evening
+                                    // Sum overlaps with all defined breaks (tea1, lunch, tea2)
+                                    // If break intersects a defined break window, grant the full allowed time for that window.
+                                    // (This matches the rule used when matching earlier — e.g. lunch gives full 30 mins if it intersects.)
+                                    for (const defBreak of BREAKS) {
+                                      const overlapStart = Math.max(
+                                        outMin,
+                                        defBreak.start
+                                      );
+                                      const overlapEnd = Math.min(
+                                        inMin,
+                                        defBreak.end
+                                      );
+                                      const overlap = Math.max(
+                                        0,
+                                        overlapEnd - overlapStart
+                                      );
+                                      if (overlap > 0) {
+                                        allowed += defBreak.allowed;
+                                      }
+                                    }
+
+                                    // Post-evening rule: if the break occurs after 17:30, company allows up to 15 min.
+                                    // This handles cases where break wholly lies after 17:30.
+                                    if (
+                                      outMin >= 17 * 60 + 30 ||
+                                      inMin >= 17 * 60 + 30
+                                    ) {
+                                      // ensure at least 15 min allowed for post-evening part
+                                      allowed = Math.max(allowed, 15);
+                                    }
                                   }
 
                                   const excess = Math.max(

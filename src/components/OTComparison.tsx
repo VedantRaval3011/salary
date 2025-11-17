@@ -20,6 +20,7 @@ type DifferenceCategory = "N/A" | "Match" | "Minor" | "Medium" | "Major";
 // Extend OTComparisonData type locally to include category for sorting and coloring
 interface SortableOTComparisonData extends OTComparisonData {
   category: DifferenceCategory;
+  company: string;
 }
 
 /**
@@ -583,13 +584,15 @@ function calculateFinalOT(
         if (outTime && outTime !== "-") {
           const outMin = timeToMinutes(outTime);
           dayOTMinutes =
-            outMin > ADJ_P_CUTOFF_MINUTES ? outMin - ADJ_P_CUTOFF_MINUTES : 0;
+            outMin > ADJ_P_CUTOFF_MINUTES
+              ? outMin - ADJ_P_SHIFT_END_MINUTES
+              : 0;
         }
       } else {
         dayOTMinutes = getOtFieldMinutes(day.attendance);
       }
 
-      grantedFromSheetStaffMinutes += Math.min(dayOTMinutes, 540);
+      grantedFromSheetStaffMinutes += dayOTMinutes;
     });
   } else {
     // Not in granted sheet -> different handling for staff and workers
@@ -619,13 +622,13 @@ function calculateFinalOT(
               const outMin = timeToMinutes(outTime);
               dayOTMinutes =
                 outMin > ADJ_P_CUTOFF_MINUTES
-                  ? outMin - ADJ_P_CUTOFF_MINUTES
+                  ? outMin - ADJ_P_SHIFT_END_MINUTES
                   : 0;
             }
           } else {
             dayOTMinutes = getOtFieldMinutes(day.attendance);
           }
-          staffGrantedOTMinutes += Math.min(dayOTMinutes, 540);
+          staffGrantedOTMinutes += dayOTMinutes;
         }
       });
 
@@ -649,7 +652,7 @@ function calculateFinalOT(
           } else {
             dayOTMinutes = getOtFieldMinutes(day.attendance);
           }
-          staffNonGrantedOTMinutes += Math.min(dayOTMinutes, 540);
+          staffNonGrantedOTMinutes += dayOTMinutes;
         }
       });
     } else {
@@ -671,14 +674,14 @@ function calculateFinalOT(
             const outMinutes = timeToMinutes(outTime);
             // For workers we use ADJ_P_CUTOFF_MINUTES as well
             if (outMinutes > ADJ_P_CUTOFF_MINUTES) {
-              dayOTMinutes = outMinutes - ADJ_P_CUTOFF_MINUTES;
+              dayOTMinutes = outMinutes - ADJ_P_SHIFT_END_MINUTES;
             }
           }
         } else {
           dayOTMinutes = getOtFieldMinutes(day.attendance);
         }
 
-        workerGrantedOTMinutes += Math.min(dayOTMinutes, 540);
+        workerGrantedOTMinutes += dayOTMinutes;
       });
     }
   }
@@ -740,6 +743,15 @@ export const OTComparison: React.FC = () => {
   const { excelData } = useExcel();
   const [showTable, setShowTable] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [filterCompany, setFilterCompany] = useState<string>(
+    "INDIANA OPHTHALMICS LLP"
+  );
+  const companies = [
+    "INDIANA OPHTHALMICS LLP",
+    "NUTRACEUTICO",
+    "SCI PREC",
+    "SCI PREC LIFESCIENCES",
+  ];
 
   // New state for filtering
   const [filterCategory, setFilterCategory] = useState<
@@ -791,10 +803,11 @@ export const OTComparison: React.FC = () => {
         return {
           empCode: employee.empCode,
           empName: employee.empName,
+          company: employee.companyName, // ✅ REQUIRED FIX
           softwareOTHours,
           hrOTHours,
           difference,
-          category, // Added category
+          category,
         };
       }
     );
@@ -883,11 +896,20 @@ export const OTComparison: React.FC = () => {
 
   // 3. Filtering Logic
   const filteredData = useMemo(() => {
-    if (!filterCategory || filterCategory === "All") {
-      return sortedData;
+    let data = sortedData;
+
+    // Category filter
+    if (filterCategory && filterCategory !== "All") {
+      data = data.filter((row) => row.category === filterCategory);
     }
-    return sortedData.filter((row) => row.category === filterCategory);
-  }, [sortedData, filterCategory]);
+
+    // Company filter (NEW)
+    if (filterCompany !== "All") {
+      data = data.filter((row) => row.company === filterCompany);
+    }
+
+    return data;
+  }, [sortedData, filterCategory, filterCompany]);
 
   // Handler to change sorting
   const requestSort = useCallback(
@@ -1012,6 +1034,25 @@ export const OTComparison: React.FC = () => {
           </button>
         ) : (
           <>
+            <div className="px-4 py-2 flex gap-3 items-center">
+              <span className="text-sm font-medium text-gray-700">
+                Company:
+              </span>
+
+              <select
+                value={filterCompany}
+                onChange={(e) => setFilterCompany(e.target.value)}
+                className="px-3 py-1 text-sm border rounded-md bg-white"
+              >
+                <option value="All">All</option>
+                {companies.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <button
               onClick={handleExportClick}
               className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
@@ -1097,6 +1138,7 @@ export const OTComparison: React.FC = () => {
                     <span className="text-gray-600">Total Employees:</span>{" "}
                     <span className="font-bold">{categorizedData.length}</span>
                   </div>
+
                   <div>
                     <span className="text-gray-600">Matches:</span>{" "}
                     <span className="font-bold text-green-600">

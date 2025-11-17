@@ -6,6 +6,7 @@ import { FileUploader } from "@/components/FileUploader";
 import { EmployeeCard } from "@/components/EmployeeCard";
 import { useExcel } from "@/context/ExcelContext";
 import { EmployeeData } from "@/lib/types";
+import ProtectedRoute from "@/components/ProtectedRoute";
 
 interface MonthConfig {
   month: string;
@@ -16,6 +17,17 @@ interface MonthConfig {
 
 export default function Home() {
   const { excelData, applyAdjustment, applyHolidays } = useExcel();
+  // COMPANY FILTER
+  const [selectedCompany, setSelectedCompany] = useState(
+    "INDIANA OPHTHALMICS LLP"
+  );
+
+  const companies = [
+    "INDIANA OPHTHALMICS LLP",
+    "NUTRACEUTICO",
+    "SCI PREC",
+    "SCI PREC LIFESCIENCES",
+  ];
 
   // Setup wizard state
   const [setupComplete, setSetupComplete] = useState(false);
@@ -603,122 +615,149 @@ export default function Home() {
 
   // Main application after setup
   return (
-    <main className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 py-8 px-4">
-      <div className="max-w-7xl mx-auto">
-        {/* Configuration Badge */}
-        <div className="mb-4 bg-white rounded-lg shadow-md p-4 flex justify-between items-center border-l-4 border-blue-600">
-          <div className="flex-1">
-            <p className="text-sm text-gray-600 font-semibold">
-              📅 {selectedMonth} {selectedYear} ({daysInMonth} days)
-            </p>
-          </div>
-          <button
-            onClick={handleResetSetup}
-            className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-all text-sm font-semibold"
-          >
-            Reset Setup
-          </button>
-        </div>
-
-        {/* Adjustments & Holidays Details - Minimalistic */}
-        <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Adjustments Card */}
-          <div className="bg-white rounded-lg shadow-sm p-4 border border-orange-200">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-orange-600 text-lg">🔄</span>
-              <h3 className="text-sm font-bold text-gray-800">
-                Adjustments ({adjustments.length})
-              </h3>
+    <ProtectedRoute>
+      <main className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 py-8 px-4">
+        <div className="max-w-7xl mx-auto">
+          {/* Configuration Badge */}
+          <div className="mb-4 bg-white rounded-lg shadow-md p-4 flex justify-between items-center border-l-4 border-blue-600">
+            <div className="flex-1">
+              <p className="text-sm text-gray-600 font-semibold">
+                📅 {selectedMonth} {selectedYear} ({daysInMonth} days)
+              </p>
             </div>
-            {adjustments.length === 0 ? (
-              <p className="text-xs text-gray-500">No adjustments configured</p>
-            ) : (
-              <div className="space-y-2">
-                {adjustments.map((adj, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center gap-2 text-xs bg-orange-50 p-2 rounded border border-orange-200"
-                  >
-                    <span className="font-bold text-orange-700">
-                      {adj.originalDate}
-                    </span>
-                    <span className="text-orange-500">→</span>
-                    <span className="font-bold text-green-700">
-                      {adj.adjustedDate}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
+            <button
+              onClick={handleResetSetup}
+              className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-all text-sm font-semibold"
+            >
+              Reset Setup
+            </button>
           </div>
 
-          {/* Holidays Card */}
-          <div className="bg-white rounded-lg shadow-sm p-4 border border-blue-200">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-blue-600 text-lg">🎉</span>
-              <h3 className="text-sm font-bold text-gray-800">
-                Holidays ({selectedHolidays.length})
-              </h3>
-            </div>
-            {selectedHolidays.length === 0 ? (
-              <p className="text-xs text-gray-500">No holidays marked</p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {selectedHolidays.map((date) => (
-                  <span
-                    key={date}
-                    className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-bold border border-blue-300"
-                  >
-                    {date}
-                  </span>
-                ))}
+          {/* Adjustments & Holidays Details - Minimalistic */}
+          <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Adjustments Card */}
+            <div className="bg-white rounded-lg shadow-sm p-4 border border-orange-200">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-orange-600 text-lg">🔄</span>
+                <h3 className="text-sm font-bold text-gray-800">
+                  Adjustments ({adjustments.length})
+                </h3>
               </div>
-            )}
-          </div>
-        </div>
-
-        <FileUploader />
-
-        {excelData && (
-          <div className="mt-8">
-            {/* Header */}
-            <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-              <div>
-                <h1 className="text-3xl font-bold text-gray-800 mb-2">
-                  {excelData.title}
-                </h1>
-                <p className="text-gray-600">{excelData.period}</p>
-                <p className="text-sm text-gray-500 mt-2">
-                  Total Employees: {excelData.employees.length}
+              {adjustments.length === 0 ? (
+                <p className="text-xs text-gray-500">
+                  No adjustments configured
                 </p>
-              </div>
+              ) : (
+                <div className="space-y-2">
+                  {adjustments.map((adj, index) => (
+                    <div
+                      key={index}
+                      className="flex items-center gap-2 text-xs bg-orange-50 p-2 rounded border border-orange-200"
+                    >
+                      <span className="font-bold text-orange-700">
+                        {adj.originalDate}
+                      </span>
+                      <span className="text-orange-500">→</span>
+                      <span className="font-bold text-green-700">
+                        {adj.adjustedDate}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {/* Employee Cards */}
-            <div className="space-y-4">
-              {excelData.employees.map(
-                (employee: EmployeeData, index: number) => (
-                  <EmployeeCard
-                    key={employee.empCode}
-                    employee={employee}
-                    index={index}
-                    baseHolidaysCount={0}
-                    selectedHolidaysCount={selectedHolidays.length}
-                  />
-                )
+            {/* Holidays Card */}
+            <div className="bg-white rounded-lg shadow-sm p-4 border border-blue-200">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-blue-600 text-lg">🎉</span>
+                <h3 className="text-sm font-bold text-gray-800">
+                  Holidays ({selectedHolidays.length})
+                </h3>
+              </div>
+              {selectedHolidays.length === 0 ? (
+                <p className="text-xs text-gray-500">No holidays marked</p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {selectedHolidays.map((date) => (
+                    <span
+                      key={date}
+                      className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-bold border border-blue-300"
+                    >
+                      {date}
+                    </span>
+                  ))}
+                </div>
               )}
             </div>
           </div>
-        )}
 
-        {!excelData && (
-          <div className="mt-12 text-center text-gray-500">
-            <p className="text-lg">
-              Upload Excel files to process attendance data
-            </p>
-          </div>
-        )}
-      </div>
-    </main>
+          <FileUploader />
+
+          {excelData && (
+            <div className="mt-8">
+              {/* Header */}
+              <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+                <div>
+                  <h1 className="text-3xl font-bold text-gray-800 mb-2">
+                    {excelData.title}
+                  </h1>
+                  <p className="text-gray-600">{excelData.period}</p>
+                  <p className="text-sm text-gray-500 mt-2">
+                    Total Employees: {excelData.employees.length}
+                  </p>
+                </div>
+              </div>
+              {/* COMPANY FILTER BUTTONS */}
+              <div className="bg-white rounded-lg shadow-md p-4 mb-6">
+                <h3 className="text-sm font-bold text-gray-700 mb-3">
+                  Filter by Company
+                </h3>
+
+                <div className="flex flex-wrap gap-2">
+                  {companies.map((comp) => (
+                    <button
+                      key={comp}
+                      onClick={() => setSelectedCompany(comp)}
+                      className={`px-4 py-2 rounded-full border text-sm font-semibold transition-all
+          ${
+            selectedCompany === comp
+              ? "bg-blue-600 text-white border-blue-600"
+              : "bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200"
+          }`}
+                    >
+                      {comp}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Employee Cards */}
+              <div className="space-y-4">
+                {excelData.employees
+                  .filter((emp) => emp.companyName === selectedCompany)
+                  .map((employee: EmployeeData, index: number) => (
+                    <EmployeeCard
+                      key={employee.empCode}
+                      employee={employee}
+                      index={index}
+                      baseHolidaysCount={0}
+                      selectedHolidaysCount={selectedHolidays.length}
+                    />
+                  ))}
+              </div>
+            </div>
+          )}
+
+          {!excelData && (
+            <div className="mt-12 text-center text-gray-500">
+              <p className="text-lg">
+                Upload Excel files to process attendance data
+              </p>
+            </div>
+          )}
+        </div>
+      </main>
+    </ProtectedRoute>
   );
 }

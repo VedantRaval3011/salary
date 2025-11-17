@@ -12,9 +12,9 @@ import { processLunchInOutFile } from "@/lib/processLunchInOut";
 import { processHRFile } from "@/lib/processHRFile";
 import { PresentDayComparison } from "@/components/PresentDayComparison"; // Restored alias path
 import { OTComparison } from "./OTComparison";
-import { LateComparison } from "./LateComparison";
 import { useAttendanceStore } from "@/store/attendanceStore";
 import { EmployeeStoreDisplay } from "./EmployeeStoreDisplay";
+import { LateComparison } from "./LateComparison";
 
 const norm = (s: any) =>
   String(s ?? "")
@@ -526,10 +526,6 @@ export const FileUploader: React.FC = () => {
       <h2 className="text-2xl font-bold mb-2 text-gray-800">
         Excel File Manager
       </h2>
-      <p className="text-gray-600 mb-6">
-        Upload multiple Excel files at once or one at a time to manage
-        attendance data.
-      </p>
 
       <div className="mb-6 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border-2 border-blue-300">
         <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
@@ -748,16 +744,11 @@ export const FileUploader: React.FC = () => {
           </p>
         )}
       </div>
-
-      <PresentDayComparison />
-
-      <div className="mt-10">
-        <LateComparison />
-      </div>
-
-      <div className="mt-10">
-        <OTComparison />
-      </div>
+<div id="comparison-section">
+  <PresentDayComparison />
+  <LateComparison />
+  <OTComparison />
+</div>
     </div>
   );
 };

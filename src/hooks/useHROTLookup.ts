@@ -90,19 +90,30 @@ export function useHROTLookup() {
               });
             }
           } else {
-            // WORKER: Try multiple approaches to find Column F
+            // WORKER: Read OT from Column F, including named headers
+            const workerKeys = Object.keys(emp);
+            const columnFKey = workerKeys[5]; // Column F
+
             otValue =
-              emp["Unnamed: 5"] ?? // Approach 1: Unnamed column at position 5
-              emp["Unnamed: 6"] ?? // Approach 2: Off-by-one fallback
-              emp["Unnamed: 4"] ?? // Approach 3: Off-by-one other direction
+              emp[columnFKey] ??
+              emp["OT"] ??
+              emp["Ot"] ??
+              emp["ot"] ??
+              emp["OT Hours"] ??
+              emp["OT Hrs"] ??
+              emp["Overtime"] ??
+              emp["Unnamed: 5"] ??
+              emp["Unnamed: 6"] ??
+              emp["Unnamed: 4"] ??
               0;
 
-            // Debug first few employees
             if (file.hrData.indexOf(rawEmp) < 3) {
               console.log(`Worker ${emp.empCode}:`, {
-                "Unnamed: 4": emp["Unnamed: 4"],
+                columnFKey,
+                valueAtF: emp[columnFKey],
+                OT: emp["OT"],
+                "OT Hours": emp["OT Hours"],
                 "Unnamed: 5": emp["Unnamed: 5"],
-                "Unnamed: 6": emp["Unnamed: 6"],
                 Selected: otValue,
               });
             }

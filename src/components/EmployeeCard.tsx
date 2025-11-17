@@ -211,6 +211,8 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
   const [isAdjustmentModalOpen, setIsAdjustmentModalOpen] = useState(false);
   const [currentEmployee, setCurrentEmployee] =
     useState<EmployeeData>(employee);
+  const { updateTotalMinus4, totalMinus4 } = useFinalDifference();
+
   const { excelData } = useExcel();
   const [otGrandTotal, setOtGrandTotal] = useState<number>(0);
   const [finalDifference, setFinalDifference] = useState<number>(0);
@@ -249,6 +251,18 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
             <h3 className="text-xl font-bold text-gray-800">
               {currentEmployee.empName}
             </h3>
+            <button
+              onClick={() => {
+                const target = document.getElementById("comparison-section");
+                if (target) {
+                  target.scrollIntoView({ behavior: "smooth" });
+                }
+              }}
+              className=" w-5 h-5 flex items-center justify-center rounded-full bg-blue-500 text-white text-sm hover:bg-blue-600 shadow"
+              title="Scroll to Comparison"
+            >
+              ↑
+            </button>
 
             {/* Special Badges */}
             <div className="flex gap-2 ml-2">
@@ -368,6 +382,9 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
           setFinalDifference(difference);
           updateFinalDifference(employee.empCode, difference); // 🆕 ADD THIS LINE
         }}
+        onTotalMinus4Calculated={(empCode, total) =>
+          updateTotalMinus4(empCode, total)
+        }
       />
       <OvertimeStatsGrid
         employee={employee}
@@ -438,7 +455,6 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
         isOpen={isAdjustmentModalOpen}
         onClose={() => setIsAdjustmentModalOpen(false)}
       />
-
     </div>
   );
 };
