@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { EmployeeData } from "@/lib/types";
 import { useExcel } from "../context/ExcelContext";
+import { useFinalDifference } from "@/context/FinalDifferenceContext";
 import { EyeIcon } from "lucide-react";
 
 // Utility helpers
@@ -57,7 +58,35 @@ function useLunchInOutLookup() {
 
     let lunchEmployees: any[] = [];
 
+    // Check if file has processedData from the attendance transformer
     if (
+      (lunchFile as any).processedData &&
+      Array.isArray((lunchFile as any).processedData)
+    ) {
+      // Transform the attendance data structure to match expected format
+      lunchEmployees = (lunchFile as any).processedData.map((record: any) => ({
+        empCode: record.empCode,
+        empName: record.empName,
+        dailyPunches: Object.entries(record.attendance || {}).map(
+          ([date, att]: [string, any]) => ({
+            date,
+            punches: [
+              ...(att.in || []).map((time: string) => ({ type: "In", time })),
+              ...(att.out || []).map((time: string) => ({ type: "Out", time })),
+            ].sort((a, b) => {
+              const timeA = a.time.split(":").map(Number);
+              const timeB = b.time.split(":").map(Number);
+              return timeA[0] * 60 + timeA[1] - (timeB[0] * 60 + timeB[1]);
+            }),
+          })
+        ),
+      }));
+      console.log(
+        "✅ Found processedData:",
+        lunchEmployees.length,
+        "employees"
+      );
+    } else if (
       (lunchFile as any).lunchInOutData &&
       Array.isArray((lunchFile as any).lunchInOutData)
     ) {
@@ -98,7 +127,15 @@ function useLunchInOutLookup() {
       });
     }
 
-    const key = (s: string) => canon(s).replace(/[^A-Z0-9]/g, "");
+    const normalizeSpaces = (s: string) =>
+      (s ?? "").replace(/[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]/g, " ");
+    const cleanName = (s: string) =>
+      normalizeSpaces(s ?? "")
+        .toUpperCase()
+        .replace(/\s+/g, " ") // collapse any kind of space into normal space
+        .trim()
+        .replace(/[^A-Z0-9 ]/g, ""); // keep letters, digits, spaces only
+
     const numOnly = (s: string) => s.match(/\d+/g)?.join("") ?? "";
 
     const employeeByCode = new Map<string, any>();
@@ -106,15 +143,42 @@ function useLunchInOutLookup() {
 
     for (const emp of lunchEmployees) {
       if (emp.empCode) {
-        const codeKey = key(emp.empCode);
-        const numKey = numOnly(emp.empCode);
-        employeeByCode.set(codeKey, emp);
-        if (numKey) employeeByCode.set(numKey, emp);
+        const raw = String(emp.empCode).trim();
+        const codeKey = cleanName(raw);
+        const numKey = numOnly(raw);
+        const no0 = numKey.replace(/^0+/, "");
+
+        const variants = new Set([
+          codeKey,
+          numKey,
+          no0,
+          numKey.padStart(4, "0"),
+          numKey.padStart(5, "0"),
+          numKey.padStart(6, "0"),
+          raw.toUpperCase().trim(), // ✅ Add raw uppercase
+        ]);
+
+        variants.forEach((k) => employeeByCode.set(k, emp));
       }
 
+      const normalize = (s: string) =>
+        (s ?? "")
+          .normalize("NFKD")
+          .replace(/[\u0300-\u036f]/g, "") // remove diacritics
+          .replace(/[^A-Z0-9 ]/gi, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+          .toUpperCase();
+
       if (emp.empName) {
-        const nameKey = key(emp.empName);
-        employeeByName.set(nameKey, emp);
+        const base = normalize(emp.empName);
+        employeeByName.set(base, emp);
+        employeeByName.set(base.replace(/\s+/g, ""), emp); // no-space
+        // remove common suffix/prefix tokens like WORKER, GIRL, MISC
+        const reduced = base
+          .replace(/\b(WORKER|GIRL|MISC|LABOUR|LABOR)\b/g, "")
+          .replace(/\s+/g, "");
+        if (reduced) employeeByName.set(reduced, emp);
       }
     }
 
@@ -123,32 +187,57 @@ function useLunchInOutLookup() {
       byName: employeeByName.size,
     });
 
+    const cleanNoSpace = (s: string) => cleanName(s).replace(/\s+/g, ""); // remove ALL spaces of any kind
+
+    // --- FIXED LOOKUP FUNCTION ---
     const getLunchDataForEmployee = (
       emp: Pick<EmployeeData, "empCode" | "empName">
     ): any => {
-      const empCodeK = key(emp.empCode);
-      const empNameK = key(emp.empName);
-      const numCodeK = numOnly(emp.empCode);
+      if (!emp) return null;
 
-      console.log(
-        `🔍 Looking up lunch data for: ${emp.empCode} (${emp.empName})`
-      );
-      console.log(
-        `  Keys: code="${empCodeK}", num="${numCodeK}", name="${empNameK}"`
-      );
+      const rawCode = (emp.empCode ?? "").toString().trim();
+      const rawName = (emp.empName ?? "").toString().trim();
 
-      let found = employeeByCode.get(empCodeK);
-      if (!found && numCodeK) found = employeeByCode.get(numCodeK);
-      if (!found) found = employeeByName.get(empNameK);
+      // Normalized keys
+      const empCodeKey = cleanName(rawCode);
+      const empCodeNum = numOnly(rawCode);
+      const empNameKey = cleanName(rawName);
+      const empNameKeyNoSpace = cleanNoSpace(rawName);
 
+      // Debug the keys
+      console.log("🔍 LOOKUP KEYS:", {
+        rawCode,
+        rawName,
+        empCodeKey,
+        empCodeNum,
+        empNameKey,
+        empNameKeyNoSpace,
+      });
+
+      let found: any = null;
+
+      // --- EMP CODE MATCHING ---
+      if (!found && empCodeKey) found = employeeByCode.get(empCodeKey);
+
+      if (!found && empCodeNum) found = employeeByCode.get(empCodeNum);
+
+      if (!found) found = employeeByCode.get(rawCode.toUpperCase().trim()); // raw fallback
+
+      // --- EMP NAME MATCHING ---
+      if (!found && empNameKey) found = employeeByName.get(empNameKey);
+
+      if (!found && empNameKeyNoSpace)
+        found = employeeByName.get(empNameKeyNoSpace);
+
+      // --- Debug logs ---
       if (found) {
-        console.log(`✅ Found lunch data:`, {
+        console.log(`✅ Found lunch data for ${rawCode}:`, {
           empCode: found.empCode,
           empName: found.empName,
           daysWithData: found.dailyPunches?.length || 0,
         });
       } else {
-        console.log(`❌ No lunch data found for ${emp.empCode}`);
+        console.log(`❌ No lunch data found for ${rawCode} (${rawName})`);
       }
 
       return found || null;
@@ -308,7 +397,17 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
   onFinalDifferenceCalculated,
   onTotalMinus4Calculated,
 }) => {
-  const [tooltips, setTooltips] = useState<{ [k: string]: boolean }>({});
+  const {
+    updateFinalDifference,
+    updateTotalMinus4,
+    employeeFinalDifferences,
+    totalMinus4,
+
+    // ⭐ NEW: get + set for ORIGINAL FD
+    originalFinalDifference,
+    updateOriginalFinalDifference,
+  } = useFinalDifference();
+
   const [showBreakModal, setShowBreakModal] = useState(false);
   const { getCustomTimingForEmployee } = useCustomTimingLookup();
   const { getLunchDataForEmployee } = useLunchInOutLookup();
@@ -609,6 +708,11 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
 
       const earlyDepMins = Number(day.attendance.earlyDep) || 0;
 
+      // ❌ Ignore early departure completely if status is "M/WO-I"
+      if (status === "M/WO-I") {
+        return; // <-- do not count anything from this day
+      }
+
       if (status !== "P/A" && status !== "PA") {
         if (earlyDepMins > 0) {
           earlyDepartureTotalMinutes += earlyDepMins;
@@ -651,17 +755,34 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
     };
   }, [employee, getCustomTimingForEmployee, lunchBreakAnalysis, otGrandTotal]);
 
-  useEffect(() => {
-    if (onFinalDifferenceCalculated) {
-      onFinalDifferenceCalculated(stats.finalDifference);
-    }
-  }, [stats.finalDifference, onFinalDifferenceCalculated]);
+  // Add these useEffect hooks after the existing stats useMemo:
 
   useEffect(() => {
-    if (onTotalMinus4Calculated) {
-      onTotalMinus4Calculated(employee.empCode, stats.totalCombinedMinutes);
+    // ⭐ 1) Save ORIGINAL FINAL DIFFERENCE once
+    const orig = originalFinalDifference.get(employee.empCode);
+    if (orig === undefined) {
+      updateOriginalFinalDifference(employee.empCode, stats.finalDifference);
     }
-  }, [stats.totalCombinedMinutes, onTotalMinus4Calculated]);
+
+    // ⭐ 2) Continue updating the live finalDifference normally
+    const existing = employeeFinalDifferences.get(employee.empCode);
+    if (existing !== stats.finalDifference) {
+      updateFinalDifference(employee.empCode, stats.finalDifference);
+    }
+  }, [
+    stats.finalDifference,
+    employee.empCode,
+    employeeFinalDifferences,
+    originalFinalDifference,
+  ]);
+
+  useEffect(() => {
+    const existing = totalMinus4.get(employee.empCode);
+
+    if (existing === stats.totalCombinedMinutes) return;
+
+    updateTotalMinus4(employee.empCode, stats.totalCombinedMinutes);
+  }, [stats.totalCombinedMinutes, employee.empCode, totalMinus4]);
 
   const tooltipTexts: any = {
     Late_hours_in_minutes:

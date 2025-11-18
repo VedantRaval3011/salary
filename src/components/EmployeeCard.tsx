@@ -388,7 +388,10 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
       />
       <OvertimeStatsGrid
         employee={employee}
-        onGrandTotalCalculated={(total) => setOtGrandTotal(total)} // valid now
+        onGrandTotalCalculated={(total) =>
+          setOtGrandTotal((prev) => (prev === total ? prev : total))
+        }
+        // valid now
       />
 
       {/* Expanded Attendance Grid Section */}

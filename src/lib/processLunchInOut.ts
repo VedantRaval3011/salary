@@ -171,12 +171,43 @@ export async function processLunchInOutFile(
   };
 
   // Detect rows that start a new section (we use: "Company Name" marks new section)
+  // Safer: only start a new section if there's no data (names/times) immediately after
   const isSectionStartRow = (r: number) => {
-    for (let c = 0; c <= Math.min(maxCol, 6); c++) {
+    for (let c = 0; c <= 8; c++) {
       const v = cellRaw(r, c);
       if (!v) continue;
-      const s = String(v).toUpperCase();
-      if (s.includes("COMPANY NAME")) return true;
+      if (String(v).toUpperCase().includes("COMPANY NAME")) {
+        // scan the next few rows to see if there is a header or data soon after
+        const lookAheadRows = 6; // tune if needed
+        let foundHeaderOrData = false;
+        for (let rr = r + 1; rr <= Math.min(r + lookAheadRows, maxRow); rr++) {
+          for (let cc = 0; cc <= Math.min(maxCol, 20); cc++) {
+            const vv = cellRaw(rr, cc);
+            if (!vv) continue;
+            const s = String(vv).trim();
+            // if a row contains "EMP" or "EMP CODE" or a name-like or time-like value, treat as section content
+            if (
+              /EMP/i.test(s) ||
+              /\d{1,2}:\d{2}/.test(s) || // time present
+              /^[A-Za-z .,'\-]{3,}$/.test(s) // name-like
+            ) {
+              foundHeaderOrData = true;
+              break;
+            }
+          }
+          if (foundHeaderOrData) break;
+        }
+        // if we found header/data right after the company name, treat this as a section start,
+        // otherwise do NOT treat it as section start (cover page).
+        return foundHeaderOrData;
+      }
+    }
+    // also detect other explicit section starts (EMP CODE near top)
+    for (let c = 0; c <= 8; c++) {
+      const v = cellRaw(r, c);
+      if (!v) continue;
+      const s = String(v).toUpperCase().trim();
+      if (s.includes("EMP CODE") || s.includes("EMPLOYEE")) return true;
     }
     return false;
   };
@@ -195,7 +226,7 @@ export async function processLunchInOutFile(
   let currentStart = 0;
 
   for (let r = 0; r <= maxRow; r++) {
-    if (isSectionStartRow(r) && r !== currentStart) {
+    if (isSectionStartRow(r)) {
       sections.push({
         startRow: currentStart,
         endRow: r - 1,
@@ -216,19 +247,34 @@ export async function processLunchInOutFile(
     colToDate: new Map(),
     headerRow: -1,
   });
+  // ✅ ADD THIS DEBUG LOG
+  console.log(
+    "🔍 Detected sections:",
+    sections.map((s, idx) => ({
+      sectionIndex: idx,
+      startRow: s.startRow,
+      endRow: s.endRow,
+      firstCellValue: cellRaw(s.startRow, 0),
+    }))
+  );
 
   // For each section: find header (EMP CODE), best date row, best in/out row, and build col->date map
   for (const sec of sections) {
     // 1) find header row with EMP CODE inside this section
+    // ---------------------- REPLACE existing headerFound search with this ----------------------
     let headerFound = -1;
+    // Primary pass: exact header keywords
     for (let r = sec.startRow; r <= sec.endRow; r++) {
-      for (let c = 0; c <= Math.min(maxCol, 12); c++) {
+      for (let c = 0; c <= Math.min(maxCol, 20); c++) {
         const v = cellRaw(r, c);
         if (!v) continue;
         const s = String(v).toUpperCase();
         if (
           s.includes("EMP CODE") ||
-          (s.includes("EMPLOYEE") && s.includes("CODE"))
+          s.includes("EMPLOYEE CODE") ||
+          s.includes("EMPLOYEE NAME") ||
+          s.includes("EMP NAME") ||
+          (s.includes("EMP") && (s.includes("CODE") || s.includes("NAME")))
         ) {
           headerFound = r;
           break;
@@ -237,58 +283,77 @@ export async function processLunchInOutFile(
       if (headerFound !== -1) break;
     }
 
-    // fallback: try to find a header near section start + 2..8
+    // Fallback pass: look for a row where cells below (next 6-20 rows) contain many time-like or numeric entries
     if (headerFound === -1) {
       for (
         let r = sec.startRow;
-        r <= Math.min(sec.startRow + 8, sec.endRow);
+        r <= Math.min(sec.startRow + 18, sec.endRow);
         r++
       ) {
-        for (let c = 0; c <= Math.min(maxCol, 12); c++) {
-          const v = cellRaw(r, c);
+        // count possible name-like and time-like cells in the rows below
+        let score = 0;
+        for (let c = 0; c <= Math.min(maxCol, 30); c++) {
+          const v = cellRaw(r + 1, c); // header often above data
           if (!v) continue;
-          const s = String(v).toUpperCase();
-          if (s.includes("EMPLOYEE") || s.includes("EMP")) {
-            headerFound = r;
-            break;
-          }
+          const s = String(v).trim();
+          if (/^[A-Za-z ]{3,}$/.test(s)) score += 1; // name-like
+          if (/\d{1,2}:\d{2}/.test(s) || /^\d{4}-\d{2}-\d{2}/.test(s))
+            score += 2; // time/date hints
         }
-        if (headerFound !== -1) break;
+        if (score >= 3) {
+          headerFound = r;
+          break;
+        }
       }
     }
 
+    // super-fallback: set near section start
     if (headerFound === -1) {
-      // no header in this section - skip
-      sec.headerRow = -1;
-      sec.dateRow = -1;
-      sec.inOutRow = -1;
-      sec.colToDate = new Map();
-      continue;
+      headerFound = Math.min(sec.startRow + 6, sec.endRow);
     }
     sec.headerRow = headerFound;
 
-    // 2) find best candidate date row ABOVE headerFound (but inside this section)
+    // helper: gets cell value, resolving merged ranges
+    function getCellValueResolved(r: number, c: number) {
+      const addr = XLSX.utils.encode_cell({ r, c });
+      let cell = ws[addr];
+      if (cell && cell.v !== undefined) return cell.v ?? cell.w ?? null;
+
+      // try resolve merged ranges
+      const merges = ws["!merges"] || [];
+      for (const m of merges) {
+        if (r >= m.s.r && r <= m.e.r && c >= m.s.c && c <= m.e.c) {
+          // top-left master cell of merge:
+          const masterAddr = XLSX.utils.encode_cell({ r: m.s.r, c: m.s.c });
+          const masterCell = ws[masterAddr];
+          return masterCell?.v ?? masterCell?.w ?? null;
+        }
+      }
+      return null;
+    }
+
+    // find the best date row in the section by counting columns that parse as date
     let bestDateRow = -1;
     let bestDateScore = 0;
-    for (let r = sec.startRow; r < sec.headerRow; r++) {
+    for (let r = sec.startRow; r <= sec.endRow; r++) {
       let score = 0;
       for (let c = 0; c <= maxCol; c++) {
-        const raw = cellRaw(r, c);
+        const raw = getCellValueResolved(r, c);
         if (raw == null) continue;
         if (formatDate(raw)) score++;
-        else if (typeof raw === "number" && raw > 1 && formatDate(raw)) score++;
+        // consider vertically-printed dates like rotated "01/10/2025" words too (strings)
+        if (
+          typeof raw === "string" &&
+          /\d{1,2}[\-\/]\d{1,2}[\-\/]\d{2,4}/.test(raw)
+        )
+          score++;
       }
       if (score > bestDateScore) {
         bestDateScore = score;
         bestDateRow = r;
       }
     }
-
-    // fallback choose row just above header
-    if (bestDateRow === -1 || bestDateScore < 1) {
-      const guess = Math.max(sec.startRow, sec.headerRow - 2);
-      bestDateRow = guess;
-    }
+    if (bestDateRow === -1) bestDateRow = sec.headerRow - 1; // fallback
     sec.dateRow = bestDateRow;
 
     // 3) find best in/out row between dateRow and headerRow
@@ -369,27 +434,76 @@ export async function processLunchInOutFile(
     let empCodeCol = -1;
     let empNameCol = -1;
     if (headerRow < 0) return { empCodeCol: -1, empNameCol: -1 };
-    for (let c = 0; c <= Math.min(maxCol, 20); c++) {
+
+    // 1) look in header row for explicit labels
+    for (let c = 0; c <= Math.min(maxCol, 30); c++) {
       const v = cellRaw(headerRow, c);
       if (!v) continue;
       const s = String(v).toUpperCase();
       if (
         empCodeCol === -1 &&
-        (s.includes("EMP CODE") || s.includes("EMPLOYEE CODE") || s === "CODE")
+        (s.includes("EMP CODE") || s === "CODE" || s.includes("ID"))
       ) {
         empCodeCol = c;
       }
-      if (
-        empNameCol === -1 &&
-        (s.includes("EMPLOYEE") ||
-          s.includes("EMP NAME") ||
-          s.includes("EMPLOYEE NAME") ||
-          s === "NAME")
-      ) {
+      if (empNameCol === -1 && (s.includes("EMPLOYEE") || s.includes("NAME"))) {
         empNameCol = c;
       }
     }
-    // fallback defaults
+
+    // 2) heuristic: if not found, look at the rows directly below header to find name-like column
+    if (empNameCol === -1) {
+      for (let c = 0; c <= Math.min(maxCol, 30); c++) {
+        let nameCount = 0;
+        for (let r = headerRow + 1; r <= Math.min(headerRow + 8, maxRow); r++) {
+          const v = cellRaw(r, c);
+          if (!v) continue;
+          const s = String(v).trim();
+          if (/^[A-Za-z .,'\-]{2,}$/i.test(s) && s.length > 1) nameCount++;
+        }
+        if (nameCount >= 2) {
+          empNameCol = c;
+          break;
+        }
+      }
+    }
+
+    // 3) heuristic for code column: look for numeric-like column near name column
+    if (empCodeCol === -1 && empNameCol !== -1) {
+      for (
+        let c = Math.max(0, empNameCol - 3);
+        c <= Math.min(maxCol, empNameCol + 3);
+        c++
+      ) {
+        if (c === empNameCol) continue;
+        let numCount = 0;
+        for (let r = headerRow + 1; r <= Math.min(headerRow + 8, maxRow); r++) {
+          const v = cellRaw(r, c);
+          if (!v) continue;
+          const s = String(v).trim();
+          if (/^\d{1,6}$/.test(s) || /^\d{1,6}\.\d+$/.test(s)) numCount++;
+        }
+        if (numCount >= 2) {
+          empCodeCol = c;
+          break;
+        }
+      }
+    }
+
+    // final fallback: pick first 2 non-empty columns after header start
+    if (empNameCol === -1 || empCodeCol === -1) {
+      let found = 0;
+      for (let c = 0; c <= Math.min(maxCol, 10); c++) {
+        const v = cellRaw(headerRow + 1, c);
+        if (v != null && String(v).trim() !== "") {
+          if (found === 0 && empCodeCol === -1) empCodeCol = c;
+          else if (found === 1 && empNameCol === -1) empNameCol = c;
+          found++;
+        }
+        if (found >= 2) break;
+      }
+    }
+
     if (empCodeCol === -1) empCodeCol = 0;
     if (empNameCol === -1) empNameCol = Math.min(1, maxCol);
     return { empCodeCol, empNameCol };
@@ -397,9 +511,84 @@ export async function processLunchInOutFile(
 
   for (const sec of sections) {
     if (sec.headerRow === -1) continue; // no header -> skip
-    if (!sec.colToDate || sec.colToDate.size === 0) {
-      // skip sections without mapping
+    if (sec.headerRow === -1) {
+      console.warn(
+        `⚠️ Skipping section ${sec.startRow}-${sec.endRow}: no header found`
+      );
       continue;
+    }
+    if (!sec.colToDate || sec.colToDate.size === 0) {
+      console.warn(
+        `⚠️ Section ${sec.startRow}-${sec.endRow} has no date mapping, but will try to process`
+      );
+
+      const fallbackMap = new Map<number, string>();
+      // 1) scan rows above header for explicit dates
+      for (let r = sec.startRow; r < sec.headerRow; r++) {
+        for (let c = 0; c <= maxCol; c++) {
+          const maybeDate = formatDate(cellRaw(r, c));
+          if (maybeDate) {
+            fallbackMap.set(c, maybeDate);
+          }
+        }
+      }
+
+      // 2) If still empty: scan columns under header for many time-like values and try to assign them evenly to a nearest date
+      if (fallbackMap.size === 0) {
+        // find candidate columns that look like punch-time columns (HH:MM or excel times)
+        const candidateCols: number[] = [];
+        for (let c = 0; c <= maxCol; c++) {
+          let timeCount = 0;
+          for (
+            let r = sec.headerRow + 1;
+            r <= Math.min(sec.headerRow + 40, sec.endRow);
+            r++
+          ) {
+            const v = cellRaw(r, c);
+            if (!v) continue;
+            const s = String(v);
+            if (
+              /\d{1,2}:\d{2}/.test(s) ||
+              (typeof v === "number" && v > 0 && v <= 2)
+            )
+              timeCount++;
+          }
+          if (timeCount >= 2) candidateCols.push(c);
+        }
+
+        // if we found candidate columns and a dateRow somewhere nearby, try to map them using last known date cell
+        if (candidateCols.length > 0) {
+          // attempt to find some date-like cells anywhere in section (prefer rows above header)
+          let anyDate = null;
+          for (let r = sec.startRow; r <= sec.headerRow; r++) {
+            for (let c = 0; c <= maxCol; c++) {
+              const d = formatDate(cellRaw(r, c));
+              if (d) {
+                anyDate = d;
+                break;
+              }
+            }
+            if (anyDate) break;
+          }
+          // assign candidate columns to the anyDate (best-effort)
+          for (const c of candidateCols) {
+            if (anyDate) fallbackMap.set(c, anyDate);
+            else fallbackMap.set(c, "01/01/1970"); // placeholder — still allows extraction
+          }
+        }
+      }
+
+      if (fallbackMap.size > 0) {
+        console.log(
+          `✅ Built fallback date map with ${fallbackMap.size} columns`
+        );
+        sec.colToDate = fallbackMap;
+      } else {
+        console.warn(
+          `Skipping section ${sec.startRow}-${sec.endRow}: no dates found (likely header/preamble)`
+        );
+        continue;
+      }
     }
 
     const { empCodeCol, empNameCol } = detectEmpCols(sec.headerRow);
@@ -412,9 +601,20 @@ export async function processLunchInOutFile(
       const empCodeVal = cellRaw(r, empCodeCol);
       const empNameVal = cellRaw(r, empNameCol);
 
+      const rowHasTimeLike = (() => {
+        for (let c = 0; c <= maxCol; c++) {
+          const v = cellRaw(r, c);
+          if (!v) continue;
+          if (/\d{1,2}:\d{2}/.test(String(v))) return true;
+          if (typeof v === "number" && v > 0 && v < 2) return true; // excel time fraction
+        }
+        return false;
+      })();
+
       if (
         (!empCodeVal || String(empCodeVal).trim() === "") &&
-        (!empNameVal || String(empNameVal).trim() === "")
+        (!empNameVal || String(empNameVal).trim() === "") &&
+        !rowHasTimeLike
       ) {
         consecutiveBlank++;
         if (consecutiveBlank >= maxConsecutiveBlank) break;

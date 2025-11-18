@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { EmployeeData } from "@/lib/types";
 import { useExcel } from "@/context/ExcelContext";
+import { useFinalDifference } from "@/context/FinalDifferenceContext";
 
 interface Props {
   employee: EmployeeData;
@@ -456,10 +457,17 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
   onGrandTotalCalculated,
 }) => {
   const [tooltips, setTooltips] = useState<{ [k: string]: boolean }>({});
+  const lastGrandTotalRef = useRef<number | null>(null);
   const { getGrantForEmployee } = useStaffOTGrantedLookup();
   const { getFullNightOTForEmployee } = useFullNightOTLookup();
   const { getCustomTimingForEmployee } = useCustomTimingLookup();
   const { isMaintenanceEmployee } = useMaintenanceDeductLookup();
+  const { lateDeductionOverride, originalFinalDifference } =
+    useFinalDifference();
+
+  // original FD before recursion
+  const baseFinalDifference =
+    originalFinalDifference.get(employee.empCode) ?? 0;
 
   const stats = useMemo(() => {
     const customTiming = getCustomTimingForEmployee(employee);
@@ -793,40 +801,56 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
       wasOTDeducted = true;
     }
 
-    // Late Deduction calculation
-    let lateDeductionDays = 0;
+    // -----------------------
+    // 🔥 RECURSIVE LATE DEDUCTION LOGIC
+    // -----------------------
+    let lateDeductionMinutes = 0;
 
-    if (finalOTForDeduction < lateMinsTotal) {
-      const finalOTInHours = finalOTForDeduction / 60;
-      if (finalOTInHours < 4) {
-        lateDeductionDays = 0.5;
+    // 1) Check if recursion override exists for this employee
+    const overridden = lateDeductionOverride.get(employee.empCode);
+
+    if (overridden !== undefined) {
+      lateDeductionMinutes = overridden;
+    } else {
+      let lateDeductionDays = 0;
+
+      let lateDeductionMinutes = 0;
+
+      const overridden = lateDeductionOverride.get(employee.empCode);
+
+      if (overridden !== undefined) {
+        // Recursion applied
+        lateDeductionMinutes = overridden;
       } else {
-        const diffInHours = (lateMinsTotal - finalOTForDeduction) / 60;
-        // Deduction is 0.5 days per 4-hour difference
-        lateDeductionDays = 0.5 * Math.floor(diffInHours / 4);
-        // Ensure minimum deduction is 0.5 days if deduction is warranted
-        if (lateDeductionDays === 0 && diffInHours > 0) {
-          lateDeductionDays = 0.5;
-        }
+        // No recursion happened → late deduction 0
+        lateDeductionMinutes = 0;
       }
+
+      lateDeductionMinutes = lateDeductionDays * 8 * 60;
     }
 
-    // Convert late deduction days to minutes (8 hours per day)
-    const lateDeductionMinutes = lateDeductionDays * 8 * 60;
+    // -----------------------
+    // Compute total OT (all buckets) and then ADD late deduction (as requested)
+    // -----------------------
+    // 1) Compute original TOTAL OT (same as before)
+    let totalOTMinutes = 0;
 
-    // Calculate Grand Total
-    let grandTotalMinutes = 0;
     if (isStaff) {
-      // Grand Total = Total + Full night OT - Late Deduction (in minutes)
-      grandTotalMinutes =
-        totalMinutes + fullNightOTInMinutes - lateDeductionMinutes;
-    } else if (isWorker) {
-      // Grand Total = Worker Granted OT + Full Night OT - Late Deduction (in minutes)
-      grandTotalMinutes =
-        workerGrantedOTMinutes + fullNightOTInMinutes - lateDeductionMinutes;
+      totalOTMinutes = staffGrantedOTMinutes + grantedFromSheetStaffMinutes;
+    } else {
+      totalOTMinutes = workerGrantedOTMinutes + worker9to6OTMinutes;
     }
 
-    // Grand Total cannot be negative
+    totalOTMinutes += fullNightOTInMinutes;
+
+    // 2) Keep TOTAL box unchanged
+    // totalMinutes = original OT only
+    const baseTotalMinutes = totalOTMinutes;
+
+    // 3) Grand Total = Total + Late Deduction
+    let grandTotalMinutes = baseTotalMinutes + lateDeductionMinutes;
+
+    // clamp if needed
     grandTotalMinutes = Math.max(0, grandTotalMinutes);
 
     return {
@@ -836,10 +860,18 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
       workerGrantedOTMinutes: Math.round(workerGrantedOTMinutes),
       worker9to6OTMinutes: Math.round(worker9to6OTMinutes),
       grantedFromSheetStaffMinutes: Math.round(grantedFromSheetStaffMinutes),
-      totalMinutes: Math.round(totalMinutes),
+
+      // base OT total (without late deduction)
+      totalMinutes: Math.round(totalOTMinutes),
+
       fullNightOTInMinutes: Math.round(fullNightOTInMinutes),
-      lateDeductionHours: Number((lateDeductionDays * 8).toFixed(1)),
+
+      // late deduction shown as hours (unchanged)
+      lateDeductionHours: Number((lateDeductionMinutes / 60).toFixed(1)),
+
+      // Grand total (clamped >= 0)
       grandTotalMinutes: Math.round(grandTotalMinutes),
+
       lateMinsTotal: Math.round(lateMinsTotal),
       wasOTDeducted,
       isStaff,
@@ -854,7 +886,10 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
   ]);
 
   useEffect(() => {
-    if (onGrandTotalCalculated) {
+    if (!onGrandTotalCalculated) return;
+
+    if (lastGrandTotalRef.current !== stats.grandTotalMinutes) {
+      lastGrandTotalRef.current = stats.grandTotalMinutes;
       onGrandTotalCalculated(stats.grandTotalMinutes);
     }
   }, [stats.grandTotalMinutes, onGrandTotalCalculated]);

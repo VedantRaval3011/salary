@@ -197,9 +197,9 @@ export const FileUploader: React.FC = () => {
           if (currentFile) {
             (currentFile as any).customTimingOTData = customTimingEmployees;
           }
-          console.log(
-            `✅ Processed ${customTimingEmployees.length} 09 to 06 Time Granted employees`
-          );
+          // console.log(
+          //   `✅ Processed ${customTimingEmployees.length} 09 to 06 Time Granted employees`
+          // );
           updateFileStatus(fileId, "success");
           return { success: true, fileId, fileName: file.name };
         } else if (
@@ -207,12 +207,12 @@ export const FileUploader: React.FC = () => {
             (/\bin\b/i.test(file.name) || /\bout\b/i.test(file.name))) ||
           /\b04\.\s*lunch\b/i.test(file.name)
         ) {
-          console.log("🍽️ Processing Lunch In/Out file:", file.name);
+          // console.log("🍽️ Processing Lunch In/Out file:", file.name);
           const lunchData = await processLunchInOutFile(file);
-          console.log("✅ Processed lunch data:", {
-            employeeCount: lunchData.length,
-            sample: lunchData[0],
-          });
+          // console.log("✅ Processed lunch data:", {
+          //   employeeCount: lunchData.length,
+          //   sample: lunchData[0],
+          // });
           updateFileData(fileId, { employees: lunchData } as any);
           const currentFile = getAllUploadedFiles().find(
             (f) => f.id === fileId
@@ -220,9 +220,9 @@ export const FileUploader: React.FC = () => {
           if (currentFile) {
             (currentFile as any).lunchInOutData = lunchData;
           }
-          console.log(
-            `✅ Successfully processed ${lunchData.length} Lunch In/Out employees`
-          );
+          // console.log(
+          //   `✅ Successfully processed ${lunchData.length} Lunch In/Out employees`
+          // );
           updateFileStatus(fileId, "success");
           return { success: true, fileId, fileName: file.name };
         } else if (
@@ -237,9 +237,9 @@ export const FileUploader: React.FC = () => {
           if (currentFile) {
             (currentFile as any).otGrantedData = otEmployees;
           }
-          console.log(
-            `✅ Processed ${otEmployees.length} Staff OT Granted employees`
-          );
+          // console.log(
+          //   `✅ Processed ${otEmployees.length} Staff OT Granted employees`
+          // );
           updateFileStatus(fileId, "success");
           return { success: true, fileId, fileName: file.name };
         } else if (
@@ -254,9 +254,9 @@ export const FileUploader: React.FC = () => {
           if (currentFile) {
             (currentFile as any).fullNightOTData = fullNightEmployees;
           }
-          console.log(
-            `✅ Processed ${fullNightEmployees.length} Full Night Stay OT employees`
-          );
+          // console.log(
+          //   `✅ Processed ${fullNightEmployees.length} Full Night Stay OT employees`
+          // );
           updateFileStatus(fileId, "success");
           return { success: true, fileId, fileName: file.name };
         } else if (
@@ -269,9 +269,9 @@ export const FileUploader: React.FC = () => {
             "maintenance"
           );
           updateFileData(fileId, { employees: maintenanceEmployees } as any);
-          console.log(
-            `✅ Processed ${maintenanceEmployees.length} Maintenance OT Deduct employees`
-          );
+          // console.log(
+          //   `✅ Processed ${maintenanceEmployees.length} Maintenance OT Deduct employees`
+          // );
           updateFileStatus(fileId, "success");
           return { success: true, fileId, fileName: file.name };
         } else if (norm(file.name).includes("staff tulsi")) {
@@ -304,7 +304,7 @@ export const FileUploader: React.FC = () => {
             // ADD THIS CODE HERE - Populate store with employee 1 data
             if (processedData.employees && processedData.employees.length > 0) {
               const emp1 = processedData.employees[0] as any;
-              console.log("✅ Populated attendance store with employee 1 data");
+              // console.log("✅ Populated attendance store with employee 1 data");
             }
           }
 
@@ -445,24 +445,24 @@ export const FileUploader: React.FC = () => {
         norm(file.name).includes("staff tulsi") ||
         categoryName === "Staff Tulsi"
       ) {
-        console.log("📊 Processing Staff Tulsi HR file:", file.name);
+        // console.log("📊 Processing Staff Tulsi HR file:", file.name);
         const hrData = await processHRFile(file, "staff");
-        console.log("✅ Processed Staff HR data:", {
-          employeeCount: hrData.length,
-          sample: hrData[0],
-        });
+        // console.log("✅ Processed Staff HR data:", {
+        //   employeeCount: hrData.length,
+        //   sample: hrData[0],
+        // });
         updateHRData(fileId, hrData);
         updateFileStatus(fileId, "success");
       } else if (
         norm(file.name).includes("worker tulsi") ||
         categoryName === "Worker Tulsi"
       ) {
-        console.log("📊 Processing Worker Tulsi HR file:", file.name);
+        // console.log("📊 Processing Worker Tulsi HR file:", file.name);
         const hrData = await processHRFile(file, "worker");
-        console.log("✅ Processed Worker HR data:", {
-          employeeCount: hrData.length,
-          sample: hrData[0],
-        });
+        // console.log("✅ Processed Worker HR data:", {
+        //   employeeCount: hrData.length,
+        //   sample: hrData[0],
+        // });
         updateHRData(fileId, hrData);
         updateFileStatus(fileId, "success");
       } else {

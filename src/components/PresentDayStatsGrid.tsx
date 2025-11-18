@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { EmployeeData } from "@/lib/types";
 import { useExcel } from "../context/ExcelContext"; // Corrected import path
+import { useFinalDifference } from "@/context/FinalDifferenceContext";
 
 // Utility helpers
 const canon = (s: string) => (s ?? "").toUpperCase().trim();
@@ -512,8 +513,9 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
   selectedHolidaysCount = 0,
   finalDifference = 0,
 }) => {
-  const [tooltips, setTooltips] = useState<{ [k: string]: boolean }>({});
   const { getPL } = usePaidLeaveLookup();
+  const { lateDeductionOverride } = useFinalDifference();
+
   // ... (existing code, no changes)
   const { getGrantForEmployee } = useStaffOTGrantedLookup();
   const { getFullNightOTForEmployee } = useFullNightOTLookup();
@@ -526,6 +528,8 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
     let paCount = 0;
     let fullPresentDays = 0;
     let adjPresentDays = 0;
+    const empLateDeductionMinutes =
+      lateDeductionOverride.get(employee.empCode) ?? 0;
 
     employee.days?.forEach((day) => {
       const status = (day.attendance.status || "").toUpperCase();
@@ -1016,46 +1020,15 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
       );
     }
 
-    if (finalDifference < 0) {
-      // finalDifference is negative, meaning deductions exceed OT
-      const negativeHours = Math.abs(finalDifference) / 60; // Convert minutes to hours
+    if (empLateDeductionMinutes > 0) {
+      const lateHours = empLateDeductionMinutes / 60;
 
-      // Deduction Rule:
-      // 0 to < 4 hours = 0.5 day
-      // 4 to < 8 hours = 1.0 day
-      // 8 to < 12 hours = 1.5 days
-      // 12 to < 16 hours = 2.0 days, etc.
-
-      if (negativeHours < 4) {
+      if (lateHours < 4) {
         AdditionalOT = 0.5;
-        console.log(
-          `⚠️ Final Difference: ${(finalDifference / 60).toFixed(
-            2
-          )}h (< 4h). Deduction: 0.5 days`
-        );
       } else {
-        // For 4+ hours: 1 day for first 4 hours, then +0.5 day for each additional 4-hour block
-        // Formula: 1 + Math.floor((negativeHours - 4) / 4) * 0.5
-        // OR simpler: Math.ceil(negativeHours / 4) * 0.5
-        const blocks = Math.ceil(negativeHours / 4);
+        const blocks = Math.ceil(lateHours / 4);
         AdditionalOT = blocks * 0.5;
-
-        console.log(
-          `⚠️ Final Difference: ${(finalDifference / 60).toFixed(
-            2
-          )}h (${negativeHours.toFixed(
-            1
-          )}h). Blocks: ${blocks}. Deduction: ${AdditionalOT} days`
-        );
       }
-    } else {
-      // finalDifference is positive or zero, no deduction needed
-      AdditionalOT = 0;
-      console.log(
-        `✅ Final Difference: ${(finalDifference / 60).toFixed(
-          2
-        )}h (positive/zero). No deduction.`
-      );
     }
 
     const ATotal = Math.max(Total - AdditionalOT, 0);

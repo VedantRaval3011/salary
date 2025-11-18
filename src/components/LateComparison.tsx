@@ -335,7 +335,13 @@ const calculateFinalSoftwareMinutes = (
     // Early departure: from day.attendance.earlyDep
     const earlyDepMins = Number(day.attendance.earlyDep) || 0;
 
-    // ❗ RULE: Skip early departure if status is P/A or PA
+    // ❌ RULE: Skip early departure completely if status is "M/WO-I"
+    if (status === "M/WO-I") {
+      // Do NOT add earlyDepMins
+      return; // skip this day
+    }
+
+    // Existing rule: Skip early departure if status is P/A or PA
     if (status !== "P/A" && status !== "PA") {
       if (earlyDepMins > 0) {
         earlyDepartureTotalMinutes += earlyDepMins;
@@ -544,16 +550,7 @@ export const LateComparison: React.FC = () => {
 
         const { category } = getDifferenceCategory(difference);
 
-        console.log("COMPARE DEBUG:", {
-          empCode: employee.empCode,
-          empName: employee.empName,
-          softwareTotalMinutes,
-          softwareTotalHours,
-          calculatedHHMM: minutesToHHMM(softwareTotalMinutes),
-          // Show the math:
-          exactDecimal: softwareTotalMinutes / 60,
-          roundedDecimal: Number((softwareTotalMinutes / 60).toFixed(2)),
-        });
+
 
         return {
           empCode: employee.empCode,

@@ -138,7 +138,6 @@ function useStaffOTGrantedLookup() {
       return { getGrantForEmployee: () => undefined };
     }
 
-    // console.log("✅ Staff OT Granted file detected:", staffOTFile.fileName);
 
     let otEmployees: any[] = [];
     if (staffOTFile.otGrantedData && Array.isArray(staffOTFile.otGrantedData)) {
