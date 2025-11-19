@@ -51,6 +51,7 @@ function processEmployeeBlock(
     totalLateMins: 0, // ADD THIS
     totalEarlyDep: 0, // ADD THIS
     days: [],
+    company: currentCompanyName,
   };
 
   let dateRow: ExcelJS.CellValue[] = [];
@@ -98,7 +99,7 @@ function processEmployeeBlock(
         employee.empName = empNameCell.replace("Emp Name :", "").trim();
       }
 
- const presentCell = cellValueToString(row.getCell(9).value);
+      const presentCell = cellValueToString(row.getCell(9).value);
       if (presentCell.includes("Present")) {
         // Extract the numeric value after "Present :" or "Present:"
         const match = presentCell.match(/Present\s*:\s*([\d.]+)/i);
@@ -159,20 +160,22 @@ function processEmployeeBlock(
     }
 
     // Date row (starts with 1 in column 2)
-if (secondCell && !isNaN(Number(secondCell)) && Number(secondCell) === 1) {
-  dateRow = [];
-  for (let col = 2; col <= 32; col++) {  // Changed from 31 to 32
-    dateRow.push(row.getCell(col).value);
-  }
-}
+    if (secondCell && !isNaN(Number(secondCell)) && Number(secondCell) === 1) {
+      dateRow = [];
+      for (let col = 2; col <= 32; col++) {
+        // Changed from 31 to 32
+        dateRow.push(row.getCell(col).value);
+      }
+    }
 
-// Day row
-if (["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].includes(secondCell)) {
-  dayRow = [];
-  for (let col = 2; col <= 32; col++) {  // Changed from 31 to 32
-    dayRow.push(cellValueToString(row.getCell(col).value));
-  }
-}
+    // Day row
+    if (["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].includes(secondCell)) {
+      dayRow = [];
+      for (let col = 2; col <= 32; col++) {
+        // Changed from 31 to 32
+        dayRow.push(cellValueToString(row.getCell(col).value));
+      }
+    }
 
     // Replace the attendance data processing section with:
     if (firstCell.includes("Shift") && firstCell.includes("In Time")) {
