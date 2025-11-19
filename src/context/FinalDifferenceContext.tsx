@@ -1,20 +1,14 @@
 // src/context/FinalDifferenceContext.tsx
 "use client";
 
-import React, {
-  createContext,
-  useContext,
-  useRef,
-  useState,
-  useCallback,
-} from "react";
+import React, { createContext, useContext, useState, useCallback } from "react";
 
 interface FinalDifferenceContextType {
   employeeFinalDifferences: Map<string, number>;
   updateFinalDifference: (empCode: string, difference: number) => void;
 
-  originalFinalDifference: Map<string, number>; // ⭐ NEW
-  updateOriginalFinalDifference: (empCode: string, value: number) => void; // ⭐ NEW
+  originalFinalDifference: Map<string, number>;
+  updateOriginalFinalDifference: (empCode: string, value: number) => void;
 
   clearFinalDifferences: () => void;
 
@@ -34,12 +28,10 @@ const FinalDifferenceContext = createContext<
 export const FinalDifferenceProvider: React.FC<{
   children: React.ReactNode;
 }> = ({ children }) => {
-  // ⭐ LIVE (modified) finalDifference after recursion
   const [employeeFinalDifferences, setEmployeeFinalDifferences] = useState<
     Map<string, number>
   >(new Map());
 
-  // ⭐ ORIGINAL finalDifference before recursion
   const [originalFinalDifference, setOriginalFinalDifference] = useState<
     Map<string, number>
   >(new Map());
@@ -47,48 +39,25 @@ export const FinalDifferenceProvider: React.FC<{
   const [totalMinus4, setTotalMinus4] = useState<Map<string, number>>(
     new Map()
   );
+
   const [lateDeductionOverride, setLateDeductionOverride] = useState<
     Map<string, number>
   >(new Map());
 
-  // recursion guard
-  const recursionInProgressRef = useRef<Set<string>>(new Set());
-
-  /* --------------------------------------------------
-     RECURSION ENGINE
-  -------------------------------------------------- */
-  function computeRecursiveLateDeduction(initialFinalDifference: number) {
-    const DAY_MINUTES = 8 * 60;
-    let finalDiff = initialFinalDifference;
-    let totalLateDeduction = 0;
-
-    while (finalDiff < 0) {
-      const days = Math.ceil(Math.abs(finalDiff) / DAY_MINUTES);
-      const deduction = days * DAY_MINUTES;
-
-      totalLateDeduction += deduction;
-      finalDiff += deduction;
-      if (finalDiff >= 0) break;
-    }
-
-    return { finalDiff, totalLateDeduction };
-  }
-
   const setRecursionState = useCallback(
-    (empCode: string, inProgress: boolean) => {
-      const set = recursionInProgressRef.current;
-      inProgress ? set.add(empCode) : set.delete(empCode);
-    },
+    (_empCode: string, _inProgress: boolean) => {},
     []
   );
 
-  /* --------------------------------------------------
-     UPDATE ORIGINAL F.D. — store only once
-  -------------------------------------------------- */
-  const updateOriginalFinalDifference = useCallback(
+  /* ======================================================
+      HELPERS
+  ====================================================== */
+
+  const safeSetFinalDifference = useCallback(
     (empCode: string, value: number) => {
-      setOriginalFinalDifference((prev) => {
-        if (prev.has(empCode)) return prev; // ❗ DO NOT OVERRIDE
+      setEmployeeFinalDifferences((prev) => {
+        const existing = prev.get(empCode);
+        if (existing === value) return prev;
         const map = new Map(prev);
         map.set(empCode, value);
         return map;
@@ -97,136 +66,96 @@ export const FinalDifferenceProvider: React.FC<{
     []
   );
 
-  /* --------------------------------------------------
-     UPDATE FINAL DIFFERENCE WITH RECURSION
-  -------------------------------------------------- */
-  const updateFinalDifference = useCallback(
-    (empCode: string, difference: number) => {
-      // Prevent re-entrancy
-      if (recursionInProgressRef.current.has(empCode)) return;
-
-      // Record the original final diff the first time we see it
-      updateOriginalFinalDifference(empCode, difference);
-
-      // Re-read original (it may have been set by the call above)
-      const orig = originalFinalDifference.get(empCode);
-
-      // Debug: helpful to see call order for emp
-      console.debug(
-        "[FD:update] emp:",
-        empCode,
-        "incomingDiff:",
-        difference,
-        "orig:",
-        orig
-      );
-
-      // If incoming difference is non-negative -> straightforward set
-      if (difference >= 0) {
-        setEmployeeFinalDifferences((prev) => {
-          const existing = prev.get(empCode);
-          if (existing === difference) return prev;
-          const map = new Map(prev);
-          map.set(empCode, difference);
-          return map;
-        });
-        return;
-      }
-
-      // At this point difference < 0
-      // If original is not yet recorded (rare because we wrote it above),
-      // still set live negative and return; recursion will run when orig exists.
-      if (orig === undefined) {
-        setEmployeeFinalDifferences((prev) => {
-          const existing = prev.get(empCode);
-          if (existing === difference) return prev;
-          const map = new Map(prev);
-          map.set(empCode, difference);
-          return map;
-        });
-        return;
-      }
-
-      // If original already exists and is non-negative, keep original positive value
-      if (orig >= 0) {
-        setEmployeeFinalDifferences((prev) => {
-          const existing = prev.get(empCode);
-          if (existing === orig) return prev;
-          const map = new Map(prev);
-          map.set(empCode, orig);
-          return map;
-        });
-        return;
-      }
-
-      // Decide whether to trigger recursion: only for negatives >= 4 hours
-      const MIN_TRIGGER_MINUTES = 2 * 60; // 240 minutes
-      if (Math.abs(difference) < MIN_TRIGGER_MINUTES) {
-        // small negative - do NOT apply full-day recursion
-        // keep the live negative diff visible and do not set a lateDeductionOverride
-        console.debug(
-          "[FD:update] emp:",
-          empCode,
-          "small negative (<4h), skipping recursion. diff:",
-          difference
-        );
-
-        setEmployeeFinalDifferences((prev) => {
-          const existing = prev.get(empCode);
-          if (existing === difference) return prev;
-          const map = new Map(prev);
-          map.set(empCode, difference);
-          return map;
-        });
-        return;
-      }
-
-      // original exists and is negative AND large enough -> run recursion
-      console.debug(
-        "[FD:recursion:start] emp:",
-        empCode,
-        "initialDiff:",
-        difference
-      );
-      setRecursionState(empCode, true);
-      try {
-        const { finalDiff, totalLateDeduction } =
-          computeRecursiveLateDeduction(difference);
-
-        console.debug(
-          "[FD:recursion:result]",
-          empCode,
-          "finalDiff:",
-          finalDiff,
-          "deductionMins:",
-          totalLateDeduction
-        );
-
-        setEmployeeFinalDifferences((prev) => {
-          const existing = prev.get(empCode);
-          if (existing === finalDiff) return prev;
-          const map = new Map(prev);
-          map.set(empCode, finalDiff);
-          return map;
-        });
-
-        setLateDeductionOverride((prev) => {
-          const existing = prev.get(empCode);
-          if (existing === totalLateDeduction) return prev;
-          const map = new Map(prev);
-          map.set(empCode, totalLateDeduction);
-          return map;
-        });
-      } finally {
-        setRecursionState(empCode, false);
-      }
+  const safeSetLateDeduction = useCallback(
+    (empCode: string, minutes: number) => {
+      setLateDeductionOverride((prev) => {
+        const existing = prev.get(empCode);
+        if (existing === minutes) return prev;
+        const map = new Map(prev);
+        map.set(empCode, minutes);
+        return map;
+      });
     },
-    [setRecursionState, originalFinalDifference, updateOriginalFinalDifference]
+    []
   );
 
-  /* --------------------------------------------------
-     OTHER FUNCTIONS
-  -------------------------------------------------- */
+  const updateOriginalFinalDifference = useCallback(
+    (empCode: string, value: number) => {
+      setOriginalFinalDifference((prev) => {
+        if (prev.has(empCode)) return prev;
+        const map = new Map(prev);
+        map.set(empCode, value);
+        return map;
+      });
+    },
+    []
+  );
+
+  /* ======================================================
+      COMPUTE LATE DEDUCTION (YOUR NEW RULE)
+  ====================================================== */
+
+  function calculateLateDeductionUnits(diffMinutes: number): number {
+    const absMinutes = Math.abs(diffMinutes);
+    const FOUR_HOURS = 4 * 60;
+    const DAY_MINUTES = 8 * 60;
+
+    // <= 4 hrs → half day
+    if (absMinutes <= FOUR_HOURS) return 0.5;
+
+    // otherwise → full days (ceil)
+    return Math.ceil(absMinutes / DAY_MINUTES);
+  }
+
+  function computeLateDeduction(diff: number) {
+    if (diff >= 0) {
+      return { finalDiff: diff, lateDeductionMinutes: 0 };
+    }
+
+    const units = calculateLateDeductionUnits(diff);
+    const lateDeductionMinutes = units * (8 * 60); // each day = 480 min
+    const finalDiff = diff + lateDeductionMinutes;
+
+    return { finalDiff, lateDeductionMinutes };
+  }
+
+  /* ======================================================
+      UPDATE FINAL DIFFERENCE (NEW RULE)
+  ====================================================== */
+
+  const updateFinalDifference = useCallback(
+    (empCode: string, difference: number) => {
+      // Store original FD ONCE
+      updateOriginalFinalDifference(empCode, difference);
+
+      const orig = originalFinalDifference.get(empCode) ?? difference;
+
+      // If original FD >= 0 → NEVER apply deduction
+      if (orig >= 0) {
+        safeSetFinalDifference(empCode, difference);
+        safeSetLateDeduction(empCode, 0);
+        return;
+      }
+
+      // original is negative → eligible
+      const { finalDiff, lateDeductionMinutes } =
+        computeLateDeduction(difference);
+
+      safeSetFinalDifference(empCode, finalDiff);
+      safeSetLateDeduction(empCode, lateDeductionMinutes);
+    },
+    [
+      originalFinalDifference,
+      updateOriginalFinalDifference,
+      safeSetFinalDifference,
+      safeSetLateDeduction,
+    ]
+  );
+
+  /* ======================================================
+      OTHER FUNCTIONS
+  ====================================================== */
+
   const clearFinalDifferences = useCallback(() => {
     setEmployeeFinalDifferences(new Map());
     setOriginalFinalDifference(new Map());
@@ -246,15 +175,9 @@ export const FinalDifferenceProvider: React.FC<{
 
   const updateLateDeductionOverride = useCallback(
     (empCode: string, minutes: number) => {
-      setLateDeductionOverride((prev) => {
-        const existing = prev.get(empCode);
-        if (existing === minutes) return prev;
-        const map = new Map(prev);
-        map.set(empCode, minutes);
-        return map;
-      });
+      safeSetLateDeduction(empCode, minutes);
     },
-    []
+    [safeSetLateDeduction]
   );
 
   return (
@@ -271,6 +194,7 @@ export const FinalDifferenceProvider: React.FC<{
         updateTotalMinus4,
         lateDeductionOverride,
         updateLateDeductionOverride,
+
         setRecursionState,
       }}
     >

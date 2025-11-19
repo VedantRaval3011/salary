@@ -758,22 +758,33 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
   // Add these useEffect hooks after the existing stats useMemo:
 
   useEffect(() => {
-    // ⭐ 1) Save ORIGINAL FINAL DIFFERENCE once
-    const orig = originalFinalDifference.get(employee.empCode);
-    if (orig === undefined) {
-      updateOriginalFinalDifference(employee.empCode, stats.finalDifference);
-    }
+    // Always update the final difference when stats change
+    updateFinalDifference(employee.empCode, stats.finalDifference);
 
-    // ⭐ 2) Continue updating the live finalDifference normally
-    const existing = employeeFinalDifferences.get(employee.empCode);
-    if (existing !== stats.finalDifference) {
-      updateFinalDifference(employee.empCode, stats.finalDifference);
+    // Notify parent component if callback exists
+    if (onFinalDifferenceCalculated) {
+      onFinalDifferenceCalculated(stats.finalDifference);
     }
   }, [
     stats.finalDifference,
     employee.empCode,
-    employeeFinalDifferences,
-    originalFinalDifference,
+    updateFinalDifference,
+    onFinalDifferenceCalculated,
+  ]);
+
+  useEffect(() => {
+    // Always update total minus 4 when stats change
+    updateTotalMinus4(employee.empCode, stats.totalCombinedMinutes);
+
+    // Notify parent component if callback exists
+    if (onTotalMinus4Calculated) {
+      onTotalMinus4Calculated(employee.empCode, stats.totalCombinedMinutes);
+    }
+  }, [
+    stats.totalCombinedMinutes,
+    employee.empCode,
+    updateTotalMinus4,
+    onTotalMinus4Calculated,
   ]);
 
   useEffect(() => {
