@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { ExcelProvider } from "@/context/ExcelContext";
 import { FinalDifferenceProvider } from "@/context/FinalDifferenceContext";
+import { GrandOTProvider } from "@/context/GrandOTContext";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -20,7 +21,9 @@ export default function RootLayout({
     <html lang="en">
       <body className={inter.className}>
         <ExcelProvider>
-          <FinalDifferenceProvider>{children}</FinalDifferenceProvider>
+          <GrandOTProvider>
+            <FinalDifferenceProvider>{children}</FinalDifferenceProvider>
+          </GrandOTProvider>
         </ExcelProvider>
       </body>
     </html>

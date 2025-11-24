@@ -488,7 +488,7 @@ export const PresentDayComparison: React.FC<
     key: "empCode",
     direction: "asc",
   });
-  const { employeeFinalDifferences } = useFinalDifference();
+  const { employeeFinalDifferences, presentDayTotals } = useFinalDifference();
 
   const [finalDifferences, setFinalDifferences] = useState<Map<string, number>>(
     new Map()
@@ -523,22 +523,28 @@ export const PresentDayComparison: React.FC<
         const finalDifference =
           employeeFinalDifferences.get(employee.empCode) || 0;
 
-        const stats = calculateEmployeeStats(
-          employee,
-          baseHolidaysCount,
-          selectedHolidaysCount,
-          getPL,
-          getGrantForEmployee,
-          getFullNightOTForEmployee,
-          getCustomTimingForEmployee,
-          isMaintenanceEmployee,
-          finalDifference
-        );
+        // Try to get total from context first
+        let softwareTotal = presentDayTotals.get(employee.empCode);
+
+        if (softwareTotal === undefined) {
+           const stats = calculateEmployeeStats(
+            employee,
+            baseHolidaysCount,
+            selectedHolidaysCount,
+            getPL,
+            getGrantForEmployee,
+            getFullNightOTForEmployee,
+            getCustomTimingForEmployee,
+            isMaintenanceEmployee,
+            finalDifference
+          );
+          softwareTotal = stats.GrandTotal;
+        }
 
         const hrPresentDays = getHRPresentDays(employee);
 
         let difference: number | string;
-        const roundedGrandTotal = Number(stats.GrandTotal.toFixed(1));
+        const roundedGrandTotal = Number(softwareTotal.toFixed(1));
 
         if (hrPresentDays === null) {
           difference = "N/A";

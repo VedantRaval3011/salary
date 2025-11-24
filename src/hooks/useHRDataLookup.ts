@@ -53,13 +53,16 @@ export function useHRDataLookup() {
       sampleEmployee: f.hrData?.[0]
     })));
 
-    const employeeByCode = new Map<string, number>();
-    const employeeByName = new Map<string, number>();
+    const employeeByCode = new Map<string, { presentDays: number; day: number }>();
+    const employeeByName = new Map<string, { presentDays: number; day: number }>();
 
     // --- BUILD THE MAPS (STORING DATA) ---
     for (const emp of allHREmployees) {
-      // FIXED: Access presentDays instead of DAY
+      // Get both presentDays (Adj Days / Column X) and day (Day column)
       const presentDays = Number(emp.presentDays) || 0;
+      const day = Number(emp.day) || Number(emp.Day) || 0;
+
+      const hrData = { presentDays, day };
 
       if (emp.empCode) {
         const codeStr = String(emp.empCode);
@@ -68,14 +71,14 @@ export function useHRDataLookup() {
         const numKeyStripped = dropLeadingZeros(numKey); // "0041" -> "41"
 
         // Store all variations
-        employeeByCode.set(codeKey, presentDays);
-        if (numKey) employeeByCode.set(numKey, presentDays);
-        if (numKeyStripped) employeeByCode.set(numKeyStripped, presentDays);
+        employeeByCode.set(codeKey, hrData);
+        if (numKey) employeeByCode.set(numKey, hrData);
+        if (numKeyStripped) employeeByCode.set(numKeyStripped, hrData);
       }
 
       if (emp.empName) {
         const nKey = nameKey(emp.empName); // "MARYA, ASHOK" -> "ASHOKMARYA"
-        if (nKey) employeeByName.set(nKey, presentDays);
+        if (nKey) employeeByName.set(nKey, hrData);
       }
     }
 
@@ -125,9 +128,14 @@ export function useHRDataLookup() {
 
       if (found === undefined) {
         console.warn(`❌ No HR match found for: code="${codeStr}", name="${nameStr}"`);
+        return null;
       }
 
-      return found ?? null;
+      // ⭐ Return presentDays if available, otherwise fallback to day
+      // This handles the case where "Adj Days" (Column X) is empty but "Day" column has data
+      const result = found.presentDays > 0 ? found.presentDays : found.day;
+      
+      return result > 0 ? result : null;
     };
 
     return { getHRPresentDays };

@@ -211,11 +211,18 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
   const [isAdjustmentModalOpen, setIsAdjustmentModalOpen] = useState(false);
   const [currentEmployee, setCurrentEmployee] =
     useState<EmployeeData>(employee);
-  const { updateTotalMinus4, totalMinus4 } = useFinalDifference();
+  const { 
+    updateTotalMinus4, 
+    totalMinus4, 
+    updatePresentDayTotal, 
+    updateOvertimeGrandTotal 
+  } = useFinalDifference();
 
   const { excelData } = useExcel();
   const [otGrandTotal, setOtGrandTotal] = useState<number>(0);
+  const [staticFinalDifference, setStaticFinalDifference] = useState<number>(0);
   const [finalDifference, setFinalDifference] = useState<number>(0);
+  const [lateDeductionDays, setLateDeductionDays] = useState<number>(0);
   const { updateFinalDifference } = useFinalDifference();
 
   // Get custom timing info
@@ -373,14 +380,33 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
         employee={currentEmployee}
         baseHolidaysCount={baseHolidaysCount}
         selectedHolidaysCount={selectedHolidaysCount}
-        finalDifference={finalDifference} // 🆕 ADD THIS
+        finalDifference={finalDifference}
+        lateDeductionDays={lateDeductionDays} // 🆕 Pass to PresentDayStatsGrid
+        onTotalCalculated={(total) => updatePresentDayTotal(employee.empCode, total)}
       />
       <EarlyDepartureStatsGrid
         employee={employee}
         otGrandTotal={otGrandTotal}
+        staticFinalDifference={staticFinalDifference}
         onFinalDifferenceCalculated={(difference) => {
           setFinalDifference(difference);
-          updateFinalDifference(employee.empCode, difference); // 🆕 ADD THIS LINE
+          updateFinalDifference(employee.empCode, difference);
+
+          // Calculate Late Deduction Days
+          // Rule: 0 to -4 => 0.5, -4 to -8 => 1, etc.
+          // difference is in minutes. -4 hours = -240 minutes.
+          let deduction = 0;
+          if (difference < 0) {
+            const absDiff = Math.abs(difference);
+            // Rule with 30 min buffer:
+            // 0-30 mins => 0 deduction
+            // 31-270 mins (4h 30m) => 0.5 days
+            // 271-510 mins (8h 30m) => 1.0 days
+            // Formula: ceil((absDiff - 30) / 240) * 0.5
+            const bufferedDiff = Math.max(0, absDiff - 30);
+            deduction = Math.ceil(bufferedDiff / 240) * 0.5;
+          }
+          setLateDeductionDays(deduction);
         }}
         onTotalMinus4Calculated={(empCode, total) =>
           updateTotalMinus4(empCode, total)
@@ -388,10 +414,14 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
       />
       <OvertimeStatsGrid
         employee={employee}
-        onGrandTotalCalculated={(total) =>
-          setOtGrandTotal((prev) => (prev === total ? prev : total))
+        onGrandTotalCalculated={(total) => {
+          setOtGrandTotal((prev) => (prev === total ? prev : total));
+          updateOvertimeGrandTotal(employee.empCode, total);
+        }}
+        onStaticFinalDifferenceCalculated={(staticDiff) =>
+          setStaticFinalDifference((prev) => (prev === staticDiff ? prev : staticDiff))
         }
-        // valid now
+        lateDeductionDays={lateDeductionDays} // 🆕 Pass to OvertimeStatsGrid
       />
 
       {/* Expanded Attendance Grid Section */}
@@ -441,6 +471,7 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
                 console.log(`Clicked on date: ${date}`);
               }}
               customTime={customTimingInfo.customTime} // Pass the custom time from computed info
+              employee={currentEmployee} // 🆕 Pass employee data for lunch/punch lookup
             />
           ) : (
             <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">

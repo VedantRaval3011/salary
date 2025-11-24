@@ -9,6 +9,8 @@ import {
 } from "@/lib/exportComparison";
 import { useHROTLookup } from "@/hooks/useHROTLookup";
 import { ArrowDown, ArrowUp } from "lucide-react"; // Import icons
+import { useGrandOT } from "@/context/GrandOTContext";
+import { useFinalDifference } from "@/context/FinalDifferenceContext";
 
 // Define the type for the sorting state
 type SortColumn = keyof OTComparisonData | "difference" | "category";
@@ -137,7 +139,6 @@ function useStaffOTGrantedLookup() {
     if (!staffOTFile) {
       return { getGrantForEmployee: () => undefined };
     }
-
 
     let otEmployees: any[] = [];
     if (staffOTFile.otGrantedData && Array.isArray(staffOTFile.otGrantedData)) {
@@ -704,19 +705,8 @@ function calculateFinalOT(
     wasOTDeducted = true;
   }
 
-  // Late Deduction calculation (same rules as stats grid)
-  let lateDeductionDays = 0;
-  if (finalOTForDeduction < lateMinsTotal) {
-    const finalOTInHours = finalOTForDeduction / 60;
-    if (finalOTInHours < 4) {
-      lateDeductionDays = 0.5;
-    } else {
-      const diffInHours = (lateMinsTotal - finalOTForDeduction) / 60;
-      lateDeductionDays = 0.5 * Math.floor(diffInHours / 4);
-      if (lateDeductionDays === 0 && diffInHours > 0) lateDeductionDays = 0.5;
-    }
-  }
-  const lateDeductionMinutes = lateDeductionDays * 8 * 60;
+  // Late Deduction removed - set to 0
+  const lateDeductionMinutes = 0;
 
   // Full Night OT
   const fullNightOTDecimal = getFullNightOTForEmployee(employee) || 0;
@@ -741,6 +731,7 @@ function calculateFinalOT(
 export const OTComparison: React.FC = () => {
   const { excelData } = useExcel();
   const [showTable, setShowTable] = useState(false);
+  const { overtimeGrandTotals } = useFinalDifference();
   const [isLoading, setIsLoading] = useState(false);
   const [filterCompany, setFilterCompany] = useState<string>(
     "INDIANA OPHTHALMICS LLP"
@@ -779,13 +770,18 @@ export const OTComparison: React.FC = () => {
 
     const data: SortableOTComparisonData[] = excelData.employees.map(
       (employee: EmployeeData) => {
-        const finalOTMinutes = calculateFinalOT(
-          employee,
-          getGrantForEmployee,
-          getFullNightOTForEmployee,
-          getCustomTimingForEmployee,
-          isMaintenanceEmployee
-        );
+        // Try context first:
+        const ctxMinutes = overtimeGrandTotals.get(employee.empCode);
+        const finalOTMinutes =
+          typeof ctxMinutes === "number"
+            ? ctxMinutes
+            : calculateFinalOT(
+                employee,
+                getGrantForEmployee,
+                getFullNightOTForEmployee,
+                getCustomTimingForEmployee,
+                isMaintenanceEmployee
+              );
 
         const softwareOTHours: number = Number(
           (finalOTMinutes / 60).toFixed(2)
@@ -802,7 +798,7 @@ export const OTComparison: React.FC = () => {
         return {
           empCode: employee.empCode,
           empName: employee.empName,
-          company: employee.companyName, // ✅ REQUIRED FIX
+          company: employee.companyName,
           softwareOTHours,
           hrOTHours,
           difference,
@@ -816,6 +812,7 @@ export const OTComparison: React.FC = () => {
   }, [
     excelData,
     showTable,
+    overtimeGrandTotals,
     getHROTValue,
     getGrantForEmployee,
     getFullNightOTForEmployee,

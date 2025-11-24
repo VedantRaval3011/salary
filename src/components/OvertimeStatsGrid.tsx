@@ -4,10 +4,13 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { EmployeeData } from "@/lib/types";
 import { useExcel } from "@/context/ExcelContext";
 import { useFinalDifference } from "@/context/FinalDifferenceContext";
+import { useGrandOT } from "@/context/GrandOTContext";
 
 interface Props {
   employee: EmployeeData;
   onGrandTotalCalculated?: (total: number) => void;
+  onStaticFinalDifferenceCalculated?: (staticDiff: number) => void;
+  lateDeductionDays?: number;
 }
 
 // Utility helpers
@@ -447,16 +450,13 @@ function useMaintenanceDeductLookup() {
   }, [getAllUploadedFiles]);
 }
 
-// ---- Component ---- //
-interface Props {
-  employee: EmployeeData;
-}
-
 export const OvertimeStatsGrid: React.FC<Props> = ({
   employee,
   onGrandTotalCalculated,
+  onStaticFinalDifferenceCalculated,
+  lateDeductionDays = 0,
 }) => {
-  const [tooltips, setTooltips] = useState<{ [k: string]: boolean }>({});
+  const { setGrandOT } = useGrandOT();
   const lastGrandTotalRef = useRef<number | null>(null);
   const { getGrantForEmployee } = useStaffOTGrantedLookup();
   const { getFullNightOTForEmployee } = useFullNightOTLookup();
@@ -610,7 +610,6 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
     } else {
       // Employee is NOT in OT Granted list
       if (isStaff) {
-        // Staff Granted OT (Saturdays/Holidays) - logic for Staff NOT in granted sheet
         // Staff Granted OT (Saturdays/Holidays) - logic for Staff NOT in granted sheet
         employee.days?.forEach((day) => {
           const dayName = (day.day || "").toLowerCase();
@@ -802,35 +801,13 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
     }
 
     // -----------------------
-    // 🔥 RECURSIVE LATE DEDUCTION LOGIC
+    // LATE DEDUCTION - From Prop
     // -----------------------
-    let lateDeductionMinutes = 0;
-
-    // 1) Check if recursion override exists for this employee
-    const overridden = lateDeductionOverride.get(employee.empCode);
-
-    if (overridden !== undefined) {
-      lateDeductionMinutes = overridden;
-    } else {
-      let lateDeductionDays = 0;
-
-      let lateDeductionMinutes = 0;
-
-      const overridden = lateDeductionOverride.get(employee.empCode);
-
-      if (overridden !== undefined) {
-        // Recursion applied
-        lateDeductionMinutes = overridden;
-      } else {
-        // No recursion happened → late deduction 0
-        lateDeductionMinutes = 0;
-      }
-
-      lateDeductionMinutes = lateDeductionDays * 8 * 60;
-    }
+    // Convert days to minutes (assuming 8 hours = 480 minutes per day)
+    const lateDeductionMinutes = Math.round(lateDeductionDays * 480);
 
     // -----------------------
-    // Compute total OT (all buckets) and then ADD late deduction (as requested)
+    // Compute total OT (all buckets) and then SUBTRACT late deduction
     // -----------------------
     // 1) Compute original TOTAL OT (same as before)
     let totalOTMinutes = 0;
@@ -847,11 +824,11 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
     // totalMinutes = original OT only
     const baseTotalMinutes = totalOTMinutes;
 
-    // 3) Grand Total = Total + Late Deduction
+    // 3) Grand Total = Total + Full Night OT + Late Deduction
     let grandTotalMinutes = baseTotalMinutes + lateDeductionMinutes;
 
     // clamp if needed
-    grandTotalMinutes = Math.max(0, grandTotalMinutes);
+    // grandTotalMinutes = Math.max(0, grandTotalMinutes);
 
     return {
       baseOTValue,
@@ -869,7 +846,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
       // late deduction shown as hours (unchanged)
       lateDeductionHours: Number((lateDeductionMinutes / 60).toFixed(1)),
 
-      // Grand total (clamped >= 0)
+      // Grand total
       grandTotalMinutes: Math.round(grandTotalMinutes),
 
       lateMinsTotal: Math.round(lateMinsTotal),
@@ -883,6 +860,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
     getFullNightOTForEmployee,
     getCustomTimingForEmployee,
     isMaintenanceEmployee,
+    lateDeductionDays,
   ]);
 
   useEffect(() => {
@@ -893,6 +871,27 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
       onGrandTotalCalculated(stats.grandTotalMinutes);
     }
   }, [stats.grandTotalMinutes, onGrandTotalCalculated]);
+
+  // write the employee's grand total into GrandOTContext when it changes
+  useEffect(() => {
+    // skip if empCode missing
+    if (!employee?.empCode) return;
+    // stats.grandTotalMinutes is the value we want to publish
+    setGrandOT(employee.empCode, stats.grandTotalMinutes);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stats.grandTotalMinutes, employee?.empCode]);
+
+  // Notify parent of static final difference (Total + Full Night OT)
+  useEffect(() => {
+    if (!onStaticFinalDifferenceCalculated) return;
+
+    const staticDiff = stats.totalMinutes + stats.fullNightOTInMinutes;
+    onStaticFinalDifferenceCalculated(staticDiff);
+  }, [
+    stats.totalMinutes,
+    stats.fullNightOTInMinutes,
+    onStaticFinalDifferenceCalculated,
+  ]);
 
   const tooltipTexts: any = {
     baseOT:
@@ -913,7 +912,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
     lateDeduction:
       "Deduction (in days) applied when Late Hours > Final Calculated OT. Deduction is 0.5 days per 4-hour difference. Max deduction is based on Final OT.",
     grandTotal:
-      "Grand Total = (Total or Worker Granted OT) + Full Night OT - Late Deduction (in minutes)",
+      "Grand Total = (Total or Worker Granted OT) + Full Night OT + Late Deduction (in minutes)",
   };
 
   const StatBox = ({ label, value, bgColor, textColor, tooltipKey }: any) => {
@@ -963,6 +962,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
             value={stats.baseOTValue}
             bgColor="bg-gray-50"
             textColor="text-gray-800 border-gray-300"
+            tooltipKey="baseOT"
           />
         </div>
 
@@ -973,12 +973,14 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
             value={stats.staffGrantedOTMinutes}
             bgColor="bg-orange-50"
             textColor="text-orange-700 border-orange-300"
+            tooltipKey="staffGrantedOT"
           />
           <StatBox
             label="Staff Non Granted OT"
             value={stats.staffNonGrantedOTMinutes}
             bgColor="bg-amber-50"
             textColor="text-amber-700 border-amber-300"
+            tooltipKey="staffNonGrantedOT"
           />
         </div>
 
@@ -989,12 +991,14 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
             value={stats.workerGrantedOTMinutes}
             bgColor="bg-orange-50"
             textColor="text-orange-700 border-orange-300"
+            tooltipKey="workerGrantedOT"
           />
           <StatBox
             label="Worker 9 to 6 OT"
             value={stats.worker9to6OTMinutes}
             bgColor="bg-purple-50"
             textColor="text-purple-700 border-purple-300"
+            tooltipKey="worker9to6OT"
           />
         </div>
 
@@ -1005,6 +1009,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
             value={stats.grantedFromSheetStaffMinutes}
             bgColor="bg-blue-50"
             textColor="text-blue-700 border-blue-300"
+            tooltipKey="grantedFromSheet"
           />
         </div>
 
@@ -1015,6 +1020,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
             value={stats.totalMinutes}
             bgColor="bg-cyan-50"
             textColor="text-cyan-700 border-cyan-300"
+            tooltipKey="total"
           />
         </div>
 
@@ -1025,6 +1031,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
             value={stats.fullNightOTInMinutes}
             bgColor="bg-indigo-50"
             textColor="text-indigo-700 border-indigo-300"
+            tooltipKey="fullNightOT"
           />
         </div>
 
@@ -1035,6 +1042,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
             value={stats.lateDeductionHours}
             bgColor="bg-red-50"
             textColor="text-red-700 border-red-300"
+            tooltipKey="lateDeduction"
           />
         </div>
 
@@ -1045,6 +1053,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
             value={stats.grandTotalMinutes}
             bgColor="bg-green-50"
             textColor="text-green-700 border-green-400"
+            tooltipKey="grandTotal"
           />
         </div>
       </div>

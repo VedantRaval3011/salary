@@ -1,7 +1,7 @@
 // app/page.tsx
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import { FileUploader } from "@/components/FileUploader";
 import { EmployeeCard } from "@/components/EmployeeCard";
 import { useExcel } from "@/context/ExcelContext";
@@ -16,7 +16,10 @@ interface MonthConfig {
 }
 
 export default function Home() {
-  const { excelData, applyAdjustment, applyHolidays } = useExcel();
+  // NOTE: cast to `any` so we can try optional methods without TS errors.
+  const excelCtx = useExcel() as any;
+  const { excelData, applyAdjustment, applyHolidays } = excelCtx ?? {};
+
   // COMPANY FILTER
   const [selectedCompany, setSelectedCompany] = useState(
     "INDIANA OPHTHALMICS LLP"
@@ -76,7 +79,7 @@ export default function Home() {
   const getDaysInMonth = () => {
     if (!selectedMonth || !selectedYear) return 31;
     const monthIndex = months.indexOf(selectedMonth);
-    return new Date(selectedYear, monthIndex + 1, 0).getDate(); // This correctly returns 31 for October
+    return new Date(selectedYear, monthIndex + 1, 0).getDate();
   };
 
   const daysInMonth = getDaysInMonth();
@@ -160,7 +163,7 @@ export default function Home() {
     setSelectedHolidays(selectedHolidays.filter((d) => d !== date));
   };
 
-  // Complete setup and apply configurations
+  // Complete setup
   const handleCompleteSetup = () => {
     if (!selectedMonth || !selectedYear) {
       alert("Please select month and year");
@@ -170,14 +173,49 @@ export default function Home() {
     setSetupComplete(true);
   };
 
+  // ---------- Trigger recalculation helper ----------
+  const triggerCalculations = useCallback(async () => {
+    try {
+      // 1) prefer explicit recomputeAll if the context provides it
+      if (typeof excelCtx?.recomputeAll === "function") {
+        await excelCtx.recomputeAll();
+        console.log("triggerCalculations: used recomputeAll()");
+        return;
+      }
+
+      // 2) fallback: shallow clone excelData with setExcelData to change reference
+      if (typeof excelCtx?.setExcelData === "function") {
+        excelCtx.setExcelData((prev: any) => {
+          if (!prev) return prev;
+          return { ...(prev as any) } as any;
+        });
+        console.log("triggerCalculations: used setExcelData shallow-clone");
+        return;
+      }
+
+      // 3) last resort: try an exported 'forceRecompute' if provided
+      if (typeof excelCtx?.forceRecompute === "function") {
+        await excelCtx.forceRecompute();
+        console.log("triggerCalculations: used forceRecompute()");
+        return;
+      }
+
+      // If nothing exists, warn the developer
+      console.warn(
+        "triggerCalculations: Excel context doesn't expose recomputeAll or setExcelData. Consider adding recomputeAll() to ExcelContext."
+      );
+    } catch (err) {
+      console.error("triggerCalculations error:", err);
+    }
+  }, [excelCtx]);
+
   // Apply configurations to uploaded data
   React.useEffect(() => {
     if (excelData && setupComplete && !configurationsApplied) {
       // RESET: Clear all previous adjustments for all employees
-      excelData.employees.forEach((employee) => {
+      excelData.employees.forEach((employee: any) => {
         employee.adjustments = [];
-        // Reset any adjustment flags on days
-        employee.days.forEach((day) => {
+        employee.days.forEach((day: any) => {
           if (day.isAdjustmentOriginal || day.isAdjustmentTarget) {
             if (day.originalStatus) {
               day.attendance.status = day.originalStatus;
@@ -192,7 +230,11 @@ export default function Home() {
       // Apply holidays to all employees first
       if (selectedHolidays.length > 0) {
         try {
-          applyHolidays(selectedHolidays);
+          if (typeof applyHolidays === "function") {
+            applyHolidays(selectedHolidays);
+          } else {
+            console.warn("applyHolidays is not available on ExcelContext");
+          }
         } catch (error) {
           console.error("Error applying holidays:", error);
         }
@@ -200,14 +242,20 @@ export default function Home() {
 
       // Apply ONLY current adjustments
       if (adjustments.length > 0) {
-        excelData.employees.forEach((_, employeeIndex) => {
+        excelData.employees.forEach((_: any, employeeIndex: number) => {
           adjustments.forEach((adj) => {
             try {
-              applyAdjustment(
-                employeeIndex,
-                adj.originalDate,
-                adj.adjustedDate
-              );
+              if (typeof applyAdjustment === "function") {
+                applyAdjustment(
+                  employeeIndex,
+                  adj.originalDate,
+                  adj.adjustedDate
+                );
+              } else {
+                console.warn(
+                  "applyAdjustment is not available on ExcelContext"
+                );
+              }
             } catch (error) {
               console.error(
                 `Error applying adjustment for employee ${employeeIndex}:`,
@@ -218,8 +266,13 @@ export default function Home() {
         });
       }
 
-      setConfigurationsApplied(true);
+      // IMPORTANT: trigger a recalculation right after applying adjustments & holidays
+      (async () => {
+        await triggerCalculations();
+        setConfigurationsApplied(true);
+      })();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [excelData, setupComplete, configurationsApplied]);
 
   // Reset setup
@@ -625,12 +678,20 @@ export default function Home() {
                 📅 {selectedMonth} {selectedYear} ({daysInMonth} days)
               </p>
             </div>
-            <button
-              onClick={handleResetSetup}
-              className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-all text-sm font-semibold"
-            >
-              Reset Setup
-            </button>
+            <div className="flex gap-2 items-center">
+              <button
+                onClick={() => triggerCalculations()}
+                className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-all text-sm font-semibold"
+              >
+                Run Calculations
+              </button>
+              <button
+                onClick={handleResetSetup}
+                className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-all text-sm font-semibold"
+              >
+                Reset Setup
+              </button>
+            </div>
           </div>
 
           {/* Adjustments & Holidays Details - Minimalistic */}
@@ -735,7 +796,7 @@ export default function Home() {
               {/* Employee Cards */}
               <div className="space-y-4">
                 {excelData.employees
-                  .filter((emp) => emp.companyName === selectedCompany)
+                  .filter((emp: any) => emp.companyName === selectedCompany)
                   .map((employee: EmployeeData, index: number) => (
                     <EmployeeCard
                       key={employee.empCode}

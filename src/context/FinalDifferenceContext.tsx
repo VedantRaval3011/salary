@@ -19,6 +19,12 @@ interface FinalDifferenceContextType {
   updateLateDeductionOverride: (empCode: string, minutes: number) => void;
 
   setRecursionState: (empCode: string, inProgress: boolean) => void;
+
+  presentDayTotals: Map<string, number>;
+  updatePresentDayTotal: (empCode: string, total: number) => void;
+
+  overtimeGrandTotals: Map<string, number>;
+  updateOvertimeGrandTotal: (empCode: string, total: number) => void;
 }
 
 const FinalDifferenceContext = createContext<
@@ -92,32 +98,8 @@ export const FinalDifferenceProvider: React.FC<{
   );
 
   /* ======================================================
-      COMPUTE LATE DEDUCTION (YOUR NEW RULE)
+      LATE DEDUCTION REMOVED - Set to 0
   ====================================================== */
-
-  function calculateLateDeductionUnits(diffMinutes: number): number {
-    const absMinutes = Math.abs(diffMinutes);
-    const FOUR_HOURS = 4 * 60;
-    const DAY_MINUTES = 8 * 60;
-
-    // <= 4 hrs → half day
-    if (absMinutes <= FOUR_HOURS) return 0.5;
-
-    // otherwise → full days (ceil)
-    return Math.ceil(absMinutes / DAY_MINUTES);
-  }
-
-  function computeLateDeduction(diff: number) {
-    if (diff >= 0) {
-      return { finalDiff: diff, lateDeductionMinutes: 0 };
-    }
-
-    const units = calculateLateDeductionUnits(diff);
-    const lateDeductionMinutes = units * (8 * 60); // each day = 480 min
-    const finalDiff = diff + lateDeductionMinutes;
-
-    return { finalDiff, lateDeductionMinutes };
-  }
 
   /* ======================================================
       UPDATE FINAL DIFFERENCE (NEW RULE)
@@ -128,21 +110,9 @@ export const FinalDifferenceProvider: React.FC<{
       // Store original FD ONCE
       updateOriginalFinalDifference(empCode, difference);
 
-      const orig = originalFinalDifference.get(empCode) ?? difference;
-
-      // If original FD >= 0 → NEVER apply deduction
-      if (orig >= 0) {
-        safeSetFinalDifference(empCode, difference);
-        safeSetLateDeduction(empCode, 0);
-        return;
-      }
-
-      // original is negative → eligible
-      const { finalDiff, lateDeductionMinutes } =
-        computeLateDeduction(difference);
-
-      safeSetFinalDifference(empCode, finalDiff);
-      safeSetLateDeduction(empCode, lateDeductionMinutes);
+      // Late deduction removed - always set to 0
+      safeSetFinalDifference(empCode, difference);
+      safeSetLateDeduction(empCode, 0);
     },
     [
       originalFinalDifference,
@@ -156,11 +126,44 @@ export const FinalDifferenceProvider: React.FC<{
       OTHER FUNCTIONS
   ====================================================== */
 
+  const [presentDayTotals, setPresentDayTotals] = useState<Map<string, number>>(
+    new Map()
+  );
+
+  const [overtimeGrandTotals, setOvertimeGrandTotals] = useState<
+    Map<string, number>
+  >(new Map());
+
+  const updatePresentDayTotal = useCallback((empCode: string, total: number) => {
+    setPresentDayTotals((prev) => {
+      const existing = prev.get(empCode);
+      if (existing === total) return prev;
+      const map = new Map(prev);
+      map.set(empCode, total);
+      return map;
+    });
+  }, []);
+
+  const updateOvertimeGrandTotal = useCallback(
+    (empCode: string, total: number) => {
+      setOvertimeGrandTotals((prev) => {
+        const existing = prev.get(empCode);
+        if (existing === total) return prev;
+        const map = new Map(prev);
+        map.set(empCode, total);
+        return map;
+      });
+    },
+    []
+  );
+
   const clearFinalDifferences = useCallback(() => {
     setEmployeeFinalDifferences(new Map());
     setOriginalFinalDifference(new Map());
     setLateDeductionOverride(new Map());
     setTotalMinus4(new Map());
+    setPresentDayTotals(new Map());
+    setOvertimeGrandTotals(new Map());
   }, []);
 
   const updateTotalMinus4 = useCallback((empCode: string, minutes: number) => {
@@ -196,6 +199,11 @@ export const FinalDifferenceProvider: React.FC<{
         updateLateDeductionOverride,
 
         setRecursionState,
+
+        presentDayTotals,
+        updatePresentDayTotal,
+        overtimeGrandTotals,
+        updateOvertimeGrandTotal,
       }}
     >
       {children}

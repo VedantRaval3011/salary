@@ -1,8 +1,9 @@
 // components/AttendanceGrid.tsx
 "use client";
 
-import React from "react";
-import { DayAttendance } from "@/lib/types";
+import React, { useMemo } from "react";
+import { DayAttendance, EmployeeData } from "@/lib/types";
+import { useExcel } from "@/context/ExcelContext";
 
 interface AttendanceGridProps {
   days: DayAttendance[];
@@ -10,7 +11,235 @@ interface AttendanceGridProps {
   onAdjustmentClick?: (date: number) => void;
   customTime?: string; // e.g., "9:00 TO 6:00"
   isOTGranted?: boolean;
+  employee: EmployeeData;
 }
+
+// --- Helper Functions ---
+const timeToMinutes = (timeStr: string): number => {
+  if (!timeStr || timeStr === "-") return 0;
+  const parts = timeStr.split(":").map(Number);
+  if (parts.length < 2 || isNaN(parts[0]) || isNaN(parts[1])) return 0;
+  const [hours, minutes] = parts;
+  return hours * 60 + (minutes || 0);
+};
+
+const formatTime = (timeStr: string): string => {
+  if (!timeStr) return "-";
+  const parts = timeStr.split(":");
+  if (parts.length >= 2) {
+    return `${parts[0].padStart(2, "0")}:${parts[1].padStart(2, "0")}`;
+  }
+  return timeStr;
+};
+
+// --- Lunch In/Out Lookup Hook (Copied & Simplified) ---
+function useLunchInOutLookup() {
+  const { getAllUploadedFiles } = useExcel();
+
+  return useMemo(() => {
+    const files = getAllUploadedFiles?.() ?? [];
+    const lunchFile = files.find((f: any) => {
+      const n = (f?.fileName || "").toString().toLowerCase();
+      return (
+        f.status === "success" && (n.includes("lunch") || n.includes("04."))
+      );
+    });
+
+    if (!lunchFile) return { getLunchDataForEmployee: () => null };
+
+    let lunchEmployees: any[] = [];
+    if (
+      (lunchFile as any).processedData &&
+      Array.isArray((lunchFile as any).processedData)
+    ) {
+      lunchEmployees = (lunchFile as any).processedData.map((record: any) => ({
+        empCode: record.empCode,
+        empName: record.empName,
+        dailyPunches: Object.entries(record.attendance || {}).map(
+          ([date, att]: [string, any]) => ({
+            date,
+            punches: [
+              ...(att.in || []).map((time: string) => ({ type: "In", time })),
+              ...(att.out || []).map((time: string) => ({ type: "Out", time })),
+            ].sort((a, b) => {
+              const timeA = a.time.split(":").map(Number);
+              const timeB = b.time.split(":").map(Number);
+              return timeA[0] * 60 + timeA[1] - (timeB[0] * 60 + timeB[1]);
+            }),
+          })
+        ),
+      }));
+    } else if (
+      (lunchFile as any).lunchInOutData &&
+      Array.isArray((lunchFile as any).lunchInOutData)
+    ) {
+      lunchEmployees = (lunchFile as any).lunchInOutData;
+    } else if (
+      (lunchFile as any).data?.employees &&
+      Array.isArray((lunchFile as any).data.employees)
+    ) {
+      lunchEmployees = (lunchFile as any).data.employees;
+    } else if (Array.isArray((lunchFile as any).employees)) {
+      lunchEmployees = (lunchFile as any).employees;
+    }
+
+    const normalizeSpaces = (s: string) =>
+      (s ?? "").replace(/[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]/g, " ");
+    const cleanName = (s: string) =>
+      normalizeSpaces(s ?? "")
+        .toUpperCase()
+        .replace(/\s+/g, " ")
+        .trim()
+        .replace(/[^A-Z0-9 ]/g, "");
+
+    const numOnly = (s: string) => s.match(/\d+/g)?.join("") ?? "";
+
+    const employeeByCode = new Map<string, any>();
+    const employeeByName = new Map<string, any>();
+
+    for (const emp of lunchEmployees) {
+      if (emp.empCode) {
+        const raw = String(emp.empCode).trim();
+        const codeKey = cleanName(raw);
+        const numKey = numOnly(raw);
+        const no0 = numKey.replace(/^0+/, "");
+        const variants = new Set([
+          codeKey,
+          numKey,
+          no0,
+          numKey.padStart(4, "0"),
+          numKey.padStart(5, "0"),
+          numKey.padStart(6, "0"),
+          raw.toUpperCase().trim(),
+        ]);
+        variants.forEach((k) => employeeByCode.set(k, emp));
+      }
+      if (emp.empName) {
+        const base = cleanName(emp.empName);
+        employeeByName.set(base, emp);
+        employeeByName.set(base.replace(/\s+/g, ""), emp);
+      }
+    }
+
+    const getLunchDataForEmployee = (
+      emp: Pick<EmployeeData, "empCode" | "empName">
+    ): any => {
+      if (!emp) return null;
+      const rawCode = (emp.empCode ?? "").toString().trim();
+      const rawName = (emp.empName ?? "").toString().trim();
+      const empCodeKey = cleanName(rawCode);
+      const empCodeNum = numOnly(rawCode);
+      const empNameKey = cleanName(rawName);
+      const empNameKeyNoSpace = empNameKey.replace(/\s+/g, "");
+
+      let found = null;
+      if (!found && empCodeKey) found = employeeByCode.get(empCodeKey);
+      if (!found && empCodeNum) found = employeeByCode.get(empCodeNum);
+      if (!found) found = employeeByCode.get(rawCode.toUpperCase().trim());
+      if (!found && empNameKey) found = employeeByName.get(empNameKey);
+      if (!found && empNameKeyNoSpace)
+        found = employeeByName.get(empNameKeyNoSpace);
+
+      return found || null;
+    };
+
+    return { getLunchDataForEmployee };
+  }, [getAllUploadedFiles]);
+}
+
+// --- Break Rules (Copied) ---
+const BREAKS = [
+  { name: "Tea Break 1", start: 10 * 60 + 15, end: 10 * 60 + 30, allowed: 15 },
+  { name: "Lunch Break", start: 12 * 60 + 45, end: 13 * 60 + 15, allowed: 30 },
+  { name: "Tea Break 2", start: 15 * 60 + 15, end: 15 * 60 + 30, allowed: 15 },
+];
+
+// ---- Staff OT Granted Lookup Hook ---- //
+function useStaffOTGrantedLookup() {
+  const { getAllUploadedFiles } = useExcel();
+
+  return useMemo(() => {
+    const files = getAllUploadedFiles?.() ?? [];
+
+    const staffOTFile = files.find((f: any) => {
+      const n = (f?.fileName || "").toString().toLowerCase();
+      return (
+        f.status === "success" &&
+        n.includes("staff") &&
+        n.includes("ot") &&
+        n.includes("granted")
+      );
+    });
+
+    if (!staffOTFile) {
+      return { getGrantForEmployee: () => undefined };
+    }
+
+    let otEmployees: any[] = [];
+
+    if (staffOTFile.otGrantedData && Array.isArray(staffOTFile.otGrantedData)) {
+      otEmployees = staffOTFile.otGrantedData;
+    } else if (
+      staffOTFile.data?.employees &&
+      Array.isArray(staffOTFile.data.employees)
+    ) {
+      otEmployees = staffOTFile.data.employees;
+    }
+
+    const norm = (s: string) => (s ?? "").toString().toUpperCase().trim();
+    const key = (s: string) => norm(s).replace(/[^A-Z0-9]/g, "");
+    const numOnly = (s: string) => s.match(/\d+/g)?.join("") ?? "";
+
+    const byCode = new Map<string, any>();
+    const byName = new Map<string, any>();
+    const byNumericCode = new Map<string, any>();
+
+    for (const emp of otEmployees) {
+      if (emp.empCode) {
+        const codeKey = key(emp.empCode);
+        const numKey = numOnly(emp.empCode);
+
+        byCode.set(codeKey, emp);
+        if (numKey) byNumericCode.set(numKey, emp);
+      }
+      if (emp.empName) {
+        byName.set(key(emp.empName), emp);
+      }
+    }
+
+    const getGrantForEmployee = (
+      emp: Pick<EmployeeData, "empCode" | "empName">
+    ) => {
+      const empCodeK = key(emp.empCode);
+      const empNameK = key(emp.empName);
+      const numCodeK = numOnly(emp.empCode);
+
+      let found = byCode.get(empCodeK);
+
+      if (!found && numCodeK) {
+        found = byNumericCode.get(numCodeK);
+      }
+
+      if (!found) {
+        found = byName.get(empNameK);
+      }
+
+      return found;
+    };
+
+    return { getGrantForEmployee };
+  }, [getAllUploadedFiles]);
+}
+
+// Helper to check if employee is Staff or Worker
+const getIsStaff = (emp: EmployeeData): boolean => {
+  const inStr = `${emp.companyName ?? ""} ${
+    emp.department ?? ""
+  }`.toLowerCase();
+  if (inStr.includes("worker")) return false;
+  if (inStr.includes("staff")) return true;
+  return true;
+};
 
 export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
   days,
@@ -18,38 +247,217 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
   onAdjustmentClick,
   customTime,
   isOTGranted,
+  employee,
 }) => {
+  const { getLunchDataForEmployee } = useLunchInOutLookup();
+  const { getGrantForEmployee } = useStaffOTGrantedLookup();
+
+  // --- Compute Daily Punches for this Employee ---
+  const dailyPunchesMap = useMemo(() => {
+    const lunchData = getLunchDataForEmployee(employee);
+    const map = new Map<string, any[]>();
+
+    // console.log("AttendanceGrid: Lunch Data for", employee.empCode, lunchData);
+
+    if (lunchData && lunchData.dailyPunches) {
+      lunchData.dailyPunches.forEach((dp: any) => {
+        const rawKey = String(dp.date);
+        
+        const punches = dp.punches || [];
+        const punchTimes = punches.map((p: any) => ({
+            type: p.type,
+            minutes: timeToMinutes(p.time),
+            time: p.time,
+        }))
+        .filter((p: any) => p.minutes > 0)
+        .sort((a: any, b: any) => a.minutes - b.minutes); // ⭐ Explicitly sort by time
+        
+        // Helper to set map without merging
+        const setMap = (k: string) => {
+            map.set(k, punchTimes);
+        };
+
+        setMap(rawKey);
+        
+        // Try to handle "01", "02" vs "1", "2"
+        if (rawKey.match(/^\d{1,2}$/)) {
+            // It's a simple number like "1", "10", "05"
+            const num = parseInt(rawKey, 10).toString(); // "1", "10", "5"
+            setMap(num);
+            setMap(num.padStart(2, '0'));
+        }
+        
+        // Handle ISO Date: YYYY-MM-DD -> extract DD
+        const isoMatch = rawKey.match(/^\d{4}-\d{2}-(\d{2})/);
+        if (isoMatch) {
+             const dayPart = isoMatch[1];
+             setMap(dayPart); // "01"
+             setMap(dayPart.replace(/^0/, "")); // "1"
+        }
+
+        // Handle DD-Mon-YYYY (e.g. 10-Nov-2023)
+        const datePartsMatch = rawKey.match(/^(\d{1,2})[-\s\/]([A-Za-z]+)[-\s\/]/);
+        if (datePartsMatch) {
+             const dayPart = datePartsMatch[1];
+             setMap(dayPart);
+             setMap(dayPart.padStart(2, '0'));
+             setMap(dayPart.replace(/^0/, ""));
+        }
+
+        // Handle DD/MM/YYYY or DD-MM-YYYY (Numeric)
+        // This restores support for standard excel date formats
+        const numericDateMatch = rawKey.match(/^(\d{1,2})[-\s\/](\d{1,2})[-\s\/](\d{2,4})/);
+        if (numericDateMatch) {
+             const dayPart = numericDateMatch[1];
+             setMap(dayPart);
+             setMap(dayPart.padStart(2, '0'));
+             setMap(dayPart.replace(/^0/, ""));
+        }
+      });
+    }
+    // --- Post-Processing: Fix Merged Days ---
+    // Scenario: Data from Day X+1 is merged into Day X
+    // Pattern: IN, OUT, IN, IN, OUT, OUT (6 punches)
+    // We want to move the "extra" pair to Day X+1
+    const sortedDays = Array.from(map.keys()).sort((a, b) => {
+        // Simple numeric sort if possible, else string sort
+        const na = Number(a);
+        const nb = Number(b);
+        if (!isNaN(na) && !isNaN(nb)) return na - nb;
+        return a.localeCompare(b);
+    });
+
+    for (let i = 0; i < sortedDays.length; i++) {
+        const currentDay = sortedDays[i];
+        const punches = map.get(currentDay) || [];
+
+        // Check for the specific anomaly: 6 punches, I-O-I-I-O-O
+        if (punches.length === 6) {
+            const types = punches.map(p => p.type).join(',');
+            // Expected: In,Out,In,In,Out,Out
+            if (types === "In,Out,In,In,Out,Out") {
+                // We assume indices 0,1 are Morning
+                // Indices 2,4 are Afternoon (Day X)
+                // Indices 3,5 are Afternoon (Day X+1) - The "repeated" ones
+                
+                // Verify timestamps to be sure
+                // p[2] (13:28) vs p[3] (13:41) -> p[3] is later
+                // p[4] (18:35) vs p[5] (19:24) -> p[5] is later
+                
+                const p2 = punches[2];
+                const p3 = punches[3];
+                const p4 = punches[4];
+                const p5 = punches[5];
+
+                if (p3.minutes > p2.minutes && p5.minutes > p4.minutes) {
+                     // Identify the next day
+                     // If currentDay is "10", next is "11"
+                     // If currentDay is "10-Nov", next is ... harder. 
+                     // Let's rely on the sortedDays array if possible, or try to compute next day.
+                     
+                     let nextDayKey = null;
+                     
+                     // Try numeric increment first
+                     if (currentDay.match(/^\d+$/)) {
+                         nextDayKey = (parseInt(currentDay) + 1).toString();
+                         // Handle padding if consistent
+                         if (currentDay.startsWith('0')) nextDayKey = nextDayKey.padStart(2, '0');
+                     } else {
+                         // Try to find the next key in sorted list
+                         if (i + 1 < sortedDays.length) {
+                             nextDayKey = sortedDays[i+1];
+                         }
+                     }
+
+                     if (nextDayKey) {
+                         const nextDayPunches = map.get(nextDayKey);
+                         // Only move if next day is empty or missing
+                         if (!nextDayPunches || nextDayPunches.length === 0) {
+                             console.log(`🔧 Fixing merged data: Moving punches from Day ${currentDay} to ${nextDayKey}`);
+                             
+                             const dayXPunches = [punches[0], punches[1], punches[2], punches[4]];
+                             const dayXPlus1Punches = [punches[3], punches[5]];
+                             
+                             map.set(currentDay, dayXPunches);
+                             map.set(nextDayKey, dayXPlus1Punches);
+                         }
+                     }
+                }
+            }
+        }
+
+        // ⭐ NEW: Check for duplicate OUT punches across consecutive days
+        // Pattern: Day X ends with OUT at time T, Day X+1 starts with OUT at same time T
+        // Example: Day 2: IN 08:26, IN 08:36, OUT 17:28, OUT 17:29
+        //          Day 3: OUT 17:29, ...
+        if (i + 1 < sortedDays.length) {
+            const nextDay = sortedDays[i + 1];
+            const nextDayPunches = map.get(nextDay) || [];
+            
+            if (punches.length >= 2 && nextDayPunches.length > 0) {
+                // Get the last punch from current day
+                const lastPunch = punches[punches.length - 1];
+                
+                // Get the first punch from next day
+                const firstNextPunch = nextDayPunches[0];
+                
+                // Check if both are OUT punches with similar times (within 2 minutes)
+                if (lastPunch.type === "Out" && firstNextPunch.type === "Out") {
+                    const timeDiff = Math.abs(lastPunch.minutes - firstNextPunch.minutes);
+                    
+                    if (timeDiff <= 2) {
+                        console.log(`🔧 Fixing duplicate OUT: Day ${currentDay} last OUT at ${lastPunch.time} matches Day ${nextDay} first OUT at ${firstNextPunch.time}`);
+                        
+                        // Remove the last punch from current day
+                        const filteredCurrent = punches.slice(0, -1);
+                        
+                        map.set(currentDay, filteredCurrent);
+                        console.log(`   Removed duplicate OUT ${lastPunch.time} from Day ${currentDay}`);
+                    }
+                }
+            }
+        }
+
+        // ⭐ Clean up invalid punch sequences (IN-IN or OUT-OUT)
+        // Valid pattern should be: IN, OUT, IN, OUT, ...
+        // Remove redundant punches that break this pattern
+        const cleanedPunches: any[] = [];
+        let expectedNext: "In" | "Out" = "In"; // We expect to start with IN
+        
+        for (const punch of punches) {
+            if (punch.type === expectedNext) {
+                cleanedPunches.push(punch);
+                expectedNext = expectedNext === "In" ? "Out" : "In";
+            } else {
+                console.log(`🧹 Removing invalid punch on Day ${currentDay}: ${punch.type} at ${punch.time} (expected ${expectedNext})`);
+            }
+        }
+        
+        // Update the map with cleaned punches if any were removed
+        if (cleanedPunches.length !== punches.length) {
+            map.set(currentDay, cleanedPunches);
+            console.log(`   Cleaned Day ${currentDay}: ${punches.length} -> ${cleanedPunches.length} punches`);
+        }
+    }
+
+    // console.log("AttendanceGrid: Daily Punches Map Keys:", Array.from(map.keys()));
+    return map;
+  }, [employee, getLunchDataForEmployee]);
+
   // Parse custom timing to get start and end times
   const parseCustomTime = (timeStr: string | undefined) => {
     if (!timeStr) return null;
-
-    // Match patterns like "9:00 TO 6:00", "08:30 TO 17:30", etc.
-    const match = timeStr.match(/(\d{1,2})(?::(\d{2}))?\s*TO\s*(\d{1,2})(?::(\d{2}))?/i);
+    const match = timeStr.match(
+      /(\d{1,2})(?::(\d{2}))?\s*TO\s*(\d{1,2})(?::(\d{2}))?/i
+    );
     if (!match) return null;
-
     let startHour = parseInt(match[1]);
-    const startMin = parseInt(match[2]);
+    const startMin = parseInt(match[2] || "0");
     let endHour = parseInt(match[3]);
-    const endMin = parseInt(match[4]);
-
-    // Convert to 24-hour format if end is earlier (e.g. 9→6 should mean 18:00)
-    if (endHour < startHour) {
-      endHour += 12;
-    }
-
-    // Handle “morning” shifts like 8:30–17:30 (military style)
-    if (endHour <= 12 && startHour < 8) {
-      endHour += 12;
-    }
-
+    const endMin = parseInt(match[4] || "0");
+    if (endHour < startHour) endHour += 12;
+    if (endHour <= 12 && startHour < 8) endHour += 12;
     return { startHour, startMin, endHour, endMin };
-  };
-
-  // Convert time string (HH:MM) to minutes since midnight
-  const timeToMinutes = (timeStr: string): number => {
-    if (!timeStr || timeStr === "-") return 0;
-    const [hours, minutes] = timeStr.split(":").map(Number);
-    return hours * 60 + (minutes || 0);
   };
 
   const recalculateOTHours = (
@@ -65,241 +473,507 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
       outTime === "-"
     )
       return "0:00";
-
     const timeToMinutes = (t: string): number => {
       const [h, m] = t.split(":").map(Number);
       return h * 60 + (m || 0);
     };
-
     const outMinutes = timeToMinutes(outTime);
     const expectedEndMinutes = customTiming.endHour * 60 + customTiming.endMin;
-
     const otMinutes =
       outMinutes > expectedEndMinutes ? outMinutes - expectedEndMinutes : 0;
-    if (otMinutes < 5) return "0:00"; // ignore minor deviations
-
+    if (otMinutes < 5) return "0:00";
     const hrs = Math.floor(otMinutes / 60);
     const mins = otMinutes % 60;
     return `${hrs}:${mins.toString().padStart(2, "0")}`;
   };
 
-  // Recalculate late minutes for custom timing (9:00 start)
   const recalculateLateMinutes = (
     inTime: string,
     customTiming: ReturnType<typeof parseCustomTime>
   ): number => {
     if (!customTiming || !inTime || inTime === "-") return 0;
-
     const inMinutes = timeToMinutes(inTime);
     const expectedStartMinutes =
       customTiming.startHour * 60 + customTiming.startMin;
-
     const lateMins = inMinutes - expectedStartMinutes;
     return lateMins > 0 ? lateMins : 0;
   };
 
-  const customTiming = parseCustomTime(customTime);
+  const customTimingParsed = parseCustomTime(customTime);
 
-// Process days with recalculated values (apply for P and ADJ-P)
-const processedDays = days.map((day) => {
-  const status = (day.attendance.status || "").toUpperCase();
+  // Get employee type and grant status
+  const isStaff = getIsStaff(employee);
+  const isWorker = !isStaff;
+  const grant = getGrantForEmployee(employee);
 
-  // Apply custom time recalculation for P and ADJ-P
-  if (!customTiming || (status !== "P" && status !== "ADJ-P")) {
-    return day;
-  }
+  // Helper to parse OT minutes from various formats
+  const parseOTMinutes = (val?: string | number | null): number => {
+    if (!val) return 0;
+    const str = String(val).trim();
+    if (str.includes(":")) {
+      const [h, m] = str.split(":").map((x) => parseInt(x) || 0);
+      return h * 60 + m;
+    }
+    const decimalHours = parseFloat(str);
+    if (!isNaN(decimalHours)) {
+      return Math.round(decimalHours * 60);
+    }
+    return 0;
+  };
 
+  // Helper to calculate OT for a specific day
+  const calculateDayOT = (day: DayAttendance): number => {
+    const status = (day.attendance.status || "").toUpperCase();
+    const dayName = (day.day || "").toLowerCase();
+    const outTime = day.attendance.outTime;
+    const dateNum = Number(day.date) || 0;
 
-    // Store original values as strings to keep types consistent
+    // ADJ-P special handling: OT only after 6:00 PM (5:30 PM + 30 min buffer)
+    if (status === "ADJ-P") {
+      if (outTime && outTime !== "-") {
+        const outMinutes = timeToMinutes(outTime);
+        const ADJ_P_SHIFT_END = 17 * 60 + 30; // 17:30
+        const ADJ_P_BUFFER = 30; // minutes
+        const ADJ_P_BUFFER_END = ADJ_P_SHIFT_END + ADJ_P_BUFFER; // 18:00
+
+        if (outMinutes > ADJ_P_BUFFER_END) {
+          return outMinutes - ADJ_P_SHIFT_END;
+        } else {
+          return 0;
+        }
+      }
+      return 0;
+    }
+
+    // If employee has grant, check date range
+    if (grant) {
+      const fromD = Number(grant.fromDate) || 1;
+      const toD = Number(grant.toDate) || 31;
+
+      if (dateNum >= fromD && dateNum <= toD) {
+        // Use OT field from attendance
+        const otField =
+          (day.attendance as any).otHours ??
+          (day.attendance as any).otHrs ??
+          (day.attendance as any).ot ??
+          null;
+        return parseOTMinutes(otField);
+      }
+      return 0; // Outside grant date range
+    }
+
+    // Staff without grant: only Saturdays and special statuses
+    if (isStaff) {
+      if (dayName === "sa" && status !== "ADJ-P") {
+        const otField =
+          (day.attendance as any).otHours ??
+          (day.attendance as any).otHrs ??
+          (day.attendance as any).ot ??
+          null;
+        return parseOTMinutes(otField);
+      }
+
+      if (status === "WO-I" || status === "ADJ-M") {
+        const otField =
+          (day.attendance as any).otHours ??
+          (day.attendance as any).otHrs ??
+          (day.attendance as any).ot ??
+          null;
+        return parseOTMinutes(otField);
+      }
+
+      return 0; // Staff: no OT on regular working days without grant
+    }
+
+    // Worker: all days (except ADJ-P which is handled above)
+    if (isWorker && status !== "ADJ-P") {
+      const otField =
+        (day.attendance as any).otHours ??
+        (day.attendance as any).otHrs ??
+        (day.attendance as any).ot ??
+        null;
+      return parseOTMinutes(otField);
+    }
+
+    return 0;
+  };
+
+  const processedDays = days.map((day) => {
+    const status = (day.attendance.status || "").toUpperCase();
+    let hasOTCalculation = false;
+    let originalOTValue = "";
+    let calculatedOTMinutes = 0;
+
+    // Check if we should calculate OT for this day
+    const shouldCalculateOT = 
+      (status === "P" || status === "ADJ-P" || status === "WO-I" || status === "ADJ-M") &&
+      day.attendance.outTime && 
+      day.attendance.outTime !== "-";
+
+    if (shouldCalculateOT) {
+      // Get original OT value
+      originalOTValue = String(
+        (day.attendance as any).otHours ??
+        (day.attendance as any).otHrs ??
+        (day.attendance as any).ot ??
+        "0:00"
+      );
+
+      // Calculate OT based on rules
+      calculatedOTMinutes = calculateDayOT(day);
+
+      // Convert to HH:MM format
+      const calculatedOTHrs = calculatedOTMinutes > 0
+        ? `${Math.floor(calculatedOTMinutes / 60)}:${(calculatedOTMinutes % 60).toString().padStart(2, "0")}`
+        : "0:00";
+
+      // Check if values differ
+      const originalMinutes = parseOTMinutes(originalOTValue);
+      if (originalMinutes !== calculatedOTMinutes) {
+        hasOTCalculation = true;
+      }
+
+      // Update day with calculated OT
+      day = {
+        ...day,
+        attendance: {
+          ...day.attendance,
+          otHrs: calculatedOTHrs,
+        },
+      };
+    }
+
+    // Handle custom timing recalculation
+    if (!customTimingParsed || (status !== "P" && status !== "ADJ-P")) {
+      return {
+        ...day,
+        hasOTCalculation,
+        originalOTValue,
+        calculatedOTMinutes,
+      } as DayAttendance & {
+        originalLateMins?: string;
+        originalOTHrs?: string;
+        hasCustomCalculation?: boolean;
+        hasOTCalculation?: boolean;
+        originalOTValue?: string;
+        calculatedOTMinutes?: number;
+      };
+    }
+
     const originalLateMins = String(day.attendance.lateMins ?? "");
     const originalOTHrs = String(day.attendance.otHrs ?? "");
-
-    // Only recalculate Late Mins, keep OT as-is from Excel
     const recalculatedLateMins = recalculateLateMinutes(
       day.attendance.inTime,
-      customTiming
+      customTimingParsed
     );
-
     const recalculatedOTHrs = recalculateOTHours(
       day.attendance.inTime,
       day.attendance.outTime,
-      customTiming
+      customTimingParsed
     );
-
-    const updated = {
+    return {
       ...day,
       attendance: {
         ...day.attendance,
         lateMins: recalculatedLateMins.toString(),
-        // OT Hours remains unchanged from original Excel data
         otHrs: recalculatedOTHrs,
       },
       originalLateMins,
       originalOTHrs,
       hasCustomCalculation: true,
-    };
-
-    return updated as DayAttendance & {
+      hasOTCalculation,
+      originalOTValue,
+      calculatedOTMinutes,
+    } as DayAttendance & {
       originalLateMins?: string;
       originalOTHrs?: string;
       hasCustomCalculation?: boolean;
+      hasOTCalculation?: boolean;
+      originalOTValue?: string;
+      calculatedOTMinutes?: number;
     };
   });
 
   const getStatusColor = (status: string, day?: DayAttendance) => {
     const s = status.toUpperCase();
-
-    // Adjustment colors
     if (s === "ADJ-P")
       return "bg-lime-100 text-lime-800 border-lime-300 ring-2 ring-lime-400";
     if (s === "ADJ-M/WO-I")
       return "bg-orange-200 text-orange-800 border-orange-300 ring-2 ring-orange-400";
-
-    // Original colors
     if (s === "P") return "bg-green-100 text-green-800 border-green-300";
     if (s === "A") return "bg-red-100 text-red-800 border-red-300";
     if (s === "WO") return "bg-gray-100 text-gray-800 border-gray-300";
     if (s === "H") return "bg-blue-100 text-blue-800 border-blue-300";
     if (s === "OD") return "bg-purple-100 text-purple-800 border-purple-300";
     if (s === "LEAVE") return "bg-yellow-100 text-yellow-800 border-yellow-300";
-
     return "bg-yellow-100 text-yellow-800 border-yellow-300";
   };
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-      {processedDays.map((day, index) => (
-        <div
-          key={index}
-          className={`border-2 rounded-lg p-4 cursor-pointer transition-all hover:shadow-lg ${getStatusColor(
-            day.attendance.status,
-            day
-          )} ${
-            day.isAdjustmentOriginal || day.isAdjustmentTarget ? "relative" : ""
-          }`}
-          onClick={() => onAdjustmentClick?.(day.date)}
-        >
-          {/* Adjustment Badge */}
-          {day.isAdjustmentOriginal && (
-            <div className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center">
-              ✓
-            </div>
-          )}
-          {day.isAdjustmentTarget && (
-            <div className="absolute -top-2 -right-2 bg-orange-500 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center">
-              ✓
-            </div>
-          )}
+      {processedDays.map((day, index) => {
+        // Retrieve punches for this day
+        let punches = dailyPunchesMap.get(String(day.date));
+        
+        // Fallback: if day.date is "1", try "01"
+        if (!punches && String(day.date).length === 1) {
+            punches = dailyPunchesMap.get(String(day.date).padStart(2, "0"));
+        }
+        
+        // ⭐ Fallback: If no punch data, create from attendance In/Out times
+        if ((!punches || punches.length === 0) && day.attendance.inTime && day.attendance.outTime) {
+            const inTime = day.attendance.inTime;
+            const outTime = day.attendance.outTime;
+            
+            if (inTime !== "-" && outTime !== "-") {
+                punches = [
+                    { type: "In", time: inTime, minutes: timeToMinutes(inTime) },
+                    { type: "Out", time: outTime, minutes: timeToMinutes(outTime) }
+                ];
+            }
+        }
+        
+        // Debug log for first few days
+        // if (index < 3) {
+        //     console.log(`AttendanceGrid: Day ${day.date} punches:`, punches);
+        // }
+        
+        return (
+          <div
+            key={index}
+            className={`border-2 rounded-lg p-4 cursor-pointer transition-all hover:shadow-lg ${getStatusColor(
+              day.attendance.status,
+              day
+            )} ${
+              day.isAdjustmentOriginal || day.isAdjustmentTarget ? "relative" : ""
+            }`}
+            onClick={() => onAdjustmentClick?.(day.date)}
+          >
+            {/* Adjustment Badge */}
+            {day.isAdjustmentOriginal && (
+              <div className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center">
+                ✓
+              </div>
+            )}
+            {day.isAdjustmentTarget && (
+              <div className="absolute -top-2 -right-2 bg-orange-500 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center">
+                ✓
+              </div>
+            )}
 
-          {/* Custom Timing Badge */}
-          {customTiming && day.hasCustomCalculation && (
-            <div
-              className="absolute -top-2 -left-2 bg-purple-500 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center"
-              title="Custom Timing Applied"
-            >
-              🕐
-            </div>
-          )}
-
-          {/* Day Header */}
-          <div className="flex justify-between items-center mb-3 pb-2 border-b border-current border-opacity-30">
-            <span className="text-lg font-bold">{day.date}</span>
-            <span className="text-sm font-semibold">{day.day}</span>
-          </div>
-
-          {/* Attendance Details */}
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="font-semibold">Shift:</span>
-              <span>{day.attendance.shift || "-"}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="font-semibold">In Time:</span>
-              <span>{day.attendance.inTime || "-"}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="font-semibold">Out Time:</span>
-              <span>{day.attendance.outTime || "-"}</span>
-            </div>
-
-            {/* Late Mins - Show both original and new if recalculated */}
-            <div className="flex justify-between">
-              <span className="font-semibold">Late Mins:</span>
-              <span
-                className={
-                  day.hasCustomCalculation ? "font-bold text-purple-700" : ""
-                }
+            {/* Custom Timing Badge */}
+            {customTimingParsed && day.hasCustomCalculation && (
+              <div
+                className="absolute -top-2 -left-2 bg-purple-500 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center"
+                title="Custom Timing Applied"
               >
-                {day.attendance.lateMins || "0"}
-                {day.hasCustomCalculation && " *"}
-              </span>
+                🕐
+              </div>
+            )}
+
+            {/* OT Calculation Badge */}
+            {day.hasOTCalculation && !day.hasCustomCalculation && (
+              <div
+                className="absolute -top-2 -left-2 bg-blue-500 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center"
+                title="OT Recalculated"
+              >
+                ⏱️
+              </div>
+            )}
+
+            {/* Day Header */}
+            <div className="flex justify-between items-center mb-3 pb-2 border-b border-current border-opacity-30">
+              <span className="text-lg font-bold">{day.date}</span>
+              <span className="text-sm font-semibold">{day.day}</span>
             </div>
-            {day.hasCustomCalculation &&
-              day.originalLateMins !== day.attendance.lateMins && (
+
+            {/* Attendance Details */}
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="font-semibold">Shift:</span>
+                <span>{day.attendance.shift || "-"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="font-semibold">In Time:</span>
+                <span>{day.attendance.inTime || "-"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="font-semibold">Out Time:</span>
+                <span>{day.attendance.outTime || "-"}</span>
+              </div>
+
+              {/* Late Mins */}
+              <div className="flex justify-between">
+                <span className="font-semibold">Late Mins:</span>
+                <span
+                  className={
+                    day.hasCustomCalculation ? "font-bold text-purple-700" : ""
+                  }
+                >
+                  {day.attendance.lateMins || "0"}
+                  {day.hasCustomCalculation && " *"}
+                </span>
+              </div>
+              {day.hasCustomCalculation &&
+                day.originalLateMins !== day.attendance.lateMins && (
+                  <div className="flex justify-between text-xs opacity-60 -mt-1 ml-4">
+                    <span>Prev Late:</span>
+                    <span className="line-through">
+                      {day.originalLateMins || "0"}
+                    </span>
+                  </div>
+                )}
+
+              <div className="flex justify-between">
+                <span className="font-semibold">Early Dep:</span>
+                <span>{day.attendance.earlyDep || "0"}</span>
+              </div>
+
+              {/* OT Hours */}
+              <div className="flex justify-between">
+                <span className="font-semibold">OT Hours:</span>
+                <span
+                  className={
+                    day.hasCustomCalculation 
+                      ? "font-bold text-purple-700" 
+                      : day.hasOTCalculation 
+                      ? "font-bold text-blue-700" 
+                      : ""
+                  }
+                >
+                  {day.attendance.otHrs || "0:00"}
+                  {day.hasCustomCalculation && " *"}
+                  {day.hasOTCalculation && !day.hasCustomCalculation && " ✓"}
+                </span>
+              </div>
+              {/* Show custom timing OT recalculation */}
+              {day.hasCustomCalculation && day.originalOTHrs && (
                 <div className="flex justify-between text-xs opacity-60 -mt-1 ml-4">
-                  <span>Prev Late:</span>
+                  <span>Prev OT:</span>
                   <span className="line-through">
-                    {day.originalLateMins || "0"}
+                    {day.originalOTHrs || "0:00"}
+                  </span>
+                </div>
+              )}
+              {/* Show normal OT calculation (for staff/worker rules) */}
+              {day.hasOTCalculation && !day.hasCustomCalculation && day.originalOTValue && (
+                <div className="flex justify-between text-xs opacity-60 -mt-1 ml-4">
+                  <span>Raw OT:</span>
+                  <span className="line-through">
+                    {day.originalOTValue || "0:00"}
                   </span>
                 </div>
               )}
 
-            <div className="flex justify-between">
-              <span className="font-semibold">Early Dep:</span>
-              <span>{day.attendance.earlyDep || "0"}</span>
-            </div>
-
-            {/* OT Hours - Display original value with indicator */}
-            <div className="flex justify-between">
-              <span className="font-semibold">OT Hours:</span>
-              <span
-                className={
-                  day.hasCustomCalculation ? "font-bold text-purple-700" : ""
-                }
-              >
-                {day.attendance.otHrs || "0:00"}
-                {day.hasCustomCalculation && " *"}
-              </span>
-            </div>
-            {day.hasCustomCalculation && day.originalOTHrs && (
-              <div className="flex justify-between text-xs opacity-60 -mt-1 ml-4">
-                <span>Prev OT:</span>
-                <span className="line-through">
-                  {day.originalOTHrs || "0:00"}
+              <div className="flex justify-between">
+                <span className="font-semibold">Work Hours:</span>
+                <span className="font-bold">
+                  {day.attendance.workHrs || "0:00"}
                 </span>
               </div>
-            )}
-
-            <div className="flex justify-between">
-              <span className="font-semibold">Work Hours:</span>
-              <span className="font-bold">
-                {day.attendance.workHrs || "0:00"}
-              </span>
-            </div>
-            <div className="flex justify-between pt-2 border-t border-current border-opacity-30">
-              <span className="font-semibold">Status:</span>
-              <span className="font-bold text-lg">
-                {day.attendance.status || "-"}
-              </span>
-            </div>
-
-            {/* Show original status if adjusted */}
-            {day.originalStatus && (
-              <div className="flex justify-between pt-2 border-t border-current border-opacity-30 text-xs opacity-70">
-                <span className="font-semibold">Original:</span>
-                <span>{day.originalStatus}</span>
+              <div className="flex justify-between pt-2 border-t border-current border-opacity-30">
+                <span className="font-semibold">Status:</span>
+                <span className="font-bold text-lg">
+                  {day.attendance.status || "-"}
+                </span>
               </div>
-            )}
 
-            {/* Custom timing notice */}
-            {day.hasCustomCalculation && (
-              <div className="pt-2 border-t border-current border-opacity-30 text-xs text-purple-700">
-                * Recalculated for {customTime}
-              </div>
-            )}
+              {/* Show original status if adjusted */}
+              {day.originalStatus && (
+                <div className="flex justify-between pt-2 border-t border-current border-opacity-30 text-xs opacity-70">
+                  <span className="font-semibold">Original:</span>
+                  <span>{day.originalStatus}</span>
+                </div>
+              )}
+
+              {/* Custom timing notice */}
+              {day.hasCustomCalculation && (
+                <div className="pt-2 border-t border-current border-opacity-30 text-xs text-purple-700">
+                  * Recalculated for {customTime}
+                </div>
+              )}
+
+              {/* OT calculation notice */}
+              {day.hasOTCalculation && !day.hasCustomCalculation && (
+                <div className="pt-2 border-t border-current border-opacity-30 text-xs text-blue-700">
+                  ✓ OT calculated ({isStaff ? "Staff" : "Worker"} rules)
+                </div>
+              )}
+              
+              {/* --- MINI TRAIN VIEW --- */}
+              {punches && punches.length > 0 && (
+                <div className="mt-3 pt-2 border-t border-current border-opacity-30">
+                    <div className="text-[10px] font-bold opacity-70 mb-1">Punch Timeline:</div>
+                    <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-gray-300">
+                        {punches.map((punch: any, pIdx: number) => {
+                            const isIn = punch.type === "In";
+                            return (
+                                <React.Fragment key={pIdx}>
+                                    {/* Node */}
+                                    <div className="flex flex-col items-center flex-shrink-0">
+                                        <div className={`w-10 h-8 rounded flex flex-col items-center justify-center shadow-sm border ${
+                                            isIn ? "bg-green-50 border-green-400" : "bg-red-50 border-red-400"
+                                        }`}>
+                                            <div className={`text-[8px] font-bold leading-none ${isIn ? "text-green-700" : "text-red-700"}`}>
+                                                {isIn ? "IN" : "OUT"}
+                                            </div>
+                                            <div className="text-[9px] font-bold text-gray-800 leading-none mt-0.5">
+                                                {formatTime(punch.time)}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    {/* Arrow + Duration */}
+                                    {pIdx < punches.length - 1 && (() => {
+                                        const next = punches[pIdx + 1];
+                                        const duration = next.minutes - punch.minutes;
+                                        if (duration < 0) return null;
+                                        
+                                        const isBreak = punch.type === "Out" && next.type === "In";
+                                        
+                                        // Calculate excess
+                                        let allowed = 0;
+                                        if (isBreak) {
+                                            const outMin = punch.minutes;
+                                            const inMin = next.minutes;
+                                            for (const defBreak of BREAKS) {
+                                                const overlapStart = Math.max(outMin, defBreak.start);
+                                                const overlapEnd = Math.min(inMin, defBreak.end);
+                                                const overlap = Math.max(0, overlapEnd - overlapStart);
+                                                if (overlap > 0) allowed += defBreak.allowed;
+                                            }
+                                            if (outMin >= 17 * 60 + 30 || inMin >= 17 * 60 + 30) {
+                                                allowed = Math.max(allowed, 15);
+                                            }
+                                            
+                                            // ⭐ Always allow minimum 30 minutes break
+                                            // Even if the break doesn't overlap with standard break windows
+                                            allowed = Math.max(allowed, 30);
+                                        }
+                                        const excess = Math.max(0, duration - allowed);
+                                        
+                                        return (
+                                            <div className="flex flex-col items-center justify-center mx-0.5 flex-shrink-0">
+                                                <div className="text-gray-400 text-[10px] -mb-1">→</div>
+                                                <div className={`text-[8px] px-1 rounded ${
+                                                    isBreak && excess > 0 ? "bg-red-200 text-red-800 font-bold" : "bg-white/50 text-gray-600"
+                                                }`}>
+                                                    {duration}m
+                                                    {isBreak && excess > 0 && ` +${excess}`}
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
+                                </React.Fragment>
+                            );
+                        })}
+                    </div>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 };

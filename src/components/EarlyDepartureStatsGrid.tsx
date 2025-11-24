@@ -16,6 +16,7 @@ const nameKey = (s: string) => stripNonAlnum(s);
 interface Props {
   employee: EmployeeData;
   otGrandTotal?: number;
+  staticFinalDifference?: number;
   onFinalDifferenceCalculated?: (difference: number) => void; // 🆕 ADD THIS
   onTotalMinus4Calculated?: (empCode: string, totalMinus4: number) => void;
 }
@@ -230,15 +231,15 @@ function useLunchInOutLookup() {
         found = employeeByName.get(empNameKeyNoSpace);
 
       // --- Debug logs ---
-      if (found) {
-        console.log(`✅ Found lunch data for ${rawCode}:`, {
-          empCode: found.empCode,
-          empName: found.empName,
-          daysWithData: found.dailyPunches?.length || 0,
-        });
-      } else {
-        console.log(`❌ No lunch data found for ${rawCode} (${rawName})`);
-      }
+      // if (found) {
+      //   console.log(`✅ Found lunch data for ${rawCode}:`, {
+      //     empCode: found.empCode,
+      //     empName: found.empName,
+      //     daysWithData: found.dailyPunches?.length || 0,
+      //   });
+      // } else {
+      //   console.log(`❌ No lunch data found for ${rawCode} (${rawName})`);
+      // }
 
       return found || null;
     };
@@ -394,6 +395,7 @@ const STAFF_RELAXATION_MINUTES = 4 * 60; // 4 hours in minutes
 export const EarlyDepartureStatsGrid: React.FC<Props> = ({
   employee,
   otGrandTotal = 0,
+  staticFinalDifference = 0,
   onFinalDifferenceCalculated,
   onTotalMinus4Calculated,
 }) => {
@@ -616,7 +618,7 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
       }
     }
 
-    console.log(`📊 Total excess minutes: ${totalExcessMinutes}`);
+    // console.log(`📊 Total excess minutes: ${totalExcessMinutes}`);
 
     return {
       dailyBreaks,
@@ -689,16 +691,11 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
             dailyLateMins = inMinutes - employeeNormalStartMinutes;
           }
         } else if (isStaff && status === "ADJ-P") {
-          console.log(
-            `  -> Day ${day.date}: Checking ADJ-P for late (is Staff)`
-          );
           if (inMinutes > employeeNormalStartMinutes) {
             dailyLateMins = inMinutes - employeeNormalStartMinutes;
           }
         } else if (isWorker && status === "ADJ-P") {
-          console.log(
-            `  -> Day ${day.date}: Skipping ADJ-P for late (is Worker)`
-          );
+          // Skipping ADJ-P for late (is Worker)
         }
 
         if (dailyLateMins > PERMISSIBLE_LATE_MINS) {
@@ -750,10 +747,12 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
       totalCombinedMinutes: Math.round(totalAfterRelaxation),
       isStaff,
       staffRelaxationApplied: Math.round(staffRelaxationApplied),
-      otGrandTotal: Math.round(otGrandTotal), // <-- You have this already
-      finalDifference: Math.round(otGrandTotal - totalAfterRelaxation),
+      otGrandTotal: Math.round(otGrandTotal),
+      // Use staticFinalDifference (Gross OT) for the calculation to avoid circular dependency
+      // when deduction is applied to otGrandTotal in the parent/sibling.
+      finalDifference: Math.round(staticFinalDifference - totalAfterRelaxation),
     };
-  }, [employee, getCustomTimingForEmployee, lunchBreakAnalysis, otGrandTotal]);
+  }, [employee, getCustomTimingForEmployee, lunchBreakAnalysis, otGrandTotal, staticFinalDifference]);
 
   // Add these useEffect hooks after the existing stats useMemo:
 
@@ -804,6 +803,8 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
       "Total extra minutes taken beyond allowed break times (Tea: 15 mins, Lunch: 30 mins, Post-evening: 15 mins). Click 'View Details' to see breakdown.",
     lessThan4HrMins:
       "Total minutes below 4 working hours on P/A days. For example, if worked 3.50 hrs, counted as 10 mins shortfall.",
+    staticFinalDifference:
+      "The result of (Total OT + Full Night OT) - Total (-4hrs). This represents the Net OT based on static OT values.",
     finalDifference:
       "The difference between OT Grand Total and Late/Early Departure Total. Positive = More OT earned than deductions. Negative = More deductions than OT earned.",
     totalCombinedMinutes:
@@ -924,20 +925,35 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
             />
           </div>
 
-          {/* Right side: Final Difference - separated with visual divider */}
+          {/* Right side: Static Final Difference & Final Difference - separated with visual divider */}
           <div className="flex items-center gap-4">
             {/* Visual separator */}
             <div className="h-24 w-[2px] bg-gradient-to-b "></div>
 
+            {/* Static Final Difference Box */}
+            <StatBox
+              label="Static Final Difference"
+              value={staticFinalDifference - stats.totalCombinedMinutes}
+              bgColor="bg-blue-100"
+              textColor="text-blue-900"
+              tooltipKey="staticFinalDifference"
+              hasDetails={false}
+              isDifference={true}
+            />
+
             {/* Final Difference Box */}
             <StatBox
               label="Final Difference"
-              value={stats.finalDifference}
+              value={otGrandTotal - stats.totalCombinedMinutes}
               bgColor={
-                stats.finalDifference >= 0 ? "bg-green-100" : "bg-red-100"
+                otGrandTotal - stats.totalCombinedMinutes >= 0
+                  ? "bg-green-100"
+                  : "bg-red-100"
               }
               textColor={
-                stats.finalDifference >= 0 ? "text-green-900" : "text-red-900"
+                otGrandTotal - stats.totalCombinedMinutes >= 0
+                  ? "text-green-900"
+                  : "text-red-900"
               }
               tooltipKey="finalDifference"
               hasDetails={false}

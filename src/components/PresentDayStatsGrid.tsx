@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { EmployeeData } from "@/lib/types";
-import { useExcel } from "../context/ExcelContext"; // Corrected import path
+import { useExcel } from "../context/ExcelContext";
 import { useFinalDifference } from "@/context/FinalDifferenceContext";
 
 // Utility helpers
@@ -12,20 +12,18 @@ const numericOnly = (s: string) => s.match(/\d+/g)?.join("") ?? "";
 const dropLeadingZeros = (s: string) => s.replace(/^0+/, "");
 const nameKey = (s: string) => stripNonAlnum(s);
 
-// [NEW] Helper to check if employee is Staff or Worker
+// Helper to check if employee is Staff or Worker
 const getIsStaff = (emp: EmployeeData): boolean => {
   const inStr = `${emp.companyName ?? ""} ${
     emp.department ?? ""
   }`.toLowerCase();
   if (inStr.includes("worker")) return false;
   if (inStr.includes("staff")) return true;
-  // default to staff if not clear
   return true;
 };
 
 // ---- Paid Leave Lookup Hook ---- //
 function usePaidLeaveLookup() {
-  // ... (existing code, no changes)
   const { getAllUploadedFiles } = useExcel();
 
   return useMemo(() => {
@@ -87,16 +85,13 @@ function usePaidLeaveLookup() {
   }, [getAllUploadedFiles]);
 }
 
-/**
- * ---- Full Night Stay OT Lookup Hook ----
- */
+// ---- Full Night Stay OT Lookup Hook ---- //
 function useFullNightOTLookup() {
   const { getAllUploadedFiles } = useExcel();
 
   return useMemo(() => {
     const files = getAllUploadedFiles?.() ?? [];
 
-    // Find Full Night Stay OT file
     const fullNightFile = files.find((f: any) => {
       const n = (f?.fileName || "").toString().toLowerCase();
       return (
@@ -111,9 +106,6 @@ function useFullNightOTLookup() {
       return { getFullNightOTForEmployee: () => 0 };
     }
 
-    console.log("✅ Full Night Stay OT file detected:", fullNightFile.fileName);
-
-    // Extract Full Night OT employees
     let fullNightEmployees: any[] = [];
 
     if (
@@ -128,7 +120,6 @@ function useFullNightOTLookup() {
       fullNightEmployees = fullNightFile.data.employees;
     }
 
-    // Create lookup map - aggregate total hours per employee
     const norm = (s: string) => (s ?? "").toString().toUpperCase().trim();
     const key = (s: string) => norm(s).replace(/[^A-Z0-9]/g, "");
     const numOnly = (s: string) => s.match(/\d+/g)?.join("") ?? "";
@@ -143,11 +134,9 @@ function useFullNightOTLookup() {
         const codeKey = key(emp.empCode);
         const numKey = numOnly(emp.empCode);
 
-        // Add for the main key
         const current = employeeByCode.get(codeKey) || 0;
         employeeByCode.set(codeKey, current + hours);
 
-        // [FIX] ONLY add for numKey if it's DIFFERENT from codeKey
         if (numKey && numKey !== codeKey) {
           const currentNum = employeeByCode.get(numKey) || 0;
           employeeByCode.set(numKey, currentNum + hours);
@@ -168,15 +157,12 @@ function useFullNightOTLookup() {
       const empNameK = key(emp.empName);
       const numCodeK = numOnly(emp.empCode);
 
-      // Try code match first
       let totalHours = employeeByCode.get(empCodeK);
 
-      // Try numeric code
       if (totalHours === undefined && numCodeK) {
         totalHours = employeeByCode.get(numCodeK);
       }
 
-      // Try name match
       if (totalHours === undefined) {
         totalHours = employeeByName.get(empNameK);
       }
@@ -188,18 +174,13 @@ function useFullNightOTLookup() {
   }, [getAllUploadedFiles]);
 }
 
-/**
- * ---- 09 to 06 Custom Timing Lookup Hook ----
- * Returns the custom timing info (not hours, just the timing string)
- */
+// ---- 09 to 06 Custom Timing Lookup Hook ---- //
 function useCustomTimingLookup() {
-  // ... (existing code, no changes)
   const { getAllUploadedFiles } = useExcel();
 
   return useMemo(() => {
     const files = getAllUploadedFiles?.() ?? [];
 
-    // Find 09 to 06 Time Granted file
     const customTimingFile = files.find((f: any) => {
       const n = (f?.fileName || "").toString().toLowerCase();
       return (
@@ -213,12 +194,6 @@ function useCustomTimingLookup() {
       return { getCustomTimingForEmployee: () => null };
     }
 
-    console.log(
-      "✅ 09 to 06 Time Granted file detected:",
-      customTimingFile.fileName
-    );
-
-    // Extract employees
     let customTimingEmployees: any[] = [];
 
     if (
@@ -233,7 +208,6 @@ function useCustomTimingLookup() {
       customTimingEmployees = customTimingFile.data.employees;
     }
 
-    // Create lookup map
     const norm = (s: string) => (s ?? "").toString().toUpperCase().trim();
     const key = (s: string) => norm(s).replace(/[^A-Z0-9]/g, "");
     const numOnly = (s: string) => s.match(/\d+/g)?.join("") ?? "";
@@ -266,29 +240,24 @@ function useCustomTimingLookup() {
       const empNameK = key(emp.empName);
       const numCodeK = numOnly(emp.empCode);
 
-      // Try code match first
       let found = employeeByCode.get(empCodeK);
 
-      // Try numeric code
       if (!found && numCodeK) {
         found = employeeByCode.get(numCodeK);
       }
 
-      // Try name match
       if (!found) {
         found = employeeByName.get(empNameK);
       }
 
       if (!found || !found.customTime) return null;
 
-      // Parse custom time to get expected end time
       const timeStr = found.customTime;
       const match = timeStr.match(
         /(\d{1,2}):(\d{2})\s*TO\s*(\d{1,2}):(\d{2})/i
       );
 
       if (match) {
-        // Use (match[2] || "0") to handle cases like "9:00"
         const startHour = parseInt(match[1]);
         const startMin = parseInt(match[2] || "0");
         const expectedStartMinutes = startHour * 60 + startMin;
@@ -311,17 +280,13 @@ function useCustomTimingLookup() {
   }, [getAllUploadedFiles]);
 }
 
-/**
- * ---- Staff OT Granted Lookup Hook ----
- */
+// ---- Staff OT Granted Lookup Hook ---- //
 function useStaffOTGrantedLookup() {
-  // ... (existing code, no changes)
   const { getAllUploadedFiles } = useExcel();
 
   return useMemo(() => {
     const files = getAllUploadedFiles?.() ?? [];
 
-    // Find Staff OT Granted file
     const staffOTFile = files.find((f: any) => {
       const n = (f?.fileName || "").toString().toLowerCase();
       return (
@@ -336,9 +301,6 @@ function useStaffOTGrantedLookup() {
       return { getGrantForEmployee: () => undefined };
     }
 
-    console.log("✅ Staff OT Granted file detected:", staffOTFile.fileName);
-
-    // Extract OT employees from the file
     let otEmployees: any[] = [];
 
     if (staffOTFile.otGrantedData && Array.isArray(staffOTFile.otGrantedData)) {
@@ -350,7 +312,6 @@ function useStaffOTGrantedLookup() {
       otEmployees = staffOTFile.data.employees;
     }
 
-    // Create lookup maps with fuzzy matching
     const norm = (s: string) => (s ?? "").toString().toUpperCase().trim();
     const key = (s: string) => norm(s).replace(/[^A-Z0-9]/g, "");
     const numOnly = (s: string) => s.match(/\d+/g)?.join("") ?? "";
@@ -379,23 +340,14 @@ function useStaffOTGrantedLookup() {
       const empNameK = key(emp.empName);
       const numCodeK = numOnly(emp.empCode);
 
-      // Try exact code match first
       let found = byCode.get(empCodeK);
 
-      // Try numeric code match
       if (!found && numCodeK) {
         found = byNumericCode.get(numCodeK);
       }
 
-      // Try name match as fallback
       if (!found) {
         found = byName.get(empNameK);
-      }
-
-      if (found) {
-        console.log(
-          `✅ Employee "${emp.empName}" (${emp.empCode}) is in OT Granted list (Days: ${found.fromDate}-${found.toDate})`
-        );
       }
 
       return found;
@@ -405,18 +357,13 @@ function useStaffOTGrantedLookup() {
   }, [getAllUploadedFiles]);
 }
 
-/**
- * ---- Maintenance OT Deduct Lookup Hook ----
- * Checks if an employee is in the "Maintenance Employee OT Deduct" file.
- */
+// ---- Maintenance OT Deduct Lookup Hook ---- //
 function useMaintenanceDeductLookup() {
-  // ... (existing code, no changes)
   const { getAllUploadedFiles } = useExcel();
 
   return useMemo(() => {
     const files = getAllUploadedFiles?.() ?? [];
 
-    // 1. Find the Maintenance Deduct file
     const deductFile = files.find((f: any) => {
       const n = (f?.fileName || "").toString().toLowerCase();
       return (
@@ -427,14 +374,9 @@ function useMaintenanceDeductLookup() {
     });
 
     if (!deductFile) {
-      // No file found, so no deduction applies
       return { isMaintenanceEmployee: () => false };
     }
 
-    console.log("✅ Maintenance OT Deduct file detected:", deductFile.fileName);
-
-    // 2. Extract employee data from the file
-    // Assumes the file processor populates 'data.employees'
     let maintenanceEmployees: any[] = [];
     if (
       deductFile.data?.employees &&
@@ -442,13 +384,9 @@ function useMaintenanceDeductLookup() {
     ) {
       maintenanceEmployees = deductFile.data.employees;
     } else {
-      console.warn(
-        "⚠️ Maintenance deduct file found, but no 'data.employees' array inside."
-      );
       return { isMaintenanceEmployee: () => false };
     }
 
-    // 3. Create lookup Sets for fast checking
     const norm = (s: string) => (s ?? "").toString().toUpperCase().trim();
     const key = (s: string) => norm(s).replace(/[^A-Z0-9]/g, "");
     const numOnly = (s: string) => s.match(/\d+/g)?.join("") ?? "";
@@ -457,7 +395,6 @@ function useMaintenanceDeductLookup() {
     const employeeNameSet = new Set<string>();
 
     for (const emp of maintenanceEmployees) {
-      // The CSV snippet shows 'EMP. CODE', so we check for both conventions
       const code = emp.empCode || emp["EMP. CODE"];
       const name = emp.empName || emp.NAME;
 
@@ -470,7 +407,6 @@ function useMaintenanceDeductLookup() {
       }
     }
 
-    // 4. Return a checker function
     const isMaintenanceEmployee = (
       emp: Pick<EmployeeData, "empCode" | "empName">
     ): boolean => {
@@ -494,11 +430,12 @@ interface Props {
   employee: EmployeeData;
   baseHolidaysCount?: number;
   selectedHolidaysCount?: number;
-  finalDifference?: number; // 🆕 ADD THIS
+  finalDifference?: number;
+  lateDeductionDays?: number;
+  onTotalCalculated?: (total: number) => void;
 }
-// Moved helper function outside component
+
 const timeToMinutes = (timeStr: string): number => {
-  // ... (existing code, no changes)
   if (!timeStr || timeStr === "-") return 0;
   const parts = timeStr.split(":").map(Number);
   if (parts.length < 2 || isNaN(parts[0]) || isNaN(parts[1])) return 0;
@@ -507,29 +444,25 @@ const timeToMinutes = (timeStr: string): number => {
 };
 
 export const PresentDayStatsGrid: React.FC<Props> = ({
-  // ... (existing code, no changes)
   employee,
   baseHolidaysCount = 0,
   selectedHolidaysCount = 0,
   finalDifference = 0,
+  lateDeductionDays = 0,
+  onTotalCalculated,
 }) => {
   const { getPL } = usePaidLeaveLookup();
   const { lateDeductionOverride } = useFinalDifference();
 
-  // ... (existing code, no changes)
   const { getGrantForEmployee } = useStaffOTGrantedLookup();
   const { getFullNightOTForEmployee } = useFullNightOTLookup();
   const { getCustomTimingForEmployee } = useCustomTimingLookup();
   const { isMaintenanceEmployee } = useMaintenanceDeductLookup();
 
   const stats = useMemo(() => {
-    // ... (existing code... all calculations are correct)
-    // Count present and adjustment days
     let paCount = 0;
     let fullPresentDays = 0;
     let adjPresentDays = 0;
-    const empLateDeductionMinutes =
-      lateDeductionOverride.get(employee.empCode) ?? 0;
 
     employee.days?.forEach((day) => {
       const status = (day.attendance.status || "").toUpperCase();
@@ -540,10 +473,6 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
         const outTime = day.attendance.outTime;
         if (inTime && inTime !== "-" && outTime && outTime !== "-") {
           adjPresentDays++;
-        } else {
-          console.log(
-            `🚫 Skipping ADJ-P on ${day.date} (no In/Out time present)`
-          );
         }
       }
     });
@@ -553,12 +482,9 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
     const PAA = fullPresentDays + adjPresentDays + paAdjustment;
     const H_base = selectedHolidaysCount || baseHolidaysCount || 0;
 
-    // --- Sandwich Rule: Remove holidays surrounded by absences ---
-    // --- Sandwich Rule: Remove holidays surrounded by absences or NA ---
     let validHolidays = 0;
     const days = employee.days || [];
 
-    // Helper function to check if status is absent or NA
     const isAbsentOrNA = (status: string): boolean => {
       const normalized = status.toUpperCase().trim();
       return (
@@ -566,7 +492,6 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
       );
     };
 
-    // Helper function to check if status is holiday or special day
     const isHolidayOrSpecial = (status: string): boolean => {
       const normalized = status.toUpperCase().trim();
       return (
@@ -577,7 +502,6 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
       );
     };
 
-    // Find continuous blocks of holidays/special days
     let i = 0;
     while (i < days.length) {
       const currentStatus = (days[i].attendance.status || "")
@@ -585,11 +509,9 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
         .trim();
 
       if (isHolidayOrSpecial(currentStatus)) {
-        // Found start of a holiday block
         const blockStart = i;
         let blockEnd = i;
 
-        // Find the end of this continuous block
         while (
           blockEnd < days.length &&
           isHolidayOrSpecial(
@@ -598,9 +520,8 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
         ) {
           blockEnd++;
         }
-        blockEnd--; // Step back to last holiday day
+        blockEnd--;
 
-        // Find previous non-holiday/non-special day
         let prevStatus = null;
         for (let j = blockStart - 1; j >= 0; j--) {
           const pStatus = (days[j].attendance.status || "")
@@ -612,7 +533,6 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
           }
         }
 
-        // Find next non-holiday/non-special day
         let nextStatus = null;
         for (let j = blockEnd + 1; j < days.length; j++) {
           const nStatus = (days[j].attendance.status || "")
@@ -624,90 +544,43 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
           }
         }
 
-        // Check if this entire block is sandwiched between absences/NA
         const isSandwiched =
           prevStatus !== null &&
           nextStatus !== null &&
           isAbsentOrNA(prevStatus) &&
           isAbsentOrNA(nextStatus);
 
-        if (isSandwiched) {
-          // Count how many H days are in this sandwiched block (for logging)
-          let sandwichedHCount = 0;
-          const blockDays = [];
-          for (let j = blockStart; j <= blockEnd; j++) {
-            const blockStatus = (days[j].attendance.status || "")
-              .toUpperCase()
-              .trim();
-            blockDays.push(`${days[j].date}(${blockStatus})`);
-            if (blockStatus === "H") {
-              sandwichedHCount++;
-            }
-          }
-
-          console.log(
-            `🥪 ${employee.empName} - Block [${blockDays.join(
-              ", "
-            )}] is sandwiched between ${prevStatus}(Day ${
-              days[blockStart - 1]?.date
-            }) and ${nextStatus}(Day ${
-              days[blockEnd + 1]?.date
-            }) - ${sandwichedHCount} holiday(s) NOT counted`
-          );
-        } else {
-          // Block is NOT sandwiched - count all H days in this block
+        if (!isSandwiched) {
           for (let j = blockStart; j <= blockEnd; j++) {
             const blockStatus = (days[j].attendance.status || "")
               .toUpperCase()
               .trim();
             if (blockStatus === "H") {
               validHolidays++;
-              console.log(
-                `✅ ${employee.empName} - Day ${days[j].date} (H) is valid - counted`
-              );
             }
           }
         }
 
-        // Move to next block
         i = blockEnd + 1;
       } else {
         i++;
       }
     }
 
-    const Total = PAA + validHolidays;
-    console.log(
-      `📊 ${employee.empName} Total calculation: PAA (${PAA}) + Valid Holidays (${validHolidays}) = ${Total}`
-    );
-    console.log(
-      `📊 Total calculation: PAA (${PAA}) + Valid Holidays (${validHolidays}) = ${Total}`
-    );
+
 
     const customTiming = getCustomTimingForEmployee(employee);
     let lateMinsTotal = 0;
-    let wasOTDeducted = false; // <-- Flag for 5% deduction
+    let wasOTDeducted = false;
 
-    // [NEW] Determine if employee is staff or worker
     const isStaff = getIsStaff(employee);
     const isWorker = !isStaff;
-    console.log(
-      `👷 ${employee.empName} is ${isWorker ? "Worker" : "Staff"}. Applying ${
-        isWorker ? "Worker" : "Staff"
-      } late policy for PresentDayStatsGrid.`
-    );
 
-    // Define shift start times in minutes
-    const STANDARD_START_MINUTES = 8 * 60 + 30; // 8:30 AM = 510
-    const EVENING_SHIFT_START_MINUTES = 12 * 60 + 45; // 12:45 PM = 765
-
-    // Define the cutoff time to decide between morning/evening P/A
-    const MORNING_EVENING_CUTOFF_MINUTES = 10 * 60; // 10:00 AM = 600
-
-    // Define permissible late minutes
+    const STANDARD_START_MINUTES = 8 * 60 + 30;
+    const EVENING_SHIFT_START_MINUTES = 12 * 60 + 45;
+    const MORNING_EVENING_CUTOFF_MINUTES = 10 * 60;
     const PERMISSIBLE_LATE_MINS = 5;
 
-    // Determine the employee's "normal" start time (standard or custom)
     const employeeNormalStartMinutes =
       customTiming?.expectedStartMinutes ?? STANDARD_START_MINUTES;
 
@@ -716,136 +589,88 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
       const inTime = day.attendance.inTime;
 
       if (!inTime || inTime === "-") {
-        return; // No in-time, so no late minutes
+        return;
       }
 
       const inMinutes = timeToMinutes(inTime);
-      let dailyLateMins = 0; // Calculate daily late first
+      let dailyLateMins = 0;
 
       if (status === "P/A" || status === "PA") {
-        // Smart P/A logic
         if (inMinutes < MORNING_EVENING_CUTOFF_MINUTES) {
-          // It's a MORNING half-day, check against normal start
           if (inMinutes > employeeNormalStartMinutes) {
             dailyLateMins = inMinutes - employeeNormalStartMinutes;
           }
         } else {
-          // It's an EVENING half-day, check against evening start
           if (inMinutes > EVENING_SHIFT_START_MINUTES) {
             dailyLateMins = inMinutes - EVENING_SHIFT_START_MINUTES;
           }
         }
-      }
-      // [MODIFIED] Apply Staff/Worker logic for ADJ-P
-      else if (status === "P") {
-        // 'P' (Full Day Present) is ALWAYS checked for lates
+      } else if (status === "P") {
         if (inMinutes > employeeNormalStartMinutes) {
           dailyLateMins = inMinutes - employeeNormalStartMinutes;
         }
       } else if (isStaff && status === "ADJ-P") {
-        // 'ADJ-P' is ONLY checked for lates if employee is STAFF
-        console.log(`  -> Day ${day.date}: Checking ADJ-P for late (is Staff)`);
         if (inMinutes > employeeNormalStartMinutes) {
           dailyLateMins = inMinutes - employeeNormalStartMinutes;
         }
-      } else if (isWorker && status === "ADJ-P") {
-        // 'ADJ-P' is SKIPPED for lates if employee is WORKER
-        console.log(
-          `  -> Day ${day.date}: Skipping ADJ-P for late (is Worker)`
-        );
-        // dailyLateMins remains 0
       }
-      // [END OF MODIFICATION]
 
-      // For any other status (A, H, WO), do nothing.
-
-      // [NEW] Apply the 5-minute grace period
       if (dailyLateMins > PERMISSIBLE_LATE_MINS) {
-        lateMinsTotal += dailyLateMins; // Add the full amount if over 5 mins
+        lateMinsTotal += dailyLateMins;
       }
     });
-    // --- [END OF NEW LATE MINS LOGIC] ---
 
     const Late_hours = Number((lateMinsTotal / 60).toFixed(2));
 
-    // --- OT Calculation Logic ---
-    let AdditionalOT = 0;
+    let AdditionalOT = lateDeductionDays;
     let OT_hours = 0;
     let totalOTMinutes = 0;
-    let customTimingOTMinutes = 0; // Track custom timing OT separately for display
+    let customTimingOTMinutes = 0;
 
     const grant = getGrantForEmployee(employee);
-    // Note: customTiming was already fetched above for late mins
 
     const parseMinutes = (val?: string | number | null): number => {
       if (!val) return 0;
       const str = String(val).trim();
-
-      // Handle time format "HH:MM"
       if (str.includes(":")) {
         const [h, m] = str.split(":").map((x) => parseInt(x) || 0);
         return h * 60 + m;
       }
-
-      // Handle decimal hours (e.g., "8.5" = 8h 30m)
       const decimalHours = parseFloat(str);
       if (!isNaN(decimalHours)) {
         return Math.round(decimalHours * 60);
       }
-
       return 0;
     };
 
-    // Helper to calculate custom timing OT for a day
     const calculateCustomTimingOT = (
       outTime: string,
       expectedEndMinutes: number
     ): number => {
       if (!outTime || outTime === "-") return 0;
-
-      // Use the helper function
       const outMinutes = timeToMinutes(outTime);
-
       const otMinutes =
         outMinutes > expectedEndMinutes ? outMinutes - expectedEndMinutes : 0;
-
-      // Ignore minor deviations (less than 5 minutes)
       return otMinutes < 5 ? 0 : otMinutes;
     };
 
     if (grant) {
-      // ✅ Employee IS in Staff OT Granted: Count all days in range
       const fromD = Number(grant.fromDate) || 1;
       const toD = Number(grant.toDate) || 31;
 
-      console.log(
-        `📅 OT Date Range for ${employee.empName}: ${fromD} to ${toD}`
-      );
-
-      let daysInRange = 0;
       employee.days?.forEach((day) => {
         const dateNum = Number(day.date) || 0;
         if (dateNum >= fromD && dateNum <= toD) {
-          daysInRange++;
-          const status = (day.attendance.status || "").toUpperCase();
-
           let dayOTMinutes = 0;
-
-          // Check if this employee has custom timing
           if (customTiming) {
-            // Calculate OT based on custom timing
             dayOTMinutes = calculateCustomTimingOT(
               day.attendance.outTime,
               customTiming.expectedEndMinutes
             );
             if (dayOTMinutes > 0) {
               customTimingOTMinutes += dayOTMinutes;
-              console.log(
-                `  Day ${dateNum} (${day.day}, ${status}): Custom timing OT = ${dayOTMinutes}min (Out: ${day.attendance.outTime})`
-              );
             }
           } else {
-            // Use standard OT from attendance
             const otField =
               (day.attendance as any).otHours ??
               (day.attendance as any).otHrs ??
@@ -853,56 +678,28 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
               (day.attendance as any).workHrs ??
               (day.attendance as any).workHours ??
               null;
-
             dayOTMinutes = parseMinutes(otField);
-            if (dayOTMinutes > 0) {
-              console.log(
-                `  Day ${dateNum} (${day.day}, ${status}): Standard OT = ${dayOTMinutes}min`
-              );
-            }
           }
-
-          // Cap at 9 hours (540 minutes) per day
           const cappedOT = Math.min(dayOTMinutes, 540);
           totalOTMinutes += cappedOT;
         }
       });
-
-      console.log(
-        `✅ Counted ${daysInRange} days in OT range for ${employee.empName}`
-      );
     } else {
-      // 🟨 Employee NOT in Staff OT Granted: Only Saturdays, EXCLUDE ADJ-P
-      console.log(
-        `📅 Employee ${employee.empName} not in OT Granted - counting Saturdays only (excluding ADJ-P)`
-      );
-
-      let saturdayCount = 0;
       employee.days?.forEach((day) => {
         const dayName = (day.day || "").toLowerCase();
         const status = (day.attendance.status || "").toUpperCase();
 
-        // ✅ Only Saturdays AND not ADJ-P
         if (dayName === "sa" && status !== "ADJ-P") {
-          saturdayCount++;
-
           let dayOTMinutes = 0;
-
-          // Check if this employee has custom timing
           if (customTiming) {
-            // Calculate OT based on custom timing
             dayOTMinutes = calculateCustomTimingOT(
               day.attendance.outTime,
               customTiming.expectedEndMinutes
             );
             if (dayOTMinutes > 0) {
               customTimingOTMinutes += dayOTMinutes;
-              console.log(
-                `  Saturday Day ${day.date} (${status}): Custom timing OT = ${dayOTMinutes}min (Out: ${day.attendance.outTime})`
-              );
             }
           } else {
-            // Use standard OT from attendance
             const otField =
               (day.attendance as any).otHours ??
               (day.attendance as any).otHrs ??
@@ -910,49 +707,21 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
               (day.attendance as any).workHrs ??
               (day.attendance as any).workHours ??
               null;
-
             dayOTMinutes = parseMinutes(otField);
-            if (dayOTMinutes > 0) {
-              console.log(
-                `  Saturday Day ${day.date} (${status}): Standard OT = ${dayOTMinutes}min`
-              );
-            }
           }
-
-          // Cap at 9 hours (540 minutes) per day
           const cappedOT = Math.min(dayOTMinutes, 540);
           totalOTMinutes += cappedOT;
-        } else if (dayName === "sa" && status === "ADJ-P") {
-          // 🚫 Explicitly log excluded Saturdays
-          console.log(
-            `  ⏭️ EXCLUDED Saturday Day ${day.date} (status: ${status} - ADJ-P not counted)`
-          );
         }
       });
-
-      console.log(
-        `✅ Counted ${saturdayCount} eligible Saturdays for ${employee.empName} (ADJ-P excluded)`
-      );
     }
 
-    // [MODIFIED] Check if employee is 'Worker' and NOT granted OT
     if (isWorker && !grant) {
-      console.log(
-        `👷 Employee ${employee.empName} is [Worker] and [Not Granted]. Re-calculating OT for all non-ADJ-P days.`
-      );
-      // Reset totals calculated by Saturday-only logic
       totalOTMinutes = 0;
       customTimingOTMinutes = 0;
-      let eligibleDays = 0;
-
       employee.days?.forEach((day) => {
         const status = (day.attendance.status || "").toUpperCase();
-
-        // ✅ All days EXCEPT ADJ-P
         if (status !== "ADJ-P") {
-          eligibleDays++;
           let dayOTMinutes = 0;
-
           if (customTiming) {
             dayOTMinutes = calculateCustomTimingOT(
               day.attendance.outTime,
@@ -975,65 +744,29 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
           totalOTMinutes += cappedOT;
         }
       });
-      console.log(
-        `✅ Counted ${eligibleDays} eligible days (for 'Worker - Not Granted'): ${totalOTMinutes} min`
-      );
     }
-    // [END OF WORKER OT MODIFICATION]
 
-    // Add Full Night Stay OT hours (these are always added regardless of day)
     const fullNightOTHours = getFullNightOTForEmployee(employee);
     if (fullNightOTHours > 0) {
       const fullNightMinutes = fullNightOTHours * 60;
       totalOTMinutes += fullNightMinutes;
-      console.log(
-        `✅ Added ${fullNightOTHours} Full Night OT hours. Minutes now: ${totalOTMinutes}`
-      );
     }
 
-    // --- Apply 5% OT Deduction for Maintenance Employees ---
     if (isMaintenanceEmployee(employee)) {
-      const originalOTMinutes = totalOTMinutes;
-      totalOTMinutes = totalOTMinutes * 0.95; // Apply 5% deduction (1.00 - 0.05)
-      wasOTDeducted = true; // Set the flag
-
-      console.log(
-        `⬇️ Applied 5% OT deduction for ${
-          employee.empName
-        } (Maintenance). Original: ${originalOTMinutes.toFixed(
-          2
-        )} min, Deducted: ${totalOTMinutes.toFixed(2)} min`
-      );
+      totalOTMinutes = totalOTMinutes * 0.95;
+      wasOTDeducted = true;
     }
-    // --- [END OF DEDUCTION LOGIC] ---
 
-    // This line now uses the *potentially deducted* totalOTMinutes
     OT_hours = Number((totalOTMinutes / 60).toFixed(2));
     const customTimingOTHours = Number((customTimingOTMinutes / 60).toFixed(2));
 
-    console.log(
-      `⏱️ Total OT for ${employee.empName}: ${OT_hours} hours (${totalOTMinutes} minutes)`
-    );
-    if (customTimingOTHours > 0) {
-      console.log(
-        `  └─ Custom Timing OT portion: ${customTimingOTHours} hours`
-      );
-    }
-
-    if (empLateDeductionMinutes > 0) {
-      const lateHours = empLateDeductionMinutes / 60;
-
-      if (lateHours < 4) {
-        AdditionalOT = 0.5;
-      } else {
-        const blocks = Math.ceil(lateHours / 4);
-        AdditionalOT = blocks * 0.5;
-      }
-    }
-
-    const ATotal = Math.max(Total - AdditionalOT, 0);
+    const netTotal = PAA + validHolidays - lateDeductionDays;
+    const ATotal = Math.max(netTotal, 0);
     const pl = getPL(employee) || 0;
     const GrandTotal = Math.max(ATotal + pl, 0);
+
+    // Corrected: Total = Present After Adj + Holidays (Base)
+    const Total = PAA + H_base;
 
     return {
       PD_excel,
@@ -1042,15 +775,16 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
       Total: Number(Total.toFixed(1)),
       Late_hours,
       OT_hours,
-      AdditionalOT: Number(AdditionalOT.toFixed(1)), // <-- This is the value
+      AdditionalOT: Number(AdditionalOT.toFixed(1)),
       ATotal: Number(ATotal.toFixed(1)),
       PL_days: pl,
       GrandTotal: Number(GrandTotal.toFixed(1)),
       paCount,
       adjPresentDays,
       fullNightOTHours,
-      customTimingOTHours, // This is now part of OT_hours, not separate
-      wasOTDeducted, // Return the flag
+      customTimingOTHours,
+      wasOTDeducted,
+      lateDeductionDays: Number(lateDeductionDays.toFixed(1)),
     };
   }, [
     employee,
@@ -1060,26 +794,35 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
     getGrantForEmployee,
     getFullNightOTForEmployee,
     getCustomTimingForEmployee,
-    isMaintenanceEmployee, // Add dependency
+    isMaintenanceEmployee,
+    lateDeductionDays,
   ]);
 
-  // Tooltip definitions
+  // Effect to notify parent of Total calculation
+  // We send GrandTotal to match the fallback logic in PresentDayComparison
+  useEffect(() => {
+    if (onTotalCalculated) {
+      onTotalCalculated(stats.GrandTotal);
+    }
+  }, [stats.GrandTotal, onTotalCalculated]);
+
   const tooltipTexts: any = {
-    // ... (existing code, no changes)
     PD_excel: "Present days counted directly from attendance sheet.",
     PAA: "Present days after adjustment: Full Present days + ADJ-P days + (P/A days × 0.5).",
     H_base: "Holidays selected from Holiday Management.",
-    Total: "Present After Adj + Holidays",
+    Total: "Present After Adj + Holidays (Base)",
     AdditionalOT:
       "Deduction (in days) applied when Late Hours > Final OT. If Final OT < 4 hrs, deduction is 0.5 days. Otherwise, 0.5 days per 4-hour block.",
     ATotal: "Adjusted total considering OT deduction rules.",
     PL_days: "Paid Leave taken from Staff Paid Leave Sheet.",
     GrandTotal: "A Total + Paid Leave",
+    lateDeduction: "Deduction (in days) applied based on Static Final Difference from Early Departure Stats Grid.",
   };
 
   const StatBox = ({ label, value, bgColor, textColor, tooltipKey }: any) => (
     <div
       className={`relative text-center p-2 w-[130px] ${bgColor} rounded-md border ${textColor} transition-all hover:shadow`}
+      title={tooltipTexts[tooltipKey]}
     >
       <div className="text-[11px] text-gray-600">{label}</div>
       <div className="text-xl font-bold mt-1">{value}</div>
@@ -1122,13 +865,12 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
           tooltipKey="Total"
         />
 
-        {/* [NEW] This is the StatBox you requested */}
         <StatBox
           label="Late Deduction"
-          value={stats.AdditionalOT}
+          value={lateDeductionDays}
           bgColor="bg-red-50"
-          textColor="text-red-7AF"
-          tooltipKey="AdditionalOT"
+          textColor="text-red-700 border-red-300"
+          tooltipKey="lateDeduction"
         />
 
         <StatBox
