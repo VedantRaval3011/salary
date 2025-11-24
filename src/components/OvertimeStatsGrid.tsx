@@ -475,7 +475,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
     let wasOTDeducted = false;
 
     const STANDARD_START_MINUTES = 8 * 60 + 30;
-    const EVENING_SHIFT_START_MINUTES = 12 * 60 + 45;
+    const EVENING_SHIFT_START_MINUTES = 13 * 60 + 15;
     const MORNING_EVENING_CUTOFF_MINUTES = 10 * 60;
     const PERMISSIBLE_LATE_MINS = 5;
 

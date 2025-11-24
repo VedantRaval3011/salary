@@ -31,7 +31,7 @@ export const getIsStaff = (emp: EmployeeData): boolean => {
 // ===== CONSTANTS =====
 
 const STANDARD_START_MINUTES = 8 * 60 + 30; // 8:30 AM
-const EVENING_SHIFT_START_MINUTES = 12 * 60 + 45; // 12:45 PM
+const EVENING_SHIFT_START_MINUTES = 13 * 60 + 15; // 1:15 PM
 const MORNING_EVENING_CUTOFF_MINUTES = 10 * 60; // 10:00 AM
 const PERMISSIBLE_LATE_MINS = 5;
 const STAFF_RELAXATION_MINUTES = 4 * 60; // 4 hours

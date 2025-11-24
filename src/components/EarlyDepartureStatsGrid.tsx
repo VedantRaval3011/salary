@@ -644,8 +644,9 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
         workMins = Number(workHours) * 60;
       }
 
-      // If P/A and less than 4 hours (240 mins)
-      if ((status === "P/A" || status === "PA") && workMins < 240) {
+      // If P/A or ADJ-P/A and less than 4 hours (240 mins)
+      // ADJ-P/A should be treated the same as P/A
+      if ((status === "P/A" || status === "PA" || status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA") && workMins < 240) {
         lessThan4HrMins += 240 - workMins; // difference from 4 hours
       }
     });
@@ -659,7 +660,7 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
     );
 
     const STANDARD_START_MINUTES = 8 * 60 + 30;
-    const EVENING_SHIFT_START_MINUTES = 12 * 60 + 45;
+    const EVENING_SHIFT_START_MINUTES = 13 * 60 + 15;
     const MORNING_EVENING_CUTOFF_MINUTES = 10 * 60;
     const PERMISSIBLE_LATE_MINS = 5;
 
@@ -676,7 +677,8 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
         const inMinutes = timeToMinutes(inTime);
         let dailyLateMins = 0;
 
-        if (status === "P/A" || status === "PA") {
+        // ADJ-P/A should be treated the same as P/A
+        if (status === "P/A" || status === "PA" || status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA") {
           if (inMinutes < MORNING_EVENING_CUTOFF_MINUTES) {
             if (inMinutes > employeeNormalStartMinutes) {
               dailyLateMins = inMinutes - employeeNormalStartMinutes;
@@ -710,7 +712,8 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
         return; // <-- do not count anything from this day
       }
 
-      if (status !== "P/A" && status !== "PA") {
+      // Exclude early departure for P/A and ADJ-P/A (treat ADJ-P/A same as P/A)
+      if (status !== "P/A" && status !== "PA" && status !== "ADJ-P/A" && status !== "ADJP/A" && status !== "ADJ-PA") {
         if (earlyDepMins > 0) {
           earlyDepartureTotalMinutes += earlyDepMins;
         }
