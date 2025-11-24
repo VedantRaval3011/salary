@@ -644,9 +644,19 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
         workMins = Number(workHours) * 60;
       }
 
+      // Fallback: Calculate from In/Out if workMins is 0
+      if (workMins === 0 && day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
+         const inM = timeToMinutes(day.attendance.inTime);
+         const outM = timeToMinutes(day.attendance.outTime);
+         if (outM > inM) {
+             workMins = outM - inM;
+         }
+      }
+
       // If P/A or ADJ-P/A and less than 4 hours (240 mins)
       // ADJ-P/A should be treated the same as P/A
-      if ((status === "P/A" || status === "PA" || status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA") && workMins < 240) {
+      // Also ADJ-P if < 4 hours
+      if ((status === "P/A" || status === "PA" || status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA" || status === "ADJ-P") && workMins <= 240) {
         lessThan4HrMins += 240 - workMins; // difference from 4 hours
       }
     });
@@ -673,12 +683,38 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
       const status = (day.attendance.status || "").toUpperCase();
       const inTime = day.attendance.inTime;
 
+      // Check for ADJ-P half day
+      let isAdjPHalfDay = false;
+      if (status === "ADJ-P") {
+        const workHours = day.attendance.workHrs || 0;
+        let workMins = 0;
+        if (typeof workHours === "string" && workHours.includes(":")) {
+          const [h, m] = workHours.split(":").map(Number);
+          workMins = h * 60 + (m || 0);
+        } else if (!isNaN(Number(workHours))) {
+          workMins = Number(workHours) * 60;
+        }
+
+        // Fallback: Calculate from In/Out if workMins is 0
+        if (workMins === 0 && day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
+           const inM = timeToMinutes(day.attendance.inTime);
+           const outM = timeToMinutes(day.attendance.outTime);
+           if (outM > inM) {
+               workMins = outM - inM;
+           }
+        }
+
+        if (workMins > 0 && workMins <= 240) {
+          isAdjPHalfDay = true;
+        }
+      }
+
       if (inTime && inTime !== "-") {
         const inMinutes = timeToMinutes(inTime);
         let dailyLateMins = 0;
 
         // ADJ-P/A should be treated the same as P/A
-        if (status === "P/A" || status === "PA" || status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA") {
+        if (status === "P/A" || status === "PA" || status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA" || isAdjPHalfDay) {
           if (inMinutes < MORNING_EVENING_CUTOFF_MINUTES) {
             if (inMinutes > employeeNormalStartMinutes) {
               dailyLateMins = inMinutes - employeeNormalStartMinutes;
@@ -713,7 +749,7 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
       }
 
       // Exclude early departure for P/A and ADJ-P/A (treat ADJ-P/A same as P/A)
-      if (status !== "P/A" && status !== "PA" && status !== "ADJ-P/A" && status !== "ADJP/A" && status !== "ADJ-PA") {
+      if (status !== "P/A" && status !== "PA" && status !== "ADJ-P/A" && status !== "ADJP/A" && status !== "ADJ-PA" && !isAdjPHalfDay) {
         if (earlyDepMins > 0) {
           earlyDepartureTotalMinutes += earlyDepMins;
         }

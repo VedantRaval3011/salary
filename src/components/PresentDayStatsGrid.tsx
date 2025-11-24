@@ -466,8 +466,33 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
 
     employee.days?.forEach((day) => {
       const status = (day.attendance.status || "").toUpperCase();
+
+      // Check for ADJ-P half day (treat as P/A)
+      let isAdjPHalfDay = false;
+      if (status === "ADJ-P") {
+        const workHours = day.attendance.workHrs || 0;
+        let workMins = 0;
+        if (typeof workHours === "string" && workHours.includes(":")) {
+          const [h, m] = workHours.split(":").map(Number);
+          workMins = h * 60 + (m || 0);
+        } else if (!isNaN(Number(workHours))) {
+          workMins = Number(workHours) * 60;
+        }
+        if (workMins === 0 && day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
+           const inM = timeToMinutes(day.attendance.inTime);
+           const outM = timeToMinutes(day.attendance.outTime);
+           if (outM > inM) {
+               workMins = outM - inM;
+           }
+        }
+
+        if (workMins > 0 && workMins <= 240) {
+          isAdjPHalfDay = true;
+        }
+      }
+
       if (status === "P") fullPresentDays++;
-      else if (status === "P/A" || status === "PA") paCount++;
+      else if (status === "P/A" || status === "PA" || isAdjPHalfDay) paCount++;
       else if (status === "ADJ-P") {
         const inTime = day.attendance.inTime;
         const outTime = day.attendance.outTime;
@@ -592,10 +617,34 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
         return;
       }
 
+      // Check for ADJ-P half day (treat as P/A)
+      let isAdjPHalfDay = false;
+      if (status === "ADJ-P") {
+        const workHours = day.attendance.workHrs || 0;
+        let workMins = 0;
+        if (typeof workHours === "string" && workHours.includes(":")) {
+          const [h, m] = workHours.split(":").map(Number);
+          workMins = h * 60 + (m || 0);
+        } else if (!isNaN(Number(workHours))) {
+          workMins = Number(workHours) * 60;
+        }
+        if (workMins === 0 && day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
+           const inM = timeToMinutes(day.attendance.inTime);
+           const outM = timeToMinutes(day.attendance.outTime);
+           if (outM > inM) {
+               workMins = outM - inM;
+           }
+        }
+
+        if (workMins > 0 && workMins <= 240) {
+          isAdjPHalfDay = true;
+        }
+      }
+
       const inMinutes = timeToMinutes(inTime);
       let dailyLateMins = 0;
 
-      if (status === "P/A" || status === "PA") {
+      if (status === "P/A" || status === "PA" || isAdjPHalfDay) {
         if (inMinutes < MORNING_EVENING_CUTOFF_MINUTES) {
           if (inMinutes > employeeNormalStartMinutes) {
             dailyLateMins = inMinutes - employeeNormalStartMinutes;

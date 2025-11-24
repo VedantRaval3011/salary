@@ -599,7 +599,41 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
   };
 
   const processedDays = days.map((day) => {
-    const status = (day.attendance.status || "").toUpperCase();
+    let status = (day.attendance.status || "").toUpperCase();
+
+    // Check for ADJ-P half day -> change to ADJ-P/A
+    if (status === "ADJ-P") {
+      const workHours = day.attendance.workHrs || 0;
+      let workMins = 0;
+      if (typeof workHours === "string" && workHours.includes(":")) {
+        const [h, m] = workHours.split(":").map(Number);
+        workMins = h * 60 + (m || 0);
+      } else if (!isNaN(Number(workHours))) {
+        workMins = Number(workHours) * 60;
+      }
+
+      // Fallback: Calculate from In/Out if workMins is 0
+      if (workMins === 0 && day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
+         const inM = timeToMinutes(day.attendance.inTime);
+         const outM = timeToMinutes(day.attendance.outTime);
+         if (outM > inM) {
+             workMins = outM - inM;
+         }
+      }
+
+      if (workMins > 0 && workMins <= 240) {
+        status = "ADJ-P/A";
+        // Update day object immediately so subsequent logic uses new status
+        day = {
+          ...day,
+          attendance: {
+            ...day.attendance,
+            status: "ADJ-P/A",
+          },
+        };
+      }
+    }
+
     let hasOTCalculation = false;
     let originalOTValue = "";
     let calculatedOTMinutes = 0;
@@ -698,6 +732,8 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
     const s = status.toUpperCase();
     if (s === "ADJ-P")
       return "bg-lime-100 text-lime-800 border-lime-300 ring-2 ring-lime-400";
+    if (s === "ADJ-P/A" || s === "ADJP/A")
+      return "bg-yellow-100 text-yellow-800 border-yellow-300 ring-2 ring-yellow-400";
     if (s === "ADJ-M/WO-I")
       return "bg-orange-200 text-orange-800 border-orange-300 ring-2 ring-orange-400";
     if (s === "P") return "bg-green-100 text-green-800 border-green-300";
@@ -737,6 +773,40 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
         // if (index < 3) {
         //     console.log(`AttendanceGrid: Day ${day.date} punches:`, punches);
         // }
+
+        // Calculate total break excess for the day
+        let totalBreakExcess = 0;
+        if (punches && punches.length > 0) {
+            for (let i = 0; i < punches.length - 1; i++) {
+                const current = punches[i];
+                const next = punches[i+1];
+                
+                if (current.type === "Out" && next.type === "In") {
+                    const duration = next.minutes - current.minutes;
+                    if (duration > 0) {
+                         let allowed = 0;
+                         const outMin = current.minutes;
+                         const inMin = next.minutes;
+                         
+                         for (const defBreak of BREAKS) {
+                            const overlapStart = Math.max(outMin, defBreak.start);
+                            const overlapEnd = Math.min(inMin, defBreak.end);
+                            const overlap = Math.max(0, overlapEnd - overlapStart);
+                            if (overlap > 0) allowed += defBreak.allowed;
+                         }
+                         
+                         if (outMin >= 17 * 60 + 30 || inMin >= 17 * 60 + 30) {
+                            allowed = Math.max(allowed, 15);
+                         }
+                         
+                         allowed = Math.max(allowed, 30);
+                         
+                         const excess = Math.max(0, duration - allowed);
+                         totalBreakExcess += excess;
+                    }
+                }
+            }
+        }
         
         return (
           <div
@@ -871,6 +941,15 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
                   {day.attendance.workHrs || "0:00"}
                 </span>
               </div>
+
+              {totalBreakExcess > 0 && (
+                <div className="flex justify-between">
+                    <span className="font-semibold">Break Excess:</span>
+                    <span className="font-bold text-red-600">
+                        +{totalBreakExcess}m
+                    </span>
+                </div>
+              )}
               <div className="flex justify-between pt-2 border-t border-current border-opacity-30">
                 <span className="font-semibold">Status:</span>
                 <span className="font-bold text-lg">
