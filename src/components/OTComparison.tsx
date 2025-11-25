@@ -713,14 +713,8 @@ function calculateFinalOT(
   const fullNightOTInMinutes = Math.round(fullNightOTDecimal * 60);
 
   // Grand total logic (same as stats grid):
-  let grandTotalMinutes = 0;
-  if (isStaff) {
-    grandTotalMinutes =
-      totalFromStaffGrantLogic + fullNightOTInMinutes - lateDeductionMinutes;
-  } else {
-    grandTotalMinutes =
-      workerGrantedOTMinutes + fullNightOTInMinutes - lateDeductionMinutes;
-  }
+  // Grand total logic (same as stats grid):
+  let grandTotalMinutes = finalOTForDeduction + fullNightOTInMinutes - lateDeductionMinutes;
 
   // Prevent negative totals
   grandTotalMinutes = Math.max(0, Math.round(grandTotalMinutes));

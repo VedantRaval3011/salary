@@ -810,25 +810,21 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
     // Compute total OT (all buckets) and then SUBTRACT late deduction
     // -----------------------
     // 1) Compute original TOTAL OT (same as before)
-    let totalOTMinutes = 0;
+    // -----------------------
+    // Compute total OT (all buckets) and then SUBTRACT late deduction
+    // -----------------------
+    // 1) Compute Gross TOTAL OT (Corrected)
+    let grossTotalMinutes = 0;
 
     if (isStaff) {
-      totalOTMinutes = staffGrantedOTMinutes + grantedFromSheetStaffMinutes;
+      grossTotalMinutes = staffGrantedOTMinutes + grantedFromSheetStaffMinutes;
     } else {
-      totalOTMinutes = workerGrantedOTMinutes + worker9to6OTMinutes;
+      grossTotalMinutes = workerGrantedOTMinutes;
     }
 
-    totalOTMinutes += fullNightOTInMinutes;
-
-    // 2) Keep TOTAL box unchanged
-    // totalMinutes = original OT only
-    const baseTotalMinutes = totalOTMinutes;
-
-    // 3) Grand Total = Total + Full Night OT + Late Deduction
-    let grandTotalMinutes = baseTotalMinutes + lateDeductionMinutes;
-
-    // clamp if needed
-    // grandTotalMinutes = Math.max(0, grandTotalMinutes);
+    // 2) Grand Total = Deducted OT + Full Night OT + Late Deduction
+    // We use finalOTForDeduction because it has the 5% deduction applied if applicable
+    let grandTotalMinutes = finalOTForDeduction + fullNightOTInMinutes + lateDeductionMinutes;
 
     return {
       baseOTValue,
@@ -838,15 +834,15 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
       worker9to6OTMinutes: Math.round(worker9to6OTMinutes),
       grantedFromSheetStaffMinutes: Math.round(grantedFromSheetStaffMinutes),
 
-      // base OT total (without late deduction)
-      totalMinutes: Math.round(totalOTMinutes),
+      // base OT total (Gross, without deduction)
+      totalMinutes: Math.round(grossTotalMinutes),
 
       fullNightOTInMinutes: Math.round(fullNightOTInMinutes),
 
       // late deduction shown as hours (unchanged)
       lateDeductionHours: Number((lateDeductionMinutes / 60).toFixed(1)),
 
-      // Grand total
+      // Grand total (Net, with deduction)
       grandTotalMinutes: Math.round(grandTotalMinutes),
 
       lateMinsTotal: Math.round(lateMinsTotal),

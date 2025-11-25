@@ -434,6 +434,13 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
       end: 15 * 60 + 30,
       allowed: 15,
     },
+    {
+      name: "Evening Break",
+      start: 19 * 60 + 30, // 7:30 PM
+      end: 20 * 60,        // 8:00 PM
+      allowed: 30,
+      fullPenalty: true,   // If exceeded, full duration is excess
+    },
   ];
 
   const lunchBreakAnalysis = useMemo(() => {
@@ -549,7 +556,13 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
         }
 
         if (bestMatch) {
-          const excess = Math.max(0, bp.duration - bestMatch.allowed);
+          let excess = Math.max(0, bp.duration - bestMatch.allowed);
+
+          // Special check for fullPenalty (Evening Break)
+          if ((bestMatch as any).fullPenalty && excess > 0) {
+            excess = bp.duration;
+          }
+
           console.log(
             `  ✅ Matched to ${bestMatch.name}: duration=${bp.duration}, allowed=${bestMatch.allowed}, excess=${excess}`
           );
@@ -656,7 +669,7 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
       // If P/A or ADJ-P/A and less than 4 hours (240 mins)
       // ADJ-P/A should be treated the same as P/A
       // Also ADJ-P if < 4 hours
-      if ((status === "P/A" || status === "PA" || status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA" || status === "ADJ-P") && workMins <= 240) {
+      if ((status === "P/A" || status === "PA" || status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA") && workMins <= 240) {
         lessThan4HrMins += 240 - workMins; // difference from 4 hours
       }
     });
@@ -724,16 +737,10 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
               dailyLateMins = inMinutes - EVENING_SHIFT_START_MINUTES;
             }
           }
-        } else if (status === "P") {
+        } else if (status === "P" || status === "ADJ-P") {
           if (inMinutes > employeeNormalStartMinutes) {
             dailyLateMins = inMinutes - employeeNormalStartMinutes;
           }
-        } else if (isStaff && status === "ADJ-P") {
-          if (inMinutes > employeeNormalStartMinutes) {
-            dailyLateMins = inMinutes - employeeNormalStartMinutes;
-          }
-        } else if (isWorker && status === "ADJ-P") {
-          // Skipping ADJ-P for late (is Worker)
         }
 
         if (dailyLateMins > PERMISSIBLE_LATE_MINS) {
