@@ -148,7 +148,7 @@ export const calculateBreakExcessMinutes = (
 
   const BREAKS = [
     { name: "Tea Break 1", start: 10 * 60 + 15, end: 10 * 60 + 30, allowed: 15 },
-    { name: "Lunch Break", start: 12 * 60 + 45, end: 13 * 60 + 15, allowed: 30 },
+    { name: "Lunch Break", start: 12 * 60, end: 14 * 60 + 30, allowed: 30 },
     { name: "Tea Break 2", start: 15 * 60 + 15, end: 15 * 60 + 30, allowed: 15 },
   ];
 
@@ -164,71 +164,39 @@ export const calculateBreakExcessMinutes = (
         minutes: timeToMinutes(p.time),
         time: p.time,
       }))
-      .filter((p: any) => p.minutes > 0);
+      .filter((p: any) => p.minutes > 0)
+      .sort((a: any, b: any) => a.minutes - b.minutes);
 
     if (punchTimes.length < 2) continue;
 
-    // Find Out-In pairs (break periods)
-    const breakPeriods: any[] = [];
     for (let i = 0; i < punchTimes.length - 1; i++) {
-      if (punchTimes[i].type === "Out" && punchTimes[i + 1].type === "In") {
-        const outTime = punchTimes[i].minutes;
-        const inTime = punchTimes[i + 1].minutes;
-        const duration = inTime - outTime;
-
-        if (duration > 0 && duration < 240) {
-          breakPeriods.push({
-            outMinutes: outTime,
-            inMinutes: inTime,
-            duration,
-          });
+        const current = punchTimes[i];
+        const next = punchTimes[i+1];
+        
+        if (current.type === "Out" && next.type === "In") {
+            const duration = next.minutes - current.minutes;
+            if (duration > 0) {
+                 let allowed = 0;
+                 const outMin = current.minutes;
+                 const inMin = next.minutes;
+                 
+                 for (const defBreak of BREAKS) {
+                    const overlapStart = Math.max(outMin, defBreak.start);
+                    const overlapEnd = Math.min(inMin, defBreak.end);
+                    const overlap = Math.max(0, overlapEnd - overlapStart);
+                    if (overlap > 0) allowed += defBreak.allowed;
+                 }
+                 
+                 if (outMin >= 17 * 60 + 30 || inMin >= 17 * 60 + 30) {
+                    allowed = Math.max(allowed, 15);
+                 }
+                 
+                 allowed = Math.max(allowed, 30);
+                 
+                 const excess = Math.max(0, duration - allowed);
+                 totalExcessMinutes += excess;
+            }
         }
-      }
-    }
-
-    if (breakPeriods.length === 0) continue;
-
-    // Check for post-evening return
-    const lastInPunch = punchTimes.filter((p: any) => p.type === "In").pop();
-    const hasPostEveningReturn = lastInPunch && lastInPunch.minutes >= 17 * 60 + 30;
-
-    const processedBreaks = new Set<number>();
-
-    // Match breaks with defined periods
-    for (let bpIdx = 0; bpIdx < breakPeriods.length; bpIdx++) {
-      const bp = breakPeriods[bpIdx];
-      let bestMatch: any = null;
-      let bestOverlap = 0;
-
-      for (const defBreak of BREAKS) {
-        const overlapStart = Math.max(bp.outMinutes, defBreak.start);
-        const overlapEnd = Math.min(bp.inMinutes, defBreak.end);
-        const overlap = Math.max(0, overlapEnd - overlapStart);
-
-        if (overlap > 0 && overlap > bestOverlap) {
-          bestOverlap = overlap;
-          bestMatch = defBreak;
-        }
-      }
-
-      if (bestMatch) {
-        const excess = Math.max(0, bp.duration - bestMatch.allowed);
-        totalExcessMinutes += excess;
-        processedBreaks.add(bpIdx);
-      } else if (hasPostEveningReturn && bp.outMinutes >= 17 * 60 + 30) {
-        const postEveningAllowed = 15;
-        const excess = Math.max(0, bp.duration - postEveningAllowed);
-        totalExcessMinutes += excess;
-        processedBreaks.add(bpIdx);
-      }
-    }
-
-    // Unauthorized breaks
-    for (let bpIdx = 0; bpIdx < breakPeriods.length; bpIdx++) {
-      if (!processedBreaks.has(bpIdx)) {
-        const bp = breakPeriods[bpIdx];
-        totalExcessMinutes += bp.duration;
-      }
     }
   }
 

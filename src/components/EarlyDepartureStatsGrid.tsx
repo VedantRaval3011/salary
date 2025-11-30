@@ -4,7 +4,9 @@ import React, { useEffect, useMemo, useState } from "react";
 import { EmployeeData } from "@/lib/types";
 import { useExcel } from "../context/ExcelContext";
 import { useFinalDifference } from "@/context/FinalDifferenceContext";
+import { calculateBreakExcessMinutes } from "@/lib/unifiedCalculations";
 import { EyeIcon } from "lucide-react";
+import { useHRLateLookup } from "@/hooks/useHRLateLookup";
 
 // Utility helpers
 const canon = (s: string) => (s ?? "").toUpperCase().trim();
@@ -407,237 +409,11 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
 
     // ⭐ NEW: get + set for ORIGINAL FD
     originalFinalDifference,
-    updateOriginalFinalDifference,
   } = useFinalDifference();
 
-  const [showBreakModal, setShowBreakModal] = useState(false);
   const { getCustomTimingForEmployee } = useCustomTimingLookup();
   const { getLunchDataForEmployee } = useLunchInOutLookup();
-
-  // Break time definitions in minutes
-  const BREAKS = [
-    {
-      name: "Tea Break 1",
-      start: 10 * 60 + 15,
-      end: 10 * 60 + 30,
-      allowed: 15,
-    },
-    {
-      name: "Lunch Break",
-      start: 12 * 60 + 45,
-      end: 13 * 60 + 15,
-      allowed: 30,
-    },
-    {
-      name: "Tea Break 2",
-      start: 15 * 60 + 15,
-      end: 15 * 60 + 30,
-      allowed: 15,
-    },
-    {
-      name: "Evening Break",
-      start: 19 * 60 + 30, // 7:30 PM
-      end: 20 * 60,        // 8:00 PM
-      allowed: 30,
-      fullPenalty: true,   // If exceeded, full duration is excess
-    },
-  ];
-
-  const lunchBreakAnalysis = useMemo(() => {
-    const lunchData = getLunchDataForEmployee(employee);
-
-    console.log(`🔍 Break Analysis for ${employee.empCode}:`, lunchData);
-
-    if (!lunchData || !lunchData.dailyPunches) {
-      console.log("❌ No lunch data found");
-      return null;
-    }
-
-    const dailyBreaks: any[] = [];
-    let totalExcessMinutes = 0;
-
-    for (const dayData of lunchData.dailyPunches) {
-      const punches = dayData.punches || [];
-
-      console.log(
-        `📅 Processing ${dayData.date}: ${punches.length} punches`,
-        punches
-      );
-
-      if (punches.length < 2) continue;
-
-      interface Punch {
-        type: "In" | "Out" | string;
-        time: string;
-      }
-
-      interface PunchTime {
-        type: "In" | "Out" | string;
-        minutes: number;
-        time: string;
-      }
-
-      const punchTimes: PunchTime[] = (punches as Punch[])
-        .map((p: Punch) => {
-          const minutes = timeToMinutes(p.time);
-          console.log(`  ${p.type} at ${p.time} = ${minutes} minutes`);
-          return {
-            type: p.type,
-            minutes,
-            time: p.time,
-          };
-        })
-        .filter((p: PunchTime) => p.minutes > 0);
-
-      if (punchTimes.length < 2) {
-        console.log("⚠️ Not enough valid punch times");
-        continue;
-      }
-
-      // Find Out-In pairs (break periods)
-      const breakPeriods: any[] = [];
-      for (let i = 0; i < punchTimes.length - 1; i++) {
-        // VALIDATION: A real break must be Out → In within SAME day and within 9am–7pm
-        if (
-          punchTimes[i].type === "Out" &&
-          punchTimes[i + 1].type === "In" &&
-          punchTimes[i + 1].minutes > punchTimes[i].minutes &&
-          punchTimes[i].minutes >= 9 * 60 &&
-          punchTimes[i].minutes <= 19 * 60
-        ) {
-          const outTime = punchTimes[i].minutes;
-          const inTime = punchTimes[i + 1].minutes;
-          const duration = inTime - outTime;
-
-          breakPeriods.push({
-            outTime: punchTimes[i].time,
-            inTime: punchTimes[i + 1].time,
-            outMinutes: outTime,
-            inMinutes: inTime,
-            duration,
-          });
-        }
-      }
-
-      if (breakPeriods.length === 0) {
-        console.log("⚠️ No valid break periods found");
-        continue;
-      }
-
-      // Check if employee came back after 5:30 PM
-      const lastInPunch = punchTimes.filter((p: any) => p.type === "In").pop();
-      const hasPostEveningReturn =
-        lastInPunch && lastInPunch.minutes >= 17 * 60 + 30;
-
-      console.log(
-        `  Post-evening return: ${
-          hasPostEveningReturn ? "YES" : "NO"
-        } (last In: ${lastInPunch?.time})`
-      );
-
-      // Match breaks with defined periods
-      const matchedBreaks: any[] = [];
-      const processedBreaks = new Set<number>();
-
-      for (let bpIdx = 0; bpIdx < breakPeriods.length; bpIdx++) {
-        const bp = breakPeriods[bpIdx];
-        let bestMatch: any = null;
-        let bestOverlap = 0;
-
-        for (const defBreak of BREAKS) {
-          const overlapStart = Math.max(bp.outMinutes, defBreak.start);
-          const overlapEnd = Math.min(bp.inMinutes, defBreak.end);
-          const overlap = Math.max(0, overlapEnd - overlapStart);
-
-          if (overlap > 0 && overlap > bestOverlap) {
-            bestOverlap = overlap;
-            bestMatch = defBreak;
-          }
-        }
-
-        if (bestMatch) {
-          let excess = Math.max(0, bp.duration - bestMatch.allowed);
-
-          // Special check for fullPenalty (Evening Break)
-          if ((bestMatch as any).fullPenalty && excess > 0) {
-            excess = bp.duration;
-          }
-
-          console.log(
-            `  ✅ Matched to ${bestMatch.name}: duration=${bp.duration}, allowed=${bestMatch.allowed}, excess=${excess}`
-          );
-
-          matchedBreaks.push({
-            name: bestMatch.name,
-            outTime: bp.outTime,
-            inTime: bp.inTime,
-            duration: bp.duration,
-            allowed: bestMatch.allowed,
-            excess,
-          });
-
-          totalExcessMinutes += excess;
-          processedBreaks.add(bpIdx);
-        } else if (hasPostEveningReturn && bp.outMinutes >= 17 * 60 + 30) {
-          const postEveningAllowed = 15;
-          const excess = Math.max(0, bp.duration - postEveningAllowed);
-
-          console.log(
-            `  ✅ Post-evening break: duration=${bp.duration}, allowed=${postEveningAllowed}, excess=${excess}`
-          );
-
-          matchedBreaks.push({
-            name: "Post-Evening Break",
-            outTime: bp.outTime,
-            inTime: bp.inTime,
-            duration: bp.duration,
-            allowed: postEveningAllowed,
-            excess,
-          });
-
-          totalExcessMinutes += excess;
-          processedBreaks.add(bpIdx);
-        }
-      }
-
-      // Unauthorized breaks
-      for (let bpIdx = 0; bpIdx < breakPeriods.length; bpIdx++) {
-        if (!processedBreaks.has(bpIdx)) {
-          const bp = breakPeriods[bpIdx];
-
-          console.log(
-            `  ⚠️ Unauthorized break: ${bp.outTime} to ${bp.inTime} = ${bp.duration} mins`
-          );
-
-          matchedBreaks.push({
-            name: "Unauthorized Break",
-            outTime: bp.outTime,
-            inTime: bp.inTime,
-            duration: bp.duration,
-            allowed: 0,
-            excess: bp.duration,
-          });
-
-          totalExcessMinutes += bp.duration;
-        }
-      }
-
-      if (matchedBreaks.length > 0) {
-        dailyBreaks.push({
-          date: dayData.date,
-          breaks: matchedBreaks,
-          allPunches: punchTimes, // Store all punches for train view
-        });
-      }
-    }
-
-    // console.log(`📊 Total excess minutes: ${totalExcessMinutes}`);
-
-    return {
-      dailyBreaks,
-      totalExcessMinutes,
-    };
-  }, [employee, getLunchDataForEmployee]);
+  const { getHRLateValue } = useHRLateLookup();
 
   const stats = useMemo(() => {
     const customTiming = getCustomTimingForEmployee(employee);
@@ -763,7 +539,7 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
       }
     });
 
-    const breakExcessMinutes = lunchBreakAnalysis?.totalExcessMinutes || 0;
+    const breakExcessMinutes = calculateBreakExcessMinutes(employee, getLunchDataForEmployee(employee));
 
     // --- New: Calculate Total Combined Minutes BEFORE relaxation ---
     let totalBeforeRelaxation =
@@ -798,7 +574,7 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
       // when deduction is applied to otGrandTotal in the parent/sibling.
       finalDifference: Math.round(staticFinalDifference - totalAfterRelaxation),
     };
-  }, [employee, getCustomTimingForEmployee, lunchBreakAnalysis, otGrandTotal, staticFinalDifference]);
+  }, [employee, getCustomTimingForEmployee, getLunchDataForEmployee, otGrandTotal, staticFinalDifference]);
 
   // Add these useEffect hooks after the existing stats useMemo:
 
@@ -892,32 +668,29 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
           {displayMins}
         </div>
 
-        {hasDetails && value > 0 && (
-          <button
-            onClick={() => setShowBreakModal(true)}
-            className="
-      absolute top-1 left-1
-      w-5 h-5
-      flex items-center justify-center
-      bg-blue-600 hover:bg-blue-700
-      text-white text-[8px]
-      rounded-full
-      shadow
-    "
-          >
-            <EyeIcon size={10}></EyeIcon>
-          </button>
-        )}
+
       </div>
     );
   };
 
   return (
     <div className="mt-6 pt-4 border-t border-gray-200">
-      <h4 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
-        <span className="text-orange-600">🏃</span>
-        Late & Early Departure
-      </h4>
+      <div className="flex items-center justify-between mb-3">
+        <h4 className="text-sm font-bold text-gray-700 flex items-center gap-2">
+          <span className="text-orange-600">🏃</span>
+          Late & Early Departure
+        </h4>
+        
+        {/* HR Total(-4hrs) - Small Box */}
+        <div className="px-4 py-2 bg-orange-100 border-2 border-orange-400 rounded-lg">
+          <div className="text-xs text-orange-700 font-semibold">HR Total(-4hrs)</div>
+          <div className="text-lg font-bold text-orange-900">
+            {getHRLateValue(employee) !== null 
+              ? `${getHRLateValue(employee)?.toFixed(2)} hrs` 
+              : "N/A"}
+          </div>
+        </div>
+      </div>
 
       {/* Stats Section */}
       <div className="mb-3 text-xs text-gray-700  rounded">
@@ -1010,209 +783,7 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
       </div>
 
       {/* Break Analysis Modal (Unchanged) */}
-      {showBreakModal && lunchBreakAnalysis && (
-        <div className="fixed inset-0 bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-            {/* Modal Header */}
-            <div className="bg-blue-600 text-white px-6 py-4 flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-bold">☕ Break Time Analysis</h3>
-                <p className="text-sm text-blue-100 mt-1">
-                  {employee.empName} ({employee.empCode})
-                </p>
-              </div>
-              <button
-                onClick={() => setShowBreakModal(false)}
-                className="text-white hover:bg-blue-700 rounded-full w-8 h-8 flex items-center justify-center text-xl"
-              >
-                ×
-              </button>
-            </div>
 
-            {/* Modal Body */}
-            <div className="p-6 overflow-y-auto flex-1">
-              {/* Summary */}
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-sm font-semibold text-blue-900">
-                      Total Break Excess
-                    </div>
-                    <div className="text-2xl font-bold text-blue-700 mt-1">
-                      {minutesToHHMM(lunchBreakAnalysis.totalExcessMinutes)}
-                    </div>
-                    <div className="text-xs text-blue-600">
-                      ({lunchBreakAnalysis.totalExcessMinutes} minutes)
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-xs text-blue-700 bg-blue-100 px-3 py-2 rounded">
-                      <strong>Break Rules:</strong>
-                      <br />
-                      Tea: 15 mins (10:15-10:30, 3:15-3:30)
-                      <br />
-                      Lunch: 30 mins (12:45-1:15)
-                      <br />
-                      Post-evening: 15 mins (after 5:30pm)
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Daily Breakdown */}
-              <div className="space-y-4">
-                {lunchBreakAnalysis.dailyBreaks.map((day: any, idx: number) => (
-                  <div
-                    key={idx}
-                    className="bg-white border-2 border-gray-200 rounded-lg overflow-hidden"
-                  >
-                    {/* Date Header */}
-                    <div className="bg-gray-100 px-4 py-2 font-semibold text-sm text-gray-800 border-b border-gray-200">
-                      📅 {day.date}
-                    </div>
-
-                    {/* Punch Train Timeline */}
-                    <div className="p-4 bg-gray-50">
-                      <div className="text-xs font-semibold text-gray-600 mb-3">
-                        All Punches (Train View):
-                      </div>
-
-                      <div className="flex items-center gap-2 overflow-x-auto pb-2">
-                        {day.allPunches.map((punch: any, pIdx: number) => {
-                          if (!punch) return null;
-
-                          const isIn = punch.type === "In";
-                          const isOut = punch.type === "Out";
-
-                          return (
-                            <React.Fragment key={pIdx}>
-                              {/* Punch Node */}
-                              <div className="flex flex-col items-center">
-                                <div
-                                  className={`w-20 h-16 rounded-lg flex flex-col items-center justify-center shadow-md ${
-                                    isIn
-                                      ? "bg-green-100 border-2 border-green-500"
-                                      : "bg-red-100 border-2 border-red-500"
-                                  }`}
-                                >
-                                  <div
-                                    className={`text-xs font-bold ${
-                                      isIn ? "text-green-700" : "text-red-700"
-                                    }`}
-                                  >
-                                    {isIn ? "IN" : "OUT"}
-                                  </div>
-                                  <div className="text-sm font-bold text-gray-800 mt-1">
-                                    {formatTime(punch.time)}
-                                  </div>
-                                </div>
-                              </div>
-
-                              {/* Arrow + Duration */}
-                              {pIdx < day.allPunches.length - 1 &&
-                                (() => {
-                                  const next = day.allPunches[pIdx + 1];
-
-                                  if (!next) return null;
-                                  if (
-                                    typeof punch.minutes !== "number" ||
-                                    typeof next.minutes !== "number"
-                                  )
-                                    return null;
-
-                                  const duration = next.minutes - punch.minutes;
-                                  if (duration < 0) return null;
-
-                                  const isBreak =
-                                    punch.type === "Out" && next.type === "In";
-
-                                  // Allowed break rules
-                                  // Allowed break rules — compute overlap with defined BREAKS
-                                  let allowed = 0;
-                                  if (isBreak) {
-                                    const outMin = punch.minutes;
-                                    const inMin = next.minutes;
-
-                                    // Sum overlaps with all defined breaks (tea1, lunch, tea2)
-                                    // If break intersects a defined break window, grant the full allowed time for that window.
-                                    // (This matches the rule used when matching earlier — e.g. lunch gives full 30 mins if it intersects.)
-                                    for (const defBreak of BREAKS) {
-                                      const overlapStart = Math.max(
-                                        outMin,
-                                        defBreak.start
-                                      );
-                                      const overlapEnd = Math.min(
-                                        inMin,
-                                        defBreak.end
-                                      );
-                                      const overlap = Math.max(
-                                        0,
-                                        overlapEnd - overlapStart
-                                      );
-                                      if (overlap > 0) {
-                                        allowed += defBreak.allowed;
-                                      }
-                                    }
-
-                                    // Post-evening rule: if the break occurs after 17:30, company allows up to 15 min.
-                                    // This handles cases where break wholly lies after 17:30.
-                                    if (
-                                      outMin >= 17 * 60 + 30 ||
-                                      inMin >= 17 * 60 + 30
-                                    ) {
-                                      // ensure at least 15 min allowed for post-evening part
-                                      allowed = Math.max(allowed, 15);
-                                    }
-                                  }
-
-                                  const excess = Math.max(
-                                    0,
-                                    duration - allowed
-                                  );
-
-                                  return (
-                                    <div className="flex flex-col items-center justify-center mx-2">
-                                      <div className="text-gray-400 text-xl">
-                                        →
-                                      </div>
-
-                                      <div
-                                        className={`text-[10px] font-semibold px-2 py-1 rounded ${
-                                          isBreak && excess > 0
-                                            ? "bg-red-200 text-red-800"
-                                            : "bg-yellow-100 text-gray-700"
-                                        }`}
-                                      >
-                                        {duration} min
-                                        {isBreak &&
-                                          excess > 0 &&
-                                          ` (+${excess})`}
-                                      </div>
-                                    </div>
-                                  );
-                                })()}
-                            </React.Fragment>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Modal Footer */}
-            <div className="bg-gray-50 px-6 py-4 border-t border-gray-200 flex justify-end">
-              <button
-                onClick={() => setShowBreakModal(false)}
-                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

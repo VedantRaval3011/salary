@@ -4,6 +4,7 @@ export interface HRData {
   empCode: string;
   empName: string;
   presentDays: number;
+  day?: number;
   OT?: number;
   Late?: number; // ADD LATE FIELD
 }
@@ -92,7 +93,13 @@ export async function processHRFile(
   let presentDaysCol: number | undefined =
     type === "staff"
       ? colMap["DAY"]
-      : colMap["SALARY(S*T)"] ?? colMap["SALARY"] ?? colMap["ACT.DAY"];
+      : colMap["ADJ DAYS"] ??
+        colMap["SALARY(S*T)"] ??
+        colMap["SALARY"] ??
+        colMap["ACT.DAY"];
+
+  // Capture DAY column separately (needed for fallback)
+  let dayCol: number | undefined = colMap["DAY"] ?? colMap["Day"] ?? colMap["day"];
 
   let otCol: number | undefined = colMap["OT"] ?? colMap["ot"];
 
@@ -158,7 +165,12 @@ export async function processHRFile(
       presentDaysCol =
         type === "staff"
           ? colMap["DAY"]
-          : colMap["SALARY(S*T)"] ?? colMap["SALARY"] ?? colMap["ACT.DAY"];
+          : colMap["ADJ DAYS"] ??
+            colMap["SALARY(S*T)"] ??
+            colMap["SALARY"] ??
+            colMap["ACT.DAY"];
+
+      dayCol = colMap["DAY"] ?? colMap["Day"] ?? colMap["day"];
 
       otCol = colMap["OT"] ?? colMap["ot"];
       
@@ -174,6 +186,7 @@ export async function processHRFile(
     const empCode = row[codeCol];
     const empName = row[nameCol];
     const presentDays = presentDaysCol !== undefined ? row[presentDaysCol] : null;
+    const dayValue = dayCol !== undefined ? row[dayCol] : null;
     const otValue = otCol !== undefined ? row[otCol] : null;
     const lateValue = lateCol !== undefined ? row[lateCol] : null; // EXTRACT LATE VALUE
 
@@ -184,6 +197,7 @@ export async function processHRFile(
         empCode: String(empCode).trim(),
         empName: String(empName).trim(),
         presentDays: Number(presentDays) || 0,
+        day: Number(dayValue) || 0,
       };
 
       if (otCol !== undefined && otValue !== null && otValue !== undefined) {

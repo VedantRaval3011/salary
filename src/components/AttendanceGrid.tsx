@@ -150,7 +150,7 @@ function useLunchInOutLookup() {
 // --- Break Rules (Copied) ---
 const BREAKS = [
   { name: "Tea Break 1", start: 10 * 60 + 15, end: 10 * 60 + 30, allowed: 15 },
-  { name: "Lunch Break", start: 12 * 60 + 45, end: 13 * 60 + 15, allowed: 30 },
+  { name: "Lunch Break", start: 12 * 60, end: 14 * 60 + 30, allowed: 30 },
   { name: "Tea Break 2", start: 15 * 60 + 15, end: 15 * 60 + 30, allowed: 15 },
 ];
 

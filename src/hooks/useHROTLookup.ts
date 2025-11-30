@@ -68,55 +68,20 @@ export function useHROTLookup() {
 
         for (const rawEmp of file.hrData) {
           const emp = rawEmp as FlexibleHRData;
-          let otValue: any = 0;
 
-          if (isStaff) {
-            // STAFF: Try multiple approaches to find Column I
-            otValue =
-              emp["Unnamed: 8"] ?? // Approach 1: Unnamed column at position 8
-              emp["OT"] ?? // Approach 2: Header name "OT"
-              emp["Unnamed: 9"] ?? // Approach 3: Off-by-one fallback
-              emp["Unnamed: 7"] ?? // Approach 4: Off-by-one other direction
-              0;
+          
+          // The HR data is processed by processHRFile, which extracts OT into the 'OT' property.
+          // We should rely on that instead of trying to guess columns by index or "Unnamed" keys,
+          // which don't exist on the processed HRData object.
+          
+          const otValue = emp.OT ?? emp["OT"] ?? 0;
 
-            // Debug first few employees
-            if (file.hrData.indexOf(rawEmp) < 3) {
-              console.log(`Staff ${emp.empCode}:`, {
-                "Unnamed: 7": emp["Unnamed: 7"],
-                "Unnamed: 8": emp["Unnamed: 8"],
-                "Unnamed: 9": emp["Unnamed: 9"],
-                OT: emp["OT"],
-                Selected: otValue,
-              });
-            }
-          } else {
-            // WORKER: Read OT from Column F, including named headers
-            const workerKeys = Object.keys(emp);
-            const columnFKey = workerKeys[5]; // Column F
-
-            otValue =
-              emp[columnFKey] ??
-              emp["OT"] ??
-              emp["Ot"] ??
-              emp["ot"] ??
-              emp["OT Hours"] ??
-              emp["OT Hrs"] ??
-              emp["Overtime"] ??
-              emp["Unnamed: 5"] ??
-              emp["Unnamed: 6"] ??
-              emp["Unnamed: 4"] ??
-              0;
-
-            if (file.hrData.indexOf(rawEmp) < 3) {
-              console.log(`Worker ${emp.empCode}:`, {
-                columnFKey,
-                valueAtF: emp[columnFKey],
-                OT: emp["OT"],
-                "OT Hours": emp["OT Hours"],
-                "Unnamed: 5": emp["Unnamed: 5"],
-                Selected: otValue,
-              });
-            }
+          if (file.hrData.indexOf(rawEmp) < 3) {
+             console.log(`${isStaff ? "Staff" : "Worker"} ${emp.empCode} OT Lookup:`, {
+               OT: emp.OT,
+               "emp['OT']": emp["OT"],
+               Selected: otValue
+             });
           }
 
           const otHours = Number(otValue) || 0;

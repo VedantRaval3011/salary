@@ -34,15 +34,13 @@ export function useHRDataLookup() {
         Array.isArray(f.hrData)
     );
 
-    const allHREmployees = hrFiles.flatMap((f: any) => f.hrData);
-
-    if (allHREmployees.length === 0) {
+    if (hrFiles.length === 0) {
       console.log("⚠️ No HR files loaded or hrData is empty");
       return { getHRPresentDays: () => null };
     }
 
     console.log(
-      `✅ Building HR lookup from ${allHREmployees.length} total records.`
+      `✅ Building HR lookup from ${hrFiles.length} files.`
     );
 
     // Debug: Log the HR files found
@@ -53,32 +51,37 @@ export function useHRDataLookup() {
       sampleEmployee: f.hrData?.[0]
     })));
 
-    const employeeByCode = new Map<string, { presentDays: number; day: number }>();
-    const employeeByName = new Map<string, { presentDays: number; day: number }>();
+    const employeeByCode = new Map<string, { presentDays: number; day: number; isWorker: boolean }>();
+    const employeeByName = new Map<string, { presentDays: number; day: number; isWorker: boolean }>();
 
     // --- BUILD THE MAPS (STORING DATA) ---
-    for (const emp of allHREmployees) {
-      // Get both presentDays (Adj Days / Column X) and day (Day column)
-      const presentDays = Number(emp.presentDays) || 0;
-      const day = Number(emp.day) || Number(emp.Day) || 0;
+    for (const file of hrFiles) {
+      const isWorker = file.categoryName === "Worker Tulsi";
+      const employees = file.hrData || [];
 
-      const hrData = { presentDays, day };
+      for (const emp of employees) {
+        // Get both presentDays (Adj Days / Column X) and day (Day column)
+        const presentDays = Number(emp.presentDays) || 0;
+        const day = Number(emp.day) || 0;
 
-      if (emp.empCode) {
-        const codeStr = String(emp.empCode);
-        const codeKey = stripNonAlnum(codeStr); // "E-848" -> "E848"
-        const numKey = numericOnly(codeStr); // "E-848" -> "848"
-        const numKeyStripped = dropLeadingZeros(numKey); // "0041" -> "41"
+        const hrData = { presentDays, day, isWorker };
 
-        // Store all variations
-        employeeByCode.set(codeKey, hrData);
-        if (numKey) employeeByCode.set(numKey, hrData);
-        if (numKeyStripped) employeeByCode.set(numKeyStripped, hrData);
-      }
+        if (emp.empCode) {
+          const codeStr = String(emp.empCode);
+          const codeKey = stripNonAlnum(codeStr); // "E-848" -> "E848"
+          const numKey = numericOnly(codeStr); // "E-848" -> "848"
+          const numKeyStripped = dropLeadingZeros(numKey); // "0041" -> "41"
 
-      if (emp.empName) {
-        const nKey = nameKey(emp.empName); // "MARYA, ASHOK" -> "ASHOKMARYA"
-        if (nKey) employeeByName.set(nKey, hrData);
+          // Store all variations
+          employeeByCode.set(codeKey, hrData);
+          if (numKey) employeeByCode.set(numKey, hrData);
+          if (numKeyStripped) employeeByCode.set(numKeyStripped, hrData);
+        }
+
+        if (emp.empName) {
+          const nKey = nameKey(emp.empName); // "MARYA, ASHOK" -> "ASHOKMARYA"
+          if (nKey) employeeByName.set(nKey, hrData);
+        }
       }
     }
 
@@ -131,11 +134,22 @@ export function useHRDataLookup() {
         return null;
       }
 
-      // ⭐ Return presentDays if available, otherwise fallback to day
-      // This handles the case where "Adj Days" (Column X) is empty but "Day" column has data
-      const result = found.presentDays > 0 ? found.presentDays : found.day;
+      // ⭐ Logic:
+      // Worker: If presentDays (ADJ DAYS) is empty (0), use day (DAY column).
+      // Staff: Use presentDays (DAY column) only.
       
-      return result > 0 ? result : null;
+      let result = 0;
+      if (found.isWorker) {
+         // If presentDays is 0 (or empty), try using 'day'. 
+         // If both are 0, result is 0.
+         result = found.presentDays > 0 ? found.presentDays : found.day;
+      } else {
+         result = found.presentDays;
+      }
+      
+      // Return the result even if it is 0. 
+      // We only return null if the employee wasn't found (handled above).
+      return result;
     };
 
     return { getHRPresentDays };
