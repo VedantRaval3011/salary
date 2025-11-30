@@ -695,7 +695,7 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
           {/* HR Total(-4hrs) - Small Box */}
           <div className="px-4 py-2 bg-orange-100 border-2 border-orange-400 rounded-lg">
             <div className="text-xs text-orange-700 font-semibold">
-              HR Late Value
+              HR Late (Tulsi)
             </div>
             <div className="text-lg font-bold text-orange-900">
               {hrLateValue != null ? `${hrLateValue.toFixed(2)} hrs` : "N/A"}

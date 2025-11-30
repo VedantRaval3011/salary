@@ -904,6 +904,9 @@ const Total = PAA + (isCashEmployee ? 0 : validHolidays);
   // Get HR Present Days for this employee
   const hrPresentDays = getHRPresentDays(employee);
 
+  // Calculate Difference (HR Total - Grand Total)
+  const difference = hrPresentDays !== null ? hrPresentDays - stats.GrandTotal : null;
+
   const tooltipTexts: any = {
     PD_excel: "Present days counted directly from attendance sheet.",
     PAA: "Present days after adjustment: Full Present days + ADJ-P days + (P/A days × 0.5).",
@@ -938,12 +941,45 @@ const Total = PAA + (isCashEmployee ? 0 : validHolidays);
           Present Day Calculation
         </h4>
 
-        {/* HR Total - Small Box */}
-        <div className="px-4 py-2 bg-yellow-100 border-2 border-yellow-400 rounded-lg">
-          <div className="text-xs text-yellow-700 font-semibold">HR Total</div>
-          <div className="text-lg font-bold text-yellow-900">
-            {hrPresentDays !== null ? hrPresentDays : "N/A"}
+        <div className="flex items-center gap-3">
+          {/* HR Total - Small Box */}
+          <div className="px-4 py-2 bg-yellow-100 border-2 border-yellow-400 rounded-lg">
+            <div className="text-xs text-yellow-700 font-semibold">HR Total</div>
+            <div className="text-lg font-bold text-yellow-900">
+              {hrPresentDays !== null ? hrPresentDays : "N/A"}
+            </div>
           </div>
+
+          {/* Difference Box */}
+          {difference !== null && (
+            <div
+              className={`px-4 py-2 border-2 rounded-lg ${
+                Math.abs(difference) > 0.02
+                  ? "bg-red-100 border-red-400"
+                  : "bg-green-100 border-green-400"
+              }`}
+            >
+              <div
+                className={`text-xs font-semibold ${
+                  Math.abs(difference) > 0.02
+                    ? "text-red-700"
+                    : "text-green-700"
+                }`}
+              >
+                Difference
+              </div>
+              <div
+                className={`text-lg font-bold ${
+                  Math.abs(difference) > 0.02
+                    ? "text-red-900"
+                    : "text-green-900"
+                }`}
+              >
+                {difference > 0 ? "+" : ""}
+                {Number(difference.toFixed(2))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
       <div className="flex flex-wrap gap-2">
