@@ -304,6 +304,12 @@ function processEmployeeBlock(
     }
   }
 
+  // If department contains "cash", set holidays to 0
+  if (employee.department && employee.department.toLowerCase().includes("cash")) {
+    console.log(`Setting holidays to 0 for ${employee.empName} (${employee.empCode}) - Department: ${employee.department}`);
+    employee.holiday = 0;
+  }
+
   return employee.empCode ? employee : null;
 }
 
