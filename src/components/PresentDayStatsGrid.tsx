@@ -66,7 +66,7 @@ function usePaidLeaveLookup() {
       byName.set(pl._nameKey, arr);
     });
 
-    const getPL = (emp: Pick<EmployeeData, "empCode" | "empName">): number => {
+    const getPL = (emp: Pick<EmployeeData, "empCode" | "empName">): { paidDays: number; adjDays: number } => {
       const raw = canon(emp.empCode);
       const s1 = stripNonAlnum(raw);
       const num = numericOnly(raw);
@@ -75,11 +75,16 @@ function usePaidLeaveLookup() {
       const candidates = [raw, s1, num, no0, ...pads];
       for (const k of candidates) {
         const hit = byKey.get(k);
-        if (hit) return hit.paidDays ?? 0;
+        if (hit) return { paidDays: hit.paidDays ?? 0, adjDays: hit.adjDays ?? 0 };
       }
       const foundByName = byName.get(nameKey(emp.empName)) ?? [];
-      if (foundByName.length === 1) return foundByName[0].paidDays ?? 0;
-      return 0;
+      if (foundByName.length === 1) {
+        return { 
+          paidDays: foundByName[0].paidDays ?? 0, 
+          adjDays: foundByName[0].adjDays ?? 0 
+        };
+      }
+      return { paidDays: 0, adjDays: 0 };
     };
 
     return { getPL };
@@ -813,8 +818,14 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
 
     const netTotal = PAA + validHolidays - lateDeductionDays;
     const ATotal = Math.max(netTotal, 0);
-    const pl = getPL(employee) || 0;
-    const GrandTotal = Math.max(ATotal + pl, 0);
+    
+    // Get paid leave data (both regular paid days and adj days)
+    const plData = getPL(employee);
+    const pl = plData.paidDays || 0;
+    const adjDays = plData.adjDays || 0;
+    
+    // Calculate grand total including both paid days and adj days
+    const GrandTotal = Math.max(ATotal + pl + adjDays, 0);
 
     // Corrected: Total = Present After Adj + Holidays (Base)
     const Total = PAA + H_base;
@@ -829,6 +840,7 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
       AdditionalOT: Number(AdditionalOT.toFixed(1)),
       ATotal: Number(ATotal.toFixed(1)),
       PL_days: pl,
+      ADJ_days: adjDays, // NEW: Include adj days from paid leave sheet
       GrandTotal: Number(GrandTotal.toFixed(1)),
       paCount,
       adjPresentDays,
@@ -869,7 +881,8 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
       "Deduction (in days) applied when Late Hours > Final OT. If Final OT < 4 hrs, deduction is 0.5 days. Otherwise, 0.5 days per 4-hour block.",
     ATotal: "Adjusted total considering OT deduction rules.",
     PL_days: "Paid Leave taken from Staff Paid Leave Sheet.",
-    GrandTotal: "A Total + Paid Leave",
+    ADJ_days: "Adjustment Days from Staff Paid Leave Sheet (ADJ. DAYS column).",
+    GrandTotal: "A Total + Paid Leave + Adjustment Days",
     lateDeduction: "Deduction (in days) applied based on Static Final Difference from Early Departure Stats Grid.",
     HRGrandTotal: "HR Grand Total from Tulsi file (Worker/Staff)",
   };
@@ -952,6 +965,15 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
           textColor="text-orange-700"
           tooltipKey="PL_days"
         />
+        {stats.ADJ_days > 0 && (
+          <StatBox
+            label="ADJ Days (from PL)"
+            value={stats.ADJ_days}
+            bgColor="bg-amber-50"
+            textColor="text-amber-700"
+            tooltipKey="ADJ_days"
+          />
+        )}
         <StatBox
           label="Grand Total"
           value={stats.GrandTotal}
