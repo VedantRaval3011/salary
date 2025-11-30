@@ -5,6 +5,7 @@ import { EmployeeData } from "@/lib/types";
 import { useExcel } from "@/context/ExcelContext";
 import { useFinalDifference } from "@/context/FinalDifferenceContext";
 import { useGrandOT } from "@/context/GrandOTContext";
+import { useHROTLookup } from "@/hooks/useHROTLookup";
 
 interface Props {
   employee: EmployeeData;
@@ -462,6 +463,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
   const { getFullNightOTForEmployee } = useFullNightOTLookup();
   const { getCustomTimingForEmployee } = useCustomTimingLookup();
   const { isMaintenanceEmployee } = useMaintenanceDeductLookup();
+  const { getHROTValue } = useHROTLookup();
   const { lateDeductionOverride, originalFinalDifference } =
     useFinalDifference();
 
@@ -945,9 +947,21 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
 
   return (
     <div className="mt-6 pt-4 border-t-2 border-gray-300">
-      <h4 className="text-sm font-bold text-gray-800 mb-4 flex items-center gap-2">
-        <span className="text-indigo-600">📊 Overtime (OT) Calculation</span>
-      </h4>
+      <div className="flex items-center justify-between mb-4">
+        <h4 className="text-sm font-bold text-gray-800 flex items-center gap-2">
+          <span className="text-indigo-600">📊 Overtime (OT) Calculation</span>
+        </h4>
+        
+        {/* HR OT Grand Total - Small Box */}
+        <div className="px-4 py-2 bg-amber-100 border-2 border-amber-400 rounded-lg">
+          <div className="text-xs text-amber-700 font-semibold">HR OT (Tulsi)</div>
+          <div className="text-lg font-bold text-amber-900">
+            {getHROTValue(employee) !== null 
+              ? `${getHROTValue(employee)?.toFixed(2)} hrs` 
+              : "N/A"}
+          </div>
+        </div>
+      </div>
 
       {/* MAIN LAYOUT - Two rows */}
       <div className="flex flex-wrap  justify-start gap-2">

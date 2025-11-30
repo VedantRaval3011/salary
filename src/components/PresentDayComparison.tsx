@@ -10,7 +10,7 @@ import {
 } from "@/lib/exportComparison";
 import { useHRDataLookup } from "@/hooks/useHRDataLookup";
 import { calculateEmployeeStats } from "@/lib/statsCalculator";
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown, ChevronUp } from "lucide-react";
 
 // Define the type for the sorting state
 type SortColumn = keyof ComparisonData | "difference" | "category";
@@ -50,9 +50,9 @@ const getDifferenceCategory = (
 
   if (absDiff === 0) {
     return { category: "Match", sortValue: 5 };
-  } else if (absDiff > 2) {
+  } else if (absDiff >= 1) {
     return { category: "Major", sortValue: 4 };
-  } else if (absDiff > 1) {
+  } else if (absDiff >= 0.5) {
     return { category: "Medium", sortValue: 3 };
   } else {
     return { category: "Minor", sortValue: 2 };
@@ -723,30 +723,46 @@ export const PresentDayComparison: React.FC<
     buttonCategory: DifferenceCategory | "All" | null
   ) => {
     const baseClass =
-      "px-3 py-1 text-xs font-semibold rounded-full transition-colors";
-    if (filterCategory === buttonCategory) {
+      "px-4 py-2 text-sm font-bold rounded-lg transition-all shadow-sm border flex items-center gap-2";
+    const isSelected = filterCategory === buttonCategory;
+
+    if (isSelected) {
       switch (buttonCategory) {
         case "Major":
-          return `${baseClass} bg-red-600 text-white`;
+          return `${baseClass} bg-red-600 text-white border-red-700 ring-2 ring-red-300`;
         case "Medium":
-          return `${baseClass} bg-orange-600 text-white`;
+          return `${baseClass} bg-orange-500 text-white border-orange-600 ring-2 ring-orange-300`;
         case "Minor":
-          return `${baseClass} bg-gray-600 text-white`;
+          return `${baseClass} bg-gray-600 text-white border-gray-700 ring-2 ring-gray-300`;
         case "Match":
-          return `${baseClass} bg-green-600 text-white`;
+          return `${baseClass} bg-green-600 text-white border-green-700 ring-2 ring-green-300`;
         case "N/A":
-          return `${baseClass} bg-gray-400 text-white`;
+          return `${baseClass} bg-gray-500 text-white border-gray-600 ring-2 ring-gray-300`;
         case "All":
         default:
-          return `${baseClass} bg-blue-600 text-white`;
+          return `${baseClass} bg-blue-600 text-white border-blue-700 ring-2 ring-blue-300`;
+      }
+    } else {
+      // Unselected state - use lighter versions or outlines
+      switch (buttonCategory) {
+        case "Major":
+          return `${baseClass} bg-red-50 text-red-700 border-red-200 hover:bg-red-100`;
+        case "Medium":
+          return `${baseClass} bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100`;
+        case "Minor":
+          return `${baseClass} bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100`;
+        case "Match":
+          return `${baseClass} bg-green-50 text-green-700 border-green-200 hover:bg-green-100`;
+        case "N/A":
+          return `${baseClass} bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100`;
+        case "All":
+        default:
+          return `${baseClass} bg-white text-gray-700 border-gray-300 hover:bg-gray-50`;
       }
     }
-    return `${baseClass} bg-gray-200 text-gray-700 hover:bg-gray-300`;
   };
 
-  const handleCompareClick = () => {
-    setShowTable(true);
-  };
+
 
   const handleExportClick = () => {
     if (categorizedData.length === 0) {
@@ -774,108 +790,128 @@ export const PresentDayComparison: React.FC<
 
   return (
     <div className="mt-8 pt-6 border-t border-gray-300">
-      <h3 className="text-lg font-bold text-gray-800 mb-4">
-        Present Day Comparison
-      </h3>
+      <div
+        className="flex items-center justify-between mb-4 cursor-pointer group select-none"
+        onClick={() => setShowTable(!showTable)}
+      >
+        <h3 className="text-lg font-bold text-gray-800 group-hover:text-blue-600 transition-colors">
+          Present Day Comparison
+        </h3>
+        <button className="p-1 rounded-full hover:bg-gray-100 transition-colors">
+          {showTable ? (
+            <ChevronUp className="text-gray-600" />
+          ) : (
+            <ChevronDown className="text-gray-600" />
+          )}
+        </button>
+      </div>
 
-      <div className="flex gap-4 mb-4 items-center flex-wrap">
-        {!showTable ? (
+      {showTable && (
+        <div className="flex gap-4 mb-4 items-center flex-wrap">
+          <div className=" px-4 py-2 flex gap-3 items-center">
+            <span className="text-sm font-medium text-gray-700">Company:</span>
+
+            <select
+              value={filterCompany}
+              onChange={(e) => setFilterCompany(e.target.value)}
+              className="px-3 py-1 text-sm border rounded-md bg-white"
+            >
+              <option value="All">All</option>
+              {companies.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
           <button
-            onClick={handleCompareClick}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
-            disabled={isLoading}
+            onClick={handleExportClick}
+            className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
           >
-            {isLoading
-              ? "Calculating..."
-              : "Compare Software vs HR Present Days"}
+            Export Comparison
           </button>
-        ) : (
-          <>
-            <div className=" px-4 py-2 flex gap-3 items-center">
-              <span className="text-sm font-medium text-gray-700">
-                Company:
-              </span>
 
-              <select
-                value={filterCompany}
-                onChange={(e) => setFilterCompany(e.target.value)}
-                className="px-3 py-1 text-sm border rounded-md bg-white"
-              >
-                <option value="All">All</option>
-                {companies.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <button
-              onClick={handleExportClick}
-              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
-            >
-              Export Comparison
-            </button>
-            <button
-              onClick={() => setShowTable(false)}
-              className="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors"
-            >
-              Hide Comparison
-            </button>
-            <span className="text-sm font-medium text-gray-700 ml-4">
-              Filter by:
+          <div className="flex gap-2 items-center flex-wrap bg-gray-50 p-3 rounded-lg border border-gray-200 w-full">
+            <span className="text-sm font-medium text-gray-700 mr-2">
+              Filters:
             </span>
             <button
               onClick={() => setFilterCategory("All")}
               className={getCategoryButtonClass("All")}
             >
-              All ({categorizedData.length})
+              All{" "}
+              <span className="opacity-80 text-xs ml-1">
+                ({categorizedData.length})
+              </span>
             </button>
             <button
               onClick={() => setFilterCategory("Major")}
               className={getCategoryButtonClass("Major")}
             >
-              Major (
-              {categorizedData.filter((row) => row.category === "Major").length}
-              )
+              Major{" "}
+              <span className="opacity-80 text-xs ml-1">
+                (
+                {
+                  categorizedData.filter((row) => row.category === "Major")
+                    .length
+                }
+                )
+              </span>
             </button>
             <button
               onClick={() => setFilterCategory("Medium")}
               className={getCategoryButtonClass("Medium")}
             >
-              Medium (
-              {
-                categorizedData.filter((row) => row.category === "Medium")
-                  .length
-              }
-              )
+              Medium{" "}
+              <span className="opacity-80 text-xs ml-1">
+                (
+                {
+                  categorizedData.filter((row) => row.category === "Medium")
+                    .length
+                }
+                )
+              </span>
             </button>
             <button
               onClick={() => setFilterCategory("Minor")}
               className={getCategoryButtonClass("Minor")}
             >
-              Minor (
-              {categorizedData.filter((row) => row.category === "Minor").length}
-              )
+              Minor{" "}
+              <span className="opacity-80 text-xs ml-1">
+                (
+                {
+                  categorizedData.filter((row) => row.category === "Minor")
+                    .length
+                }
+                )
+              </span>
             </button>
             <button
               onClick={() => setFilterCategory("Match")}
               className={getCategoryButtonClass("Match")}
             >
-              Match (
-              {categorizedData.filter((row) => row.category === "Match").length}
-              )
+              Match{" "}
+              <span className="opacity-80 text-xs ml-1">
+                (
+                {
+                  categorizedData.filter((row) => row.category === "Match")
+                    .length
+                }
+                )
+              </span>
             </button>
             <button
               onClick={() => setFilterCategory("N/A")}
               className={getCategoryButtonClass("N/A")}
             >
-              N/A (
-              {categorizedData.filter((row) => row.category === "N/A").length})
+              N/A{" "}
+              <span className="opacity-80 text-xs ml-1">
+                ({categorizedData.filter((row) => row.category === "N/A").length})
+              </span>
             </button>
-            {/* Company Filter */}
-          </>
-        )}
-      </div>
+          </div>
+        </div>
+      )}
 
       {showTable && (
         <div className="mt-6">
@@ -886,57 +922,7 @@ export const PresentDayComparison: React.FC<
           ) : (
             <>
               {/* Summary Stats */}
-              <div className="mb-4 p-4 bg-blue-50 rounded-md border border-blue-200">
-                <div className="text-sm font-semibold text-blue-800 mb-2">
-                  📊 Comparison Summary
-                </div>
-                <div className="grid grid-cols-5 gap-4 text-sm">
-                  <div>
-                    <span className="text-gray-600">Total Employees:</span>{" "}
-                    <span className="font-bold">{categorizedData.length}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-600">Matches:</span>{" "}
-                    <span className="font-bold text-green-600">
-                      {
-                        categorizedData.filter(
-                          (row) => row.category === "Match"
-                        ).length
-                      }
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-gray-600">Minor Diff:</span>{" "}
-                    <span className="font-bold text-gray-900">
-                      {
-                        categorizedData.filter(
-                          (row) => row.category === "Minor"
-                        ).length
-                      }
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-gray-600">Medium Diff:</span>{" "}
-                    <span className="font-bold text-orange-600">
-                      {
-                        categorizedData.filter(
-                          (row) => row.category === "Medium"
-                        ).length
-                      }
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-gray-600">Major Diff:</span>{" "}
-                    <span className="font-bold text-red-600">
-                      {
-                        categorizedData.filter(
-                          (row) => row.category === "Major"
-                        ).length
-                      }
-                    </span>
-                  </div>
-                </div>
-              </div>
+              {/* Summary Removed as per request to show numbers once in filters */}
 
               {/* Comparison Table with Sorting and Filtering */}
               <div className="max-h-[600px] overflow-y-auto border border-gray-300 rounded-md">

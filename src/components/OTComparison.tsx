@@ -8,7 +8,7 @@ import {
   OTComparisonData,
 } from "@/lib/exportComparison";
 import { useHROTLookup } from "@/hooks/useHROTLookup";
-import { ArrowDown, ArrowUp } from "lucide-react"; // Import icons
+import { ArrowDown, ArrowUp, ChevronDown, ChevronUp } from "lucide-react"; // Import icons
 import { useGrandOT } from "@/context/GrandOTContext";
 import { useFinalDifference } from "@/context/FinalDifferenceContext";
 
@@ -982,7 +982,7 @@ export const OTComparison: React.FC = () => {
     return `${baseClass} bg-gray-200 text-gray-700 hover:bg-gray-300`;
   };
 
-  const handleCompareClick = () => setShowTable(true);
+
 
   const handleExportClick = () => {
     if (categorizedData.length === 0) {
@@ -1009,106 +1009,94 @@ export const OTComparison: React.FC = () => {
 
   return (
     <div className="mt-8 pt-6 border-t border-gray-300">
-      <h3 className="text-lg font-bold text-gray-800 mb-4">
-        Overtime (OT) Comparison
-      </h3>
-
-      <div className="flex gap-4 mb-4 items-center flex-wrap">
-        {!showTable ? (
-          <button
-            onClick={handleCompareClick}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
-            disabled={isLoading}
-          >
-            {isLoading ? "Calculating..." : "Compare Software vs HR OT (Hours)"}
-          </button>
-        ) : (
-          <>
-            <div className="px-4 py-2 flex gap-3 items-center">
-              <span className="text-sm font-medium text-gray-700">
-                Company:
-              </span>
-
-              <select
-                value={filterCompany}
-                onChange={(e) => setFilterCompany(e.target.value)}
-                className="px-3 py-1 text-sm border rounded-md bg-white"
-              >
-                <option value="All">All</option>
-                {companies.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <button
-              onClick={handleExportClick}
-              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
-            >
-              Export OT Comparison
-            </button>
-            <button
-              onClick={() => setShowTable(false)}
-              className="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors"
-            >
-              Hide Comparison
-            </button>
-            <span className="text-sm font-medium text-gray-700 ml-4">
-              Filter by:
-            </span>
-            <button
-              onClick={() => setFilterCategory("All")}
-              className={getCategoryButtonClass("All")}
-            >
-              All ({categorizedData.length})
-            </button>
-            <button
-              onClick={() => setFilterCategory("Major")}
-              className={getCategoryButtonClass("Major")}
-            >
-              Major (
-              {categorizedData.filter((row) => row.category === "Major").length}
-              )
-            </button>
-            <button
-              onClick={() => setFilterCategory("Medium")}
-              className={getCategoryButtonClass("Medium")}
-            >
-              Medium (
-              {
-                categorizedData.filter((row) => row.category === "Medium")
-                  .length
-              }
-              )
-            </button>
-            <button
-              onClick={() => setFilterCategory("Minor")}
-              className={getCategoryButtonClass("Minor")}
-            >
-              Minor (
-              {categorizedData.filter((row) => row.category === "Minor").length}
-              )
-            </button>
-            <button
-              onClick={() => setFilterCategory("Match")}
-              className={getCategoryButtonClass("Match")}
-            >
-              Match (
-              {categorizedData.filter((row) => row.category === "Match").length}
-              )
-            </button>
-            <button
-              onClick={() => setFilterCategory("N/A")}
-              className={getCategoryButtonClass("N/A")}
-            >
-              N/A (
-              {categorizedData.filter((row) => row.category === "N/A").length})
-            </button>
-          </>
-        )}
+      <div
+        className="flex items-center justify-between mb-4 cursor-pointer group select-none"
+        onClick={() => setShowTable(!showTable)}
+      >
+        <h3 className="text-lg font-bold text-gray-800 group-hover:text-blue-600 transition-colors">
+          Overtime (OT) Comparison
+        </h3>
+        <button className="p-1 rounded-full hover:bg-gray-100 transition-colors">
+          {showTable ? (
+            <ChevronUp className="text-gray-600" />
+          ) : (
+            <ChevronDown className="text-gray-600" />
+          )}
+        </button>
       </div>
+
+      {showTable && (
+        <div className="flex gap-4 mb-4 items-center flex-wrap">
+          <div className="px-4 py-2 flex gap-3 items-center">
+            <span className="text-sm font-medium text-gray-700">Company:</span>
+
+            <select
+              value={filterCompany}
+              onChange={(e) => setFilterCompany(e.target.value)}
+              className="px-3 py-1 text-sm border rounded-md bg-white"
+            >
+              <option value="All">All</option>
+              {companies.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <button
+            onClick={handleExportClick}
+            className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+          >
+            Export OT Comparison
+          </button>
+
+          <span className="text-sm font-medium text-gray-700 ml-4">
+            Filter by:
+          </span>
+          <button
+            onClick={() => setFilterCategory("All")}
+            className={getCategoryButtonClass("All")}
+          >
+            All ({categorizedData.length})
+          </button>
+          <button
+            onClick={() => setFilterCategory("Major")}
+            className={getCategoryButtonClass("Major")}
+          >
+            Major (
+            {categorizedData.filter((row) => row.category === "Major").length})
+          </button>
+          <button
+            onClick={() => setFilterCategory("Medium")}
+            className={getCategoryButtonClass("Medium")}
+          >
+            Medium (
+            {categorizedData.filter((row) => row.category === "Medium").length})
+          </button>
+          <button
+            onClick={() => setFilterCategory("Minor")}
+            className={getCategoryButtonClass("Minor")}
+          >
+            Minor (
+            {categorizedData.filter((row) => row.category === "Minor").length})
+          </button>
+          <button
+            onClick={() => setFilterCategory("Match")}
+            className={getCategoryButtonClass("Match")}
+          >
+            Match (
+            {categorizedData.filter((row) => row.category === "Match").length})
+          </button>
+          <button
+            onClick={() => setFilterCategory("N/A")}
+            className={getCategoryButtonClass("N/A")}
+          >
+            N/A (
+            {categorizedData.filter((row) => row.category === "N/A").length})
+          </button>
+        </div>
+      )}
 
       {showTable && (
         <div className="mt-6">

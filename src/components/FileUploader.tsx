@@ -15,6 +15,7 @@ import { OTComparison } from "./OTComparison";
 import { useAttendanceStore } from "@/store/attendanceStore";
 import { EmployeeStoreDisplay } from "./EmployeeStoreDisplay";
 import { LateComparison } from "./LateComparison";
+import { UnifiedComparison } from "./UnifiedComparison";
 
 const norm = (s: any) =>
   String(s ?? "")
@@ -745,6 +746,7 @@ export const FileUploader: React.FC = () => {
         )}
       </div>
 <div id="comparison-section">
+  <UnifiedComparison />
   <PresentDayComparison />
   <LateComparison />
   <OTComparison />

@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { EmployeeData } from "@/lib/types";
 import { useExcel } from "../context/ExcelContext";
 import { useFinalDifference } from "@/context/FinalDifferenceContext";
+import { useHRDataLookup } from "@/hooks/useHRDataLookup";
 
 // Utility helpers
 const canon = (s: string) => (s ?? "").toUpperCase().trim();
@@ -458,6 +459,7 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
   const { getFullNightOTForEmployee } = useFullNightOTLookup();
   const { getCustomTimingForEmployee } = useCustomTimingLookup();
   const { isMaintenanceEmployee } = useMaintenanceDeductLookup();
+  const { getHRPresentDays } = useHRDataLookup();
 
   const stats = useMemo(() => {
     let paCount = 0;
@@ -855,6 +857,9 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
     }
   }, [stats.GrandTotal, onTotalCalculated]);
 
+  // Get HR Present Days for this employee
+  const hrPresentDays = getHRPresentDays(employee);
+
   const tooltipTexts: any = {
     PD_excel: "Present days counted directly from attendance sheet.",
     PAA: "Present days after adjustment: Full Present days + ADJ-P days + (P/A days × 0.5).",
@@ -866,6 +871,7 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
     PL_days: "Paid Leave taken from Staff Paid Leave Sheet.",
     GrandTotal: "A Total + Paid Leave",
     lateDeduction: "Deduction (in days) applied based on Static Final Difference from Early Departure Stats Grid.",
+    HRGrandTotal: "HR Grand Total from Tulsi file (Worker/Staff)",
   };
 
   const StatBox = ({ label, value, bgColor, textColor, tooltipKey }: any) => (
@@ -880,10 +886,20 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
 
   return (
     <div className="mt-6 pt-4 border-t border-gray-200">
-      <h4 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
-        <span className="text-indigo-600">📊</span>
-        Present Day Calculation
-      </h4>
+      <div className="flex items-center justify-between mb-3">
+        <h4 className="text-sm font-bold text-gray-700 flex items-center gap-2">
+          <span className="text-indigo-600">📊</span>
+          Present Day Calculation
+        </h4>
+
+        {/* HR Total - Small Box */}
+        <div className="px-4 py-2 bg-yellow-100 border-2 border-yellow-400 rounded-lg">
+          <div className="text-xs text-yellow-700 font-semibold">HR Total</div>
+          <div className="text-lg font-bold text-yellow-900">
+            {hrPresentDays !== null ? hrPresentDays : "N/A"}
+          </div>
+        </div>
+      </div>
       <div className="flex flex-wrap gap-2">
         <StatBox
           label="PD (Excel)"
