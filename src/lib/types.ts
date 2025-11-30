@@ -96,6 +96,7 @@ export interface PaidLeaveData {
   empName: string;
   paidDays: number;
   adjDays?: number; // ADJ. DAYS column from staff paid leave sheet
+  leave?: number;
 }
 
 /**

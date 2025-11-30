@@ -101,9 +101,9 @@ export function calculateEmployeeStats(
   const paAdjustment = paCount * 0.5;
   const PAA = fullPresentDays + adjPresentDays + paAdjustment;
   
-  // Check if employee is in "C Cash Employee" department - if so, holidays should be 0
-  const isCCashEmployee = (employee.department ?? "").toLowerCase().includes("c cash employee");
-  const H_base = isCCashEmployee ? 0 : (selectedHolidaysCount || baseHolidaysCount || 0);
+  // Check for C CASH EMPLOYEE - Force Holidays to 0
+  const isCashEmployee = (employee.department || "").toUpperCase().includes("C CASH EMPLOYEE");
+  const H_base = isCashEmployee ? 0 : (selectedHolidaysCount || baseHolidaysCount || 0);
 
   // --- Sandwich Rule: Remove holidays surrounded by absences or NA ---
   let validHolidays = 0;
@@ -211,10 +211,14 @@ export function calculateEmployeeStats(
     }
   }
 
-  const Total = PAA + validHolidays;
+  const Total = PAA + (isCashEmployee ? 0 : validHolidays);
   console.log(
-    `📊 ${employee.empName} Total calculation: PAA (${PAA}) + Valid Holidays (${validHolidays}) = ${Total}`
+    `📊 ${employee.empName} Total calculation: ` +
+      `PAA (${PAA}) + ${
+        isCashEmployee ? "0 (cash employee, holidays ignored)" : `Valid Holidays (${validHolidays})`
+      } = ${Total}`
   );
+
 
   // --- 2. Calculate Late Hours ---
   const customTiming = getCustomTimingForEmployee(employee);
@@ -231,38 +235,54 @@ export function calculateEmployeeStats(
   const employeeNormalStartMinutes =
     customTiming?.expectedStartMinutes ?? STANDARD_START_MINUTES;
 
-  employee.days?.forEach((day) => {
-    const status = (day.attendance.status || "").toUpperCase();
+employee.days?.forEach((day) => {
+  const status = (day.attendance.status || "").toUpperCase();
+  
+  // Handle M/WO-I or ADJ-M/WO-I (count if employee attended)
+  if (status === "M/WO-I" || status === "ADJ-M/WO-I" || status === "WO-I") {
     const inTime = day.attendance.inTime;
-    if (!inTime || inTime === "-") return;
-
-    const inMinutes = timeToMinutes(inTime);
-    let dailyLateMins = 0;
-
-    if (status === "P/A" || status === "PA") {
-      if (inMinutes < MORNING_EVENING_CUTOFF_MINUTES) {
-        if (inMinutes > employeeNormalStartMinutes) {
-          dailyLateMins = inMinutes - employeeNormalStartMinutes;
-        }
-      } else {
-        if (inMinutes > EVENING_SHIFT_START_MINUTES) {
-          dailyLateMins = inMinutes - EVENING_SHIFT_START_MINUTES;
-        }
+    const outTime = day.attendance.outTime;
+    
+    if (inTime && inTime !== "-" && outTime && outTime !== "-") {
+      // Calculate work hours to determine if half day or full day
+      const inMinutes = timeToMinutes(inTime);
+      const outMinutes = timeToMinutes(outTime);
+      const workMinutes = outMinutes > inMinutes ? outMinutes - inMinutes : 0;
+      
+      if (workMinutes > 0 && workMinutes <= 240) {
+        // Half day (up to 4 hours)
+        paCount++;
+        console.log(
+          `✅ ${employee.empName} - Day ${day.date} (${status}) counted as 0.5 day (worked ${(workMinutes / 60).toFixed(2)}h)`
+        );
+      } else if (workMinutes > 240) {
+        // Full day (more than 4 hours)
+        fullPresentDays++;
+        console.log(
+          `✅ ${employee.empName} - Day ${day.date} (${status}) counted as 1.0 day (worked ${(workMinutes / 60).toFixed(2)}h)`
+        );
       }
-    } else if (status === "P") {
-      if (inMinutes > employeeNormalStartMinutes) {
-        dailyLateMins = inMinutes - employeeNormalStartMinutes;
-      }
-    } else if (isStaff && status === "ADJ-P") {
-      if (inMinutes > employeeNormalStartMinutes) {
-        dailyLateMins = inMinutes - employeeNormalStartMinutes;
-      }
+    } else {
+      console.log(
+        `🚫 ${employee.empName} - Skipping ${status} on ${day.date} (no In/Out time)`
+      );
     }
-
-    if (dailyLateMins > PERMISSIBLE_LATE_MINS) {
-      lateMinsTotal += dailyLateMins;
+  } else if (status === "P") {
+    fullPresentDays++;
+  } else if (status === "P/A" || status === "PA") {
+    paCount++;
+  } else if (status === "ADJ-P") {
+    const inTime = day.attendance.inTime;
+    const outTime = day.attendance.outTime;
+    if (inTime && inTime !== "-" && outTime && outTime !== "-") {
+      adjPresentDays++;
+    } else {
+      console.log(
+        `🚫 ${employee.empName} - Skipping ADJ-P on ${day.date} (no In/Out time)`
+      );
     }
-  });
+  }
+});
 
   const Late_hours = Number((lateMinsTotal / 60).toFixed(2));
 

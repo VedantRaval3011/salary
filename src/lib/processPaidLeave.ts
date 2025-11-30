@@ -20,7 +20,7 @@ const normHeader = (h: string) => h.replace(/[^a-z0-9]/gi, "").toLowerCase();
 
 /**
  * Header-name driven parser for Staff Paid Leave.
- * Finds headers for Emp Code, Name, Paid Days (PL), and optionally ADJ. DAYS regardless of order/column.
+ * Finds Paid Days + ADJ. DAYS + LEAVE column
  */
 export async function processPaidLeaveFile(file: File): Promise<PaidLeaveData[]> {
   try {
@@ -39,18 +39,19 @@ export async function processPaidLeaveFile(file: File): Promise<PaidLeaveData[]>
     const ws = wb.worksheets[0];
     if (!ws.actualRowCount) throw new Error("The worksheet is empty");
 
-    // Discover the header row & column indices by name
     let headerRow = 0;
     let colEmpCode = 0,
       colEmpName = 0,
       colPaidDays = 0,
-      colAdjDays = 0; // NEW: Track ADJ. DAYS column
+      colAdjDays = 0,
+      colLeave = 0; // 🔥 NEW Leave column
 
     const want = {
       code: ["empcode", "ecode", "employeeid", "code", "empno", "employeeecode"],
       name: ["name", "empname", "employeename"],
       paid: ["paiddays", "paidday", "paid", "pldays", "pl", "paidleavedays"],
-      adjDays: ["adjdays", "adjday", "adjustmentdays"], // NEW: Search terms for ADJ. DAYS
+      adjDays: ["adjdays", "adjday", "adjustmentdays", "adj.p", "adjp", "adjday"],
+      leave: ["leave", "leavedays", "lv", "el", "sl", "cl", "leavefth", "fth", "leavefthcolumn"], // 🔥 Leave column matching
     };
 
     const maxHeaderScan = Math.min(ws.actualRowCount, 20);
@@ -59,14 +60,16 @@ export async function processPaidLeaveFile(file: File): Promise<PaidLeaveData[]>
       let foundCode = 0,
         foundName = 0,
         foundPaid = 0,
-        foundAdjDays = 0; // NEW: Track if ADJ. DAYS is found
+        foundAdjDays = 0,
+        foundLeave = 0;
 
       row.eachCell((cell, c) => {
         const h = normHeader(cellValueToString(cell.value));
         if (!foundCode && want.code.some((k) => h.includes(k))) foundCode = c;
         if (!foundName && want.name.some((k) => h.includes(k))) foundName = c;
         if (!foundPaid && want.paid.some((k) => h.includes(k))) foundPaid = c;
-        if (!foundAdjDays && want.adjDays.some((k) => h.includes(k))) foundAdjDays = c; // NEW: Check for ADJ. DAYS
+        if (!foundAdjDays && want.adjDays.some((k) => h.includes(k))) foundAdjDays = c;
+        if (!foundLeave && want.leave.some((k) => h.includes(k))) foundLeave = c;
       });
 
       if (foundCode && foundName && foundPaid) {
@@ -74,16 +77,19 @@ export async function processPaidLeaveFile(file: File): Promise<PaidLeaveData[]>
         colEmpCode = foundCode;
         colEmpName = foundName;
         colPaidDays = foundPaid;
-        colAdjDays = foundAdjDays; // NEW: Store ADJ. DAYS column (0 if not found)
+        colAdjDays = foundAdjDays;
+        colLeave = foundLeave; // NEW
         break;
       }
     }
 
     if (!headerRow) {
-      throw new Error("Could not find headers for Emp Code / Name / Paid Days in the paid leave sheet");
+      throw new Error("Could not find required headers in Paid Leave sheet");
     }
 
-    console.log(`📊 Found Paid Leave columns - Code: ${colEmpCode}, Name: ${colEmpName}, Paid Days: ${colPaidDays}, ADJ. DAYS: ${colAdjDays || 'Not found'}`);
+    console.log(
+      `📌 Paid Leave Columns → Code:${colEmpCode} Name:${colEmpName} Paid:${colPaidDays} ADJ:${colAdjDays || "N/A"} Leave:${colLeave || "N/A"}`
+    );
 
     const out: PaidLeaveData[] = [];
     for (let r = headerRow + 1; r <= ws.actualRowCount; r++) {
@@ -92,37 +98,33 @@ export async function processPaidLeaveFile(file: File): Promise<PaidLeaveData[]>
       const empName = cellValueToString(row.getCell(colEmpName).value).trim();
       const paidRaw = cellValueToString(row.getCell(colPaidDays).value).trim();
 
-      // Skip empty or separator rows
       if (!empCode && !empName && !paidRaw) continue;
-
-      // Need at least an emp code to match later
       if (!empCode) continue;
 
       const paidDays = paidRaw && !isNaN(Number(paidRaw)) ? Number(paidRaw) : 0;
-      
-      // NEW: Extract ADJ. DAYS if column exists
+
       const adjDaysRaw = colAdjDays ? cellValueToString(row.getCell(colAdjDays).value).trim() : "";
-      const adjDays = adjDaysRaw && !isNaN(Number(adjDaysRaw)) ? Number(adjDaysRaw) : undefined;
-      
-      const record: PaidLeaveData = { 
-        empCode, 
-        empName, 
-        paidDays
-      };
-      
-      // Only include adjDays if it exists and is greater than 0
-      if (adjDays !== undefined && adjDays > 0) {
-        record.adjDays = adjDays;
-      }
-      
+      const adjDays = adjDaysRaw && !isNaN(Number(adjDaysRaw)) ? Number(adjDaysRaw) : 0;
+
+      const leaveRaw = colLeave ? cellValueToString(row.getCell(colLeave).value).trim() : "";
+      const leaveDays = leaveRaw && !isNaN(Number(leaveRaw)) ? Number(leaveRaw) : 0;
+
+      const record: PaidLeaveData = { empCode, empName, paidDays };
+
+      if (adjDays > 0) record.adjDays = adjDays;
+      if (leaveDays !== 0) record.leave = leaveDays; // Include negative and positive values
+
       out.push(record);
     }
 
-    console.log(`✅ Processed ${out.length} paid leave records. Records with ADJ. DAYS: ${out.filter(r => r.adjDays).length}`);
+    console.log(
+      `✔ Processed ${out.length} employees → ADJ Found: ${
+        out.filter((e) => e.adjDays).length
+      } Leave Found: ${out.filter((e) => e.leave).length}`
+    );
 
     return out;
   } catch (error: any) {
-    const msg = error?.message || "Unknown error";
-    throw new Error(`Failed to process paid leave file: ${msg}`);
+    throw new Error(`Failed to process paid leave file: ${error.message}`);
   }
 }

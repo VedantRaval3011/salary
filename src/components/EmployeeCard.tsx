@@ -18,6 +18,16 @@ interface EmployeeCardProps {
   selectedHolidaysCount?: number;
 }
 
+// Helper to check if employee is Staff or Worker
+const getIsStaff = (emp: EmployeeData): boolean => {
+  const inStr = `${emp.companyName ?? ""} ${
+    emp.department ?? ""
+  }`.toLowerCase();
+  if (inStr.includes("worker")) return false;
+  if (inStr.includes("staff")) return true;
+  return true; // default to staff
+};
+
 // Helper to check custom timing
 function useCustomTimingInfo(employee: EmployeeData) {
   const { getAllUploadedFiles } = useExcel();
@@ -392,19 +402,27 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
           setFinalDifference(difference);
           updateFinalDifference(employee.empCode, difference);
 
-          // Calculate Late Deduction Days
-          // Rule: 0 to -4 => 0.5, -4 to -8 => 1, etc.
-          // difference is in minutes. -4 hours = -240 minutes.
+          // Calculate Late Deduction Days with different buffers for Staff vs Worker
+          // Staff: 30-minute buffer
+          // Worker: 2-hour (120-minute) buffer
           let deduction = 0;
           if (difference < 0) {
             const absDiff = Math.abs(difference);
-            // Rule with 30 min buffer:
-            // 0-30 mins => 0 deduction
-            // 31-270 mins (4h 30m) => 0.5 days
-            // 271-510 mins (8h 30m) => 1.0 days
-            // Formula: ceil((absDiff - 30) / 240) * 0.5
-            const bufferedDiff = Math.max(0, absDiff - 30);
+            const isStaff = getIsStaff(employee);
+            const bufferMinutes = isStaff ? 30 : 120; // 30 mins for staff, 120 mins (2 hours) for workers
+            
+            // Apply buffer based on employee type
+            // For Staff: 0-30 mins => 0 deduction, 31-270 mins (4h 30m) => 0.5 days, etc.
+            // For Worker: 0-120 mins => 0 deduction, 121-360 mins (6h) => 0.5 days, etc.
+            const bufferedDiff = Math.max(0, absDiff - bufferMinutes);
             deduction = Math.ceil(bufferedDiff / 240) * 0.5;
+            
+            console.log(
+              `🔍 ${employee.empName} (${isStaff ? 'Staff' : 'Worker'}) - ` +
+              `Final Diff: ${difference} mins, Abs: ${absDiff} mins, ` +
+              `Buffer: ${bufferMinutes} mins, Buffered: ${bufferedDiff} mins, ` +
+              `Deduction: ${deduction} days`
+            );
           }
           setLateDeductionDays(deduction);
         }}
