@@ -233,7 +233,16 @@ function processEmployeeBlock(
       }
       employee.days = days;
 
-      // Calculate total Late Mins and Early Dep (excluding P/A status and Saturdays)
+      // Helper for time conversion
+      const timeToMinutes = (timeStr: string): number => {
+        if (!timeStr || timeStr === "-") return 0;
+        const parts = timeStr.split(":").map(Number);
+        if (parts.length < 2 || isNaN(parts[0]) || isNaN(parts[1])) return 0;
+        const [hours, minutes] = parts;
+        return hours * 60 + (minutes || 0);
+      };
+
+      // Calculate total Late Mins and Early Dep (excluding adj-P, P/A, adj-P/A, and Saturdays)
       let totalLateMins = 0;
       let totalEarlyDep = 0;
 
@@ -241,17 +250,57 @@ function processEmployeeBlock(
         const status = (day.attendance.status || "").toUpperCase();
         const dayOfWeek = (day.day || "").toLowerCase();
 
+        // Calculate workMins for half-day check
+        const workHours = day.attendance.workHrs || 0;
+        let workMins = 0;
+        if (typeof workHours === "string" && workHours.includes(":")) {
+          const [h, m] = workHours.split(":").map(Number);
+          workMins = h * 60 + (m || 0);
+        } else if (!isNaN(Number(workHours))) {
+          workMins = Number(workHours) * 60;
+        }
+        
+        // Fallback to In/Out
+        if (workMins === 0 && day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
+           const inM = timeToMinutes(day.attendance.inTime);
+           const outM = timeToMinutes(day.attendance.outTime);
+           if (outM > inM) workMins = outM - inM;
+        }
+
+        const isHalfDay = workMins > 0 && workMins <= 240;
+
+        // Skip early departure logic
+        let skipEarlyDep = false;
+        
+        // 1. Always skip for P/A and adj-P/A
+        if (status === "P/A" || status === "PA" || 
+            status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA") {
+            skipEarlyDep = true;
+        } 
+        // 2. For adj-P, skip ONLY if half day
+        else if (status === "ADJ-P" || status === "ADJP") {
+            if (isHalfDay) {
+                skipEarlyDep = true;
+                // Permanently change status to ADJ-P/A so it's reflected everywhere
+                day.attendance.status = "ADJ-P/A";
+            }
+        }
+
         // Only count if:
-        // 1. Status is NOT PA (Partial Absence)
+        // 1. Status is NOT PA (Partial Absence) for late mins
         // 2. Day is NOT Saturday
         if (status !== "PA" && status !== "P/A" && dayOfWeek !== "sa") {
           totalLateMins += parseInt(String(day.attendance.lateMins)) || 0;
+        }
+        
+        if (!skipEarlyDep && dayOfWeek !== "sa") {
           totalEarlyDep += parseInt(String(day.attendance.earlyDep)) || 0;
         }
       });
 
       employee.totalLateMins = totalLateMins;
       employee.totalEarlyDep = totalEarlyDep;
+
     }
   }
 

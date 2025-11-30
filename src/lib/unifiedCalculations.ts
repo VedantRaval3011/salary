@@ -92,12 +92,55 @@ export const calculateLateMinutes = (
 
 /**
  * Calculate early departure minutes for an employee
+ * Rules:
+ * - P/A, adj-P/A: Always skip early departure
+ * - adj-P: Check work hours. If <= 4 hours (240 mins), treat as adj-P/A (skip). Else count.
+ * - Others (P, etc): Count early departure
  */
 export const calculateEarlyDepartureMinutes = (employee: EmployeeData): number => {
   let earlyDepartureTotalMinutes = 0;
 
   employee.days?.forEach((day) => {
+    const status = (day.attendance.status || "").toUpperCase();
     const earlyDepMins = Number(day.attendance.earlyDep) || 0;
+    
+    // Calculate work minutes to check for half day
+    const workHours = day.attendance.workHrs || 0;
+    let workMins = 0;
+    if (typeof workHours === "string" && workHours.includes(":")) {
+      const [h, m] = workHours.split(":").map(Number);
+      workMins = h * 60 + (m || 0);
+    } else if (!isNaN(Number(workHours))) {
+      workMins = Number(workHours) * 60;
+    }
+
+    // Fallback: Calculate from In/Out if workMins is 0
+    if (workMins === 0 && day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
+       const inM = timeToMinutes(day.attendance.inTime);
+       const outM = timeToMinutes(day.attendance.outTime);
+       if (outM > inM) {
+           workMins = outM - inM;
+       }
+    }
+
+    const isHalfDay = workMins > 0 && workMins <= 240;
+
+    // 1. Skip early departure for explicit P/A and adj-P/A statuses
+    if (status === "P/A" || status === "PA" || 
+        status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA") {
+      return; // Skip
+    }
+
+    // 2. Handle adj-P
+    if (status === "ADJ-P" || status === "ADJP") {
+      if (isHalfDay) {
+        // Treat as adj-P/A -> Skip early departure
+        return;
+      }
+      // Else (Full Day adj-P) -> Count early departure
+    }
+    
+    // 3. Count for others (P, Full Day adj-P, etc.)
     if (earlyDepMins > 0) {
       earlyDepartureTotalMinutes += earlyDepMins;
     }
@@ -158,7 +201,8 @@ export const calculateBreakExcessMinutes = (
     const punches = dayData.punches || [];
     if (punches.length < 2) continue;
 
-    const punchTimes = punches
+    // ⭐ STEP 1: Convert to minutes, filter invalid, and sort
+    let punchTimes = punches
       .map((p: any) => ({
         type: p.type,
         minutes: timeToMinutes(p.time),
@@ -167,19 +211,55 @@ export const calculateBreakExcessMinutes = (
       .filter((p: any) => p.minutes > 0)
       .sort((a: any, b: any) => a.minutes - b.minutes);
 
+    // ⭐ STEP 2: Clean up invalid punch sequences (IN-IN or OUT-OUT)
+    // Valid pattern should be: IN, OUT, IN, OUT, ...
+    const cleanedPunches: any[] = [];
+    let expectedNext: "In" | "Out" = "In"; // We expect to start with IN
+    
+    for (const punch of punchTimes) {
+        if (punch.type === expectedNext) {
+            cleanedPunches.push(punch);
+            expectedNext = expectedNext === "In" ? "Out" : "In";
+        }
+        // Skip invalid punches silently
+    }
+    
+    punchTimes = cleanedPunches;
+
     if (punchTimes.length < 2) continue;
 
+    // ⭐ Calculate break excess for valid Out-In pairs
     for (let i = 0; i < punchTimes.length - 1; i++) {
         const current = punchTimes[i];
         const next = punchTimes[i+1];
         
-        if (current.type === "Out" && next.type === "In") {
-            const duration = next.minutes - current.minutes;
+        // Only process if current is Out and next is In (break period)
+        // AND ensure Out time is before In time
+        if (current.type === "Out" && next.type === "In" && current.minutes < next.minutes) {
+            const outMin = current.minutes;
+            let inMin = next.minutes;
+
+            // [NEW LOGIC] Handle 5:30 PM cutoff for non-fullnight employees
+            const isFullNight = employee.otGrantedType === "fullnight";
+            const CUTOFF_TIME = 17 * 60 + 30; // 17:30 (5:30 PM)
+
+            if (!isFullNight) {
+                if (outMin >= CUTOFF_TIME) {
+                    // Break starts after 5:30 PM, ignore completely
+                    continue;
+                }
+                if (inMin > CUTOFF_TIME) {
+                    // Break ends after 5:30 PM, truncate to 5:30 PM
+                    inMin = CUTOFF_TIME;
+                }
+            }
+
+            const duration = inMin - outMin;
+            
             if (duration > 0) {
                  let allowed = 0;
-                 const outMin = current.minutes;
-                 const inMin = next.minutes;
                  
+                 // Calculate allowed time based on break window overlaps
                  for (const defBreak of BREAKS) {
                     const overlapStart = Math.max(outMin, defBreak.start);
                     const overlapEnd = Math.min(inMin, defBreak.end);
@@ -187,11 +267,10 @@ export const calculateBreakExcessMinutes = (
                     if (overlap > 0) allowed += defBreak.allowed;
                  }
                  
+                 // Evening break allowance (after 5:30 PM)
                  if (outMin >= 17 * 60 + 30 || inMin >= 17 * 60 + 30) {
                     allowed = Math.max(allowed, 15);
                  }
-                 
-                 allowed = Math.max(allowed, 30);
                  
                  const excess = Math.max(0, duration - allowed);
                  totalExcessMinutes += excess;

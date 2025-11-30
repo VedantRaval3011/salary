@@ -70,11 +70,7 @@ export function calculateTotalDeductionMinutes(
         lateMinsTotal += dailyLateMins;
     }
 
-    // ---- EARLY DEPARTURE ----
-    const earlyDepMins = Number(day.attendance.earlyDep) || 0;
-    if (earlyDepMins > 0) earlyDepartureTotalMinutes += earlyDepMins;
-
-    // ---- LESS THAN 4 HOURS (P/A) ----
+    // ---- WORK MINUTES CALCULATION ----
     let workMins = 0;
     if (typeof workHours === "string" && workHours.includes(":")) {
       const [h, m] = workHours.split(":").map(Number);
@@ -82,7 +78,40 @@ export function calculateTotalDeductionMinutes(
     } else if (!isNaN(Number(workHours))) {
       workMins = Number(workHours) * 60;
     }
+    
+    // Fallback: Calculate from In/Out if workMins is 0
+    if (workMins === 0 && day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
+       const inM = timeToMinutes(day.attendance.inTime);
+       const outM = timeToMinutes(day.attendance.outTime);
+       if (outM > inM) {
+           workMins = outM - inM;
+       }
+    }
 
+    // ---- EARLY DEPARTURE ----
+    const earlyDepMins = Number(day.attendance.earlyDep) || 0;
+    const isHalfDay = workMins > 0 && workMins <= 240;
+    
+    // 1. Skip early departure for explicit P/A and adj-P/A statuses
+    if (status === "P/A" || status === "PA" || 
+        status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA") {
+      // Skip
+    }
+    // 2. Handle adj-P
+    else if (status === "ADJ-P" || status === "ADJP") {
+      if (isHalfDay) {
+        // Treat as adj-P/A -> Skip early departure
+      } else {
+        // Full Day adj-P -> Count early departure
+        if (earlyDepMins > 0) earlyDepartureTotalMinutes += earlyDepMins;
+      }
+    }
+    // 3. Count for others
+    else {
+      if (earlyDepMins > 0) earlyDepartureTotalMinutes += earlyDepMins;
+    }
+
+    // ---- LESS THAN 4 HOURS (P/A) ----
     if ((status === "P/A" || status === "PA") && workMins < 240)
       lessThan4HrMins += 240 - workMins;
   });

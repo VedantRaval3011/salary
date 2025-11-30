@@ -512,7 +512,10 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
     const PD_excel = employee.present || 0;
     const paAdjustment = paCount * 0.5;
     const PAA = fullPresentDays + adjPresentDays + paAdjustment;
-    const H_base = selectedHolidaysCount || baseHolidaysCount || 0;
+    
+    // Check if employee is in "C Cash Employee" department - if so, holidays should be 0
+    const isCCashEmployee = (employee.department ?? "").toLowerCase().includes("c cash employee");
+    const H_base = isCCashEmployee ? 0 : (selectedHolidaysCount || baseHolidaysCount || 0);
 
     let validHolidays = 0;
     const days = employee.days || [];
@@ -897,6 +900,9 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
     </div>
   );
 
+  const difference =
+    hrPresentDays !== null ? hrPresentDays - stats.GrandTotal : null;
+
   return (
     <div className="mt-6 pt-4 border-t border-gray-200">
       <div className="flex items-center justify-between mb-3">
@@ -905,12 +911,47 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
           Present Day Calculation
         </h4>
 
-        {/* HR Total - Small Box */}
-        <div className="px-4 py-2 bg-yellow-100 border-2 border-yellow-400 rounded-lg">
-          <div className="text-xs text-yellow-700 font-semibold">HR Total</div>
-          <div className="text-lg font-bold text-yellow-900">
-            {hrPresentDays !== null ? hrPresentDays : "N/A"}
+        <div className="flex items-center gap-3">
+          {/* HR Total - Small Box */}
+          <div className="px-4 py-2 bg-yellow-100 border-2 border-yellow-400 rounded-lg">
+            <div className="text-xs text-yellow-700 font-semibold">
+              HR PD(Tulsi)
+            </div>
+            <div className="text-lg font-bold text-yellow-900">
+              {hrPresentDays !== null ? hrPresentDays : "N/A"}
+            </div>
           </div>
+
+          {/* Difference Box */}
+          {difference !== null && (
+            <div
+              className={`px-4 py-2 border-2 rounded-lg ${
+                Math.abs(difference) > 0.02
+                  ? "bg-red-100 border-red-400"
+                  : "bg-green-100 border-green-400"
+              }`}
+            >
+              <div
+                className={`text-xs font-semibold ${
+                  Math.abs(difference) > 0.02
+                    ? "text-red-700"
+                    : "text-green-700"
+                }`}
+              >
+                Difference
+              </div>
+              <div
+                className={`text-lg font-bold ${
+                  Math.abs(difference) > 0.02
+                    ? "text-red-900"
+                    : "text-green-900"
+                }`}
+              >
+                {difference > 0 ? "+" : ""}
+                {Number(difference.toFixed(2))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
       <div className="flex flex-wrap gap-2">

@@ -472,30 +472,27 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
       const status = (day.attendance.status || "").toUpperCase();
       const inTime = day.attendance.inTime;
 
+      // Calculate workMins for half-day check
+      const workHours = day.attendance.workHrs || 0;
+      let workMins = 0;
+      if (typeof workHours === "string" && workHours.includes(":")) {
+        const [h, m] = workHours.split(":").map(Number);
+        workMins = h * 60 + (m || 0);
+      } else if (!isNaN(Number(workHours))) {
+        workMins = Number(workHours) * 60;
+      }
+      
+      // Fallback to In/Out
+      if (workMins === 0 && day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
+         const inM = timeToMinutes(day.attendance.inTime);
+         const outM = timeToMinutes(day.attendance.outTime);
+         if (outM > inM) workMins = outM - inM;
+      }
+
       // Check for ADJ-P half day
       let isAdjPHalfDay = false;
-      if (status === "ADJ-P") {
-        const workHours = day.attendance.workHrs || 0;
-        let workMins = 0;
-        if (typeof workHours === "string" && workHours.includes(":")) {
-          const [h, m] = workHours.split(":").map(Number);
-          workMins = h * 60 + (m || 0);
-        } else if (!isNaN(Number(workHours))) {
-          workMins = Number(workHours) * 60;
-        }
-
-        // Fallback: Calculate from In/Out if workMins is 0
-        if (workMins === 0 && day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
-           const inM = timeToMinutes(day.attendance.inTime);
-           const outM = timeToMinutes(day.attendance.outTime);
-           if (outM > inM) {
-               workMins = outM - inM;
-           }
-        }
-
-        if (workMins > 0 && workMins <= 240) {
-          isAdjPHalfDay = true;
-        }
+      if ((status === "ADJ-P" || status === "ADJP") && workMins > 0 && workMins <= 320) {
+        isAdjPHalfDay = true;
       }
 
       if (inTime && inTime !== "-") {
@@ -531,12 +528,20 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
         return; // <-- do not count anything from this day
       }
 
-      // Exclude early departure for P/A and ADJ-P/A (treat ADJ-P/A same as P/A)
-      if (status !== "P/A" && status !== "PA" && status !== "ADJ-P/A" && status !== "ADJP/A" && status !== "ADJ-PA" && !isAdjPHalfDay) {
-        if (earlyDepMins > 0) {
-          earlyDepartureTotalMinutes += earlyDepMins;
-        }
+      // ❌ RULE: Skip early departure for P/A and adj-P/A statuses
+      // For adj-P, only skip if it is a half day (isAdjPHalfDay)
+      if (status === "P/A" || status === "PA" || 
+          status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA" || 
+          isAdjPHalfDay) {
+        // Do NOT add earlyDepMins
+        return; // skip this day
       }
+
+      // For all other statuses (including Full Day adj-P), count early departure
+      if (earlyDepMins > 0) {
+        earlyDepartureTotalMinutes += earlyDepMins;
+      }
+
     });
 
     const breakExcessMinutes = calculateBreakExcessMinutes(employee, getLunchDataForEmployee(employee));
@@ -673,6 +678,11 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
     );
   };
 
+  const hrLateValue = getHRLateValue(employee);
+  const systemLateHours = stats.totalCombinedMinutes / 60;
+  const difference =
+    hrLateValue != null ? hrLateValue - systemLateHours : null;
+
   return (
     <div className="mt-6 pt-4 border-t border-gray-200">
       <div className="flex items-center justify-between mb-3">
@@ -681,14 +691,47 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
           Late & Early Departure
         </h4>
         
-        {/* HR Total(-4hrs) - Small Box */}
-        <div className="px-4 py-2 bg-orange-100 border-2 border-orange-400 rounded-lg">
-          <div className="text-xs text-orange-700 font-semibold">HR Total(-4hrs)</div>
-          <div className="text-lg font-bold text-orange-900">
-            {getHRLateValue(employee) !== null 
-              ? `${getHRLateValue(employee)?.toFixed(2)} hrs` 
-              : "N/A"}
+        <div className="flex items-center gap-3">
+          {/* HR Total(-4hrs) - Small Box */}
+          <div className="px-4 py-2 bg-orange-100 border-2 border-orange-400 rounded-lg">
+            <div className="text-xs text-orange-700 font-semibold">
+              HR Late Value
+            </div>
+            <div className="text-lg font-bold text-orange-900">
+              {hrLateValue != null ? `${hrLateValue.toFixed(2)} hrs` : "N/A"}
+            </div>
           </div>
+
+          {/* Difference Box */}
+          {difference !== null && (
+            <div
+              className={`px-4 py-2 border-2 rounded-lg ${
+                Math.abs(difference) > 0.02
+                  ? "bg-red-100 border-red-400"
+                  : "bg-green-100 border-green-400"
+              }`}
+            >
+              <div
+                className={`text-xs font-semibold ${
+                  Math.abs(difference) > 0.02
+                    ? "text-red-700"
+                    : "text-green-700"
+                }`}
+              >
+                Difference
+              </div>
+              <div
+                className={`text-lg font-bold ${
+                  Math.abs(difference) > 0.02
+                    ? "text-red-900"
+                    : "text-green-900"
+                }`}
+              >
+                {difference > 0 ? "+" : ""}
+                {difference.toFixed(2)} hrs
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

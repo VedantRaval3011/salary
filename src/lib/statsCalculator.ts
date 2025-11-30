@@ -100,7 +100,10 @@ export function calculateEmployeeStats(
 
   const paAdjustment = paCount * 0.5;
   const PAA = fullPresentDays + adjPresentDays + paAdjustment;
-  const H_base = selectedHolidaysCount || baseHolidaysCount || 0;
+  
+  // Check if employee is in "C Cash Employee" department - if so, holidays should be 0
+  const isCCashEmployee = (employee.department ?? "").toLowerCase().includes("c cash employee");
+  const H_base = isCCashEmployee ? 0 : (selectedHolidaysCount || baseHolidaysCount || 0);
 
   // --- Sandwich Rule: Remove holidays surrounded by absences or NA ---
   let validHolidays = 0;

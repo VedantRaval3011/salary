@@ -581,12 +581,16 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
 
         // 2) ADJ-P override → OT after 6:00 PM only
         else if (status === "ADJ-P") {
-          if (outTime && outTime !== "-") {
-            const outMin = timeToMinutes(outTime);
-            const cutoff = 17 * 60 + 30; // 5:30 PM
-            dayOTMinutes = outMin > cutoff ? outMin - cutoff : 0;
-          } else {
+          if (isStaff) {
             dayOTMinutes = 0;
+          } else {
+            if (outTime && outTime !== "-") {
+              const outMin = timeToMinutes(outTime);
+              const cutoff = 17 * 60 + 30; // 5:30 PM
+              dayOTMinutes = outMin > cutoff ? outMin - cutoff : 0;
+            } else {
+              dayOTMinutes = 0;
+            }
           }
         }
 
@@ -643,25 +647,9 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
             return; // next day
           }
 
-          // ADJ-P (holiday-present) handling: only count OT if buffer (till 18:00) is exceeded.
+          // ADJ-P (holiday-present) handling: Staff gets 0 OT for ADJ-P
           if (status === "ADJ-P") {
-            if (outTime && outTime !== "-") {
-              const outMin = timeToMinutes(outTime);
-
-              const ADJ_P_SHIFT_END = 17 * 60 + 30; // 17:30
-              const ADJ_P_BUFFER = 30; // minutes
-              const ADJ_P_BUFFER_END = ADJ_P_SHIFT_END + ADJ_P_BUFFER; // 18:00
-
-              // Only if buffer is exceeded (out > 18:00), OT = out - 17:30 (includes the 30min buffer).
-              if (outMin > ADJ_P_BUFFER_END) {
-                const dayOTMinutes = outMin - ADJ_P_SHIFT_END;
-                const capped = Math.min(dayOTMinutes, 540);
-                staffGrantedOTMinutes += capped;
-              } else {
-                // buffer not exceeded -> no OT
-              }
-            }
-            return; // ADJ-P handled, next day
+            return; // ADJ-P handled, 0 OT added
           }
 
           // Other holiday-like statuses (WO-I, ADJ-M) — use OT field as before
@@ -945,6 +933,10 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
     );
   };
 
+  const hrOTValue = getHROTValue(employee);
+  const grandTotalHours = stats.grandTotalMinutes / 60;
+  const difference = hrOTValue != null ? hrOTValue - grandTotalHours : null;
+
   return (
     <div className="mt-6 pt-4 border-t-2 border-gray-300">
       <div className="flex items-center justify-between mb-4">
@@ -952,14 +944,47 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
           <span className="text-indigo-600">📊 Overtime (OT) Calculation</span>
         </h4>
         
-        {/* HR OT Grand Total - Small Box */}
-        <div className="px-4 py-2 bg-amber-100 border-2 border-amber-400 rounded-lg">
-          <div className="text-xs text-amber-700 font-semibold">HR OT (Tulsi)</div>
-          <div className="text-lg font-bold text-amber-900">
-            {getHROTValue(employee) !== null 
-              ? `${getHROTValue(employee)?.toFixed(2)} hrs` 
-              : "N/A"}
+        <div className="flex items-center gap-3">
+          {/* HR OT Grand Total - Small Box */}
+          <div className="px-4 py-2 bg-amber-100 border-2 border-amber-400 rounded-lg">
+            <div className="text-xs text-amber-700 font-semibold">
+              HR OT (Tulsi)
+            </div>
+            <div className="text-lg font-bold text-amber-900">
+              {hrOTValue != null ? `${hrOTValue.toFixed(2)} hrs` : "N/A"}
+            </div>
           </div>
+
+          {/* Difference Box */}
+          {difference !== null && (
+            <div
+              className={`px-4 py-2 border-2 rounded-lg ${
+                Math.abs(difference) > 0.02
+                  ? "bg-red-100 border-red-400"
+                  : "bg-green-100 border-green-400"
+              }`}
+            >
+              <div
+                className={`text-xs font-semibold ${
+                  Math.abs(difference) > 0.02
+                    ? "text-red-700"
+                    : "text-green-700"
+                }`}
+              >
+                Difference
+              </div>
+              <div
+                className={`text-lg font-bold ${
+                  Math.abs(difference) > 0.02
+                    ? "text-red-900"
+                    : "text-green-900"
+                }`}
+              >
+                {difference > 0 ? "+" : ""}
+                {difference.toFixed(2)} hrs
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

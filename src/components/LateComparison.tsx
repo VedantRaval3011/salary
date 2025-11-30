@@ -341,12 +341,29 @@ const calculateFinalSoftwareMinutes = (
       return; // skip this day
     }
 
-    // Existing rule: Skip early departure if status is P/A or PA
-    if (status !== "P/A" && status !== "PA") {
-      if (earlyDepMins > 0) {
-        earlyDepartureTotalMinutes += earlyDepMins;
-      }
+    // Check for half day (<= 240 mins)
+    const isHalfDay = workMins > 0 && workMins <= 240;
+
+    // 1. Skip early departure for explicit P/A and adj-P/A statuses
+    if (status === "P/A" || status === "PA" || 
+        status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA") {
+      return; // Skip
     }
+
+    // 2. Handle adj-P
+    if (status === "ADJ-P" || status === "ADJP") {
+      if (isHalfDay) {
+        // Treat as adj-P/A -> Skip early departure
+        return;
+      }
+      // Else (Full Day adj-P) -> Count early departure
+    }
+
+    // 3. Count for others (P, Full Day adj-P, etc.)
+    if (earlyDepMins > 0) {
+      earlyDepartureTotalMinutes += earlyDepMins;
+    }
+
   });
 
   // b) compute break excess using lunchData (if present)

@@ -264,13 +264,30 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
         const rawKey = String(dp.date);
         
         const punches = dp.punches || [];
-        const punchTimes = punches.map((p: any) => ({
+        
+        // ⭐ STEP 1: Convert to minutes and filter invalid punches
+        let punchTimes = punches.map((p: any) => ({
             type: p.type,
             minutes: timeToMinutes(p.time),
             time: p.time,
         }))
         .filter((p: any) => p.minutes > 0)
-        .sort((a: any, b: any) => a.minutes - b.minutes); // ⭐ Explicitly sort by time
+        .sort((a: any, b: any) => a.minutes - b.minutes); // Sort by time
+        
+        // ⭐ STEP 2: Clean up invalid punch sequences (IN-IN or OUT-OUT)
+        // Valid pattern should be: IN, OUT, IN, OUT, ...
+        const cleanedPunches: any[] = [];
+        let expectedNext: "In" | "Out" = "In"; // We expect to start with IN
+        
+        for (const punch of punchTimes) {
+            if (punch.type === expectedNext) {
+                cleanedPunches.push(punch);
+                expectedNext = expectedNext === "In" ? "Out" : "In";
+            }
+            // Skip invalid punches silently
+        }
+        
+        punchTimes = cleanedPunches;
         
         // Helper to set map without merging
         const setMap = (k: string) => {
@@ -315,10 +332,7 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
         }
       });
     }
-    // --- Post-Processing: Fix Merged Days ---
-    // Scenario: Data from Day X+1 is merged into Day X
-    // Pattern: IN, OUT, IN, IN, OUT, OUT (6 punches)
-    // We want to move the "extra" pair to Day X+1
+    // --- Post-Processing: Fix Merged Days and Duplicate OUTs ---
     const sortedDays = Array.from(map.keys()).sort((a, b) => {
         // Simple numeric sort if possible, else string sort
         const na = Number(a);
@@ -386,7 +400,7 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
             }
         }
 
-        // ⭐ NEW: Check for duplicate OUT punches across consecutive days
+        // ⭐ Check for duplicate OUT punches across consecutive days
         // Pattern: Day X ends with OUT at time T, Day X+1 starts with OUT at same time T
         // Example: Day 2: IN 08:26, IN 08:36, OUT 17:28, OUT 17:29
         //          Day 3: OUT 17:29, ...
@@ -416,27 +430,6 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
                     }
                 }
             }
-        }
-
-        // ⭐ Clean up invalid punch sequences (IN-IN or OUT-OUT)
-        // Valid pattern should be: IN, OUT, IN, OUT, ...
-        // Remove redundant punches that break this pattern
-        const cleanedPunches: any[] = [];
-        let expectedNext: "In" | "Out" = "In"; // We expect to start with IN
-        
-        for (const punch of punches) {
-            if (punch.type === expectedNext) {
-                cleanedPunches.push(punch);
-                expectedNext = expectedNext === "In" ? "Out" : "In";
-            } else {
-                console.log(`🧹 Removing invalid punch on Day ${currentDay}: ${punch.type} at ${punch.time} (expected ${expectedNext})`);
-            }
-        }
-        
-        // Update the map with cleaned punches if any were removed
-        if (cleanedPunches.length !== punches.length) {
-            map.set(currentDay, cleanedPunches);
-            console.log(`   Cleaned Day ${currentDay}: ${punches.length} -> ${cleanedPunches.length} punches`);
         }
     }
 
@@ -529,7 +522,9 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
     const dateNum = Number(day.date) || 0;
 
     // ADJ-P special handling: OT only after 6:00 PM (5:30 PM + 30 min buffer)
-    if (status === "ADJ-P") {
+    if (status === "ADJ-P" || status === "ADJ-P/A" || status === "ADJP/A") {
+      if (isStaff) return 0;
+
       if (outTime && outTime !== "-") {
         const outMinutes = timeToMinutes(outTime);
         const ADJ_P_SHIFT_END = 17 * 60 + 30; // 17:30
@@ -602,7 +597,7 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
     let status = (day.attendance.status || "").toUpperCase();
 
     // Check for ADJ-P half day -> change to ADJ-P/A
-    if (status === "ADJ-P") {
+    if (status === "ADJ-P" || status === "ADJP") {
       const workHours = day.attendance.workHrs || 0;
       let workMins = 0;
       if (typeof workHours === "string" && workHours.includes(":")) {
@@ -621,7 +616,7 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
          }
       }
 
-      if (workMins > 0 && workMins <= 240) {
+      if (workMins > 0 && workMins <= 320) {
         status = "ADJ-P/A";
         // Update day object immediately so subsequent logic uses new status
         day = {
@@ -640,7 +635,7 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
 
     // Check if we should calculate OT for this day
     const shouldCalculateOT = 
-      (status === "P" || status === "ADJ-P" || status === "WO-I" || status === "ADJ-M") &&
+      (status === "P" || status === "ADJ-P" || status === "WO-I" || status === "ADJ-M" || status === "ADJ-P/A" || status === "ADJP/A") &&
       day.attendance.outTime && 
       day.attendance.outTime !== "-";
 
@@ -678,7 +673,7 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
     }
 
     // Handle custom timing recalculation
-    if (!customTimingParsed || (status !== "P" && status !== "ADJ-P")) {
+    if (!customTimingParsed || (status !== "P" && status !== "ADJ-P" && status !== "ADJ-P/A" && status !== "ADJP/A")) {
       return {
         ...day,
         hasOTCalculation,
@@ -781,13 +776,33 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
                 const current = punches[i];
                 const next = punches[i+1];
                 
-                if (current.type === "Out" && next.type === "In") {
+                // ⭐ FIX: Only process if current is Out and next is In (break period)
+                // AND ensure Out time is before In time
+                if (current.type === "Out" && next.type === "In" && current.minutes < next.minutes) {
                     const duration = next.minutes - current.minutes;
                     if (duration > 0) {
                          let allowed = 0;
                          const outMin = current.minutes;
-                         const inMin = next.minutes;
+                         let inMin = next.minutes;
+
+                         // [NEW LOGIC] Handle 5:30 PM cutoff for non-fullnight employees
+                         const isFullNight = employee.otGrantedType === "fullnight";
+                         const CUTOFF_TIME = 17 * 60 + 30; // 17:30 (5:30 PM)
+
+                         if (!isFullNight) {
+                             if (outMin >= CUTOFF_TIME) {
+                                 // Break starts after 5:30 PM, ignore completely
+                                 continue;
+                             }
+                             if (inMin > CUTOFF_TIME) {
+                                 // Break ends after 5:30 PM, truncate to 5:30 PM
+                                 inMin = CUTOFF_TIME;
+                             }
+                         }
                          
+                         // Recalculate duration based on truncated time for excess calculation
+                         const calcDuration = inMin - outMin;
+
                          for (const defBreak of BREAKS) {
                             const overlapStart = Math.max(outMin, defBreak.start);
                             const overlapEnd = Math.min(inMin, defBreak.end);
@@ -799,9 +814,7 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
                             allowed = Math.max(allowed, 15);
                          }
                          
-                         allowed = Math.max(allowed, 30);
-                         
-                         const excess = Math.max(0, duration - allowed);
+                         const excess = Math.max(0, calcDuration - allowed);
                          totalBreakExcess += excess;
                     }
                 }
@@ -896,7 +909,13 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
 
               <div className="flex justify-between">
                 <span className="font-semibold">Early Dep:</span>
-                <span>{day.attendance.earlyDep || "0"}</span>
+                <span className={
+                    (day.attendance.status === "ADJ-P/A" || day.attendance.status === "ADJP/A" || day.attendance.status === "P/A" || day.attendance.status === "PA") 
+                    ? "line-through text-gray-400" 
+                    : ""
+                }>
+                    {day.attendance.earlyDep || "0"}
+                </span>
               </div>
 
               {/* OT Hours */}
@@ -1008,28 +1027,46 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
                                         const duration = next.minutes - punch.minutes;
                                         if (duration < 0) return null;
                                         
-                                        const isBreak = punch.type === "Out" && next.type === "In";
+                                        // ⭐ FIX: Only calculate break excess for valid Out-In pairs
+                                        const isBreak = punch.type === "Out" && next.type === "In" && punch.minutes < next.minutes;
                                         
                                         // Calculate excess
                                         let allowed = 0;
+                                        let excess = 0;
+
                                         if (isBreak) {
                                             const outMin = punch.minutes;
-                                            const inMin = next.minutes;
-                                            for (const defBreak of BREAKS) {
-                                                const overlapStart = Math.max(outMin, defBreak.start);
-                                                const overlapEnd = Math.min(inMin, defBreak.end);
-                                                const overlap = Math.max(0, overlapEnd - overlapStart);
-                                                if (overlap > 0) allowed += defBreak.allowed;
+                                            let inMin = next.minutes;
+
+                                            // [NEW LOGIC] Handle 5:30 PM cutoff for non-fullnight employees
+                                            const isFullNight = employee.otGrantedType === "fullnight";
+                                            const CUTOFF_TIME = 17 * 60 + 30; // 17:30 (5:30 PM)
+                                            let ignoreBreak = false;
+
+                                            if (!isFullNight) {
+                                                if (outMin >= CUTOFF_TIME) {
+                                                    ignoreBreak = true;
+                                                } else if (inMin > CUTOFF_TIME) {
+                                                    inMin = CUTOFF_TIME;
+                                                }
                                             }
-                                            if (outMin >= 17 * 60 + 30 || inMin >= 17 * 60 + 30) {
-                                                allowed = Math.max(allowed, 15);
+
+                                            if (!ignoreBreak) {
+                                                const calcDuration = inMin - outMin;
+
+                                                for (const defBreak of BREAKS) {
+                                                    const overlapStart = Math.max(outMin, defBreak.start);
+                                                    const overlapEnd = Math.min(inMin, defBreak.end);
+                                                    const overlap = Math.max(0, overlapEnd - overlapStart);
+                                                    if (overlap > 0) allowed += defBreak.allowed;
+                                                }
+                                                if (outMin >= 17 * 60 + 30 || inMin >= 17 * 60 + 30) {
+                                                    allowed = Math.max(allowed, 15);
+                                                }
+                                                
+                                                excess = Math.max(0, calcDuration - allowed);
                                             }
-                                            
-                                            // ⭐ Always allow minimum 30 minutes break
-                                            // Even if the break doesn't overlap with standard break windows
-                                            allowed = Math.max(allowed, 30);
                                         }
-                                        const excess = Math.max(0, duration - allowed);
                                         
                                         return (
                                             <div className="flex flex-col items-center justify-center mx-0.5 flex-shrink-0">
