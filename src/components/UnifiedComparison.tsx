@@ -9,7 +9,7 @@ import { useHRLateLookup } from "@/hooks/useHRLateLookup";
 import { useHROTLookup } from "@/hooks/useHROTLookup";
 import { calculateEmployeeStats } from "@/lib/statsCalculator";
 import { calculateTotalCombinedMinutes } from "@/lib/unifiedCalculations";
-import { exportUnifiedComparisonToExcel } from "@/lib/exportUnifiedComparison";
+import { exportUnifiedComparisonToExcel, exportMajorMediumDifferences } from "@/lib/exportUnifiedComparison";
 import { ArrowDown, ArrowUp, ChevronDown, ChevronUp } from "lucide-react";
 
 // --- Types ---
@@ -689,13 +689,23 @@ export const UnifiedComparison: React.FC = () => {
             </button>
             
             {showTable && (
+              <>
                 <button
                 onClick={() => exportUnifiedComparisonToExcel(sortedData)}
                 className="flex items-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg font-bold shadow-md hover:bg-green-700 transition-all"
                 >
-                Export to Excel
+                Export All to Excel
                 <ArrowDown size={20} />
                 </button>
+                
+                <button
+                onClick={() => exportMajorMediumDifferences(sortedData)}
+                className="flex items-center gap-2 px-6 py-3 bg-orange-600 text-white rounded-lg font-bold shadow-md hover:bg-orange-700 transition-all"
+                >
+                Export Major/Medium Issues
+                <ArrowDown size={20} />
+                </button>
+              </>
             )}
         </div>
       </div>
