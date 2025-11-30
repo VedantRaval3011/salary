@@ -124,6 +124,11 @@ function processEmployeeBlock(
         employee.holiday =
           parseFloat(holidayCell.replace(/Holiday[s]?\s*:\s*/i, "").trim()) ||
           0;
+        
+        // If department contains "cash", set holidays to 0
+        if (employee.department.toLowerCase().includes("cash")) {
+          employee.holiday = 0;
+        }
       }
 
       const weekOffCell = cellValueToString(row.getCell(17).value);
