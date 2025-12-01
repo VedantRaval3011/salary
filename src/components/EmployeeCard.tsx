@@ -401,28 +401,73 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
         onFinalDifferenceCalculated={(difference) => {
           setFinalDifference(difference);
           updateFinalDifference(employee.empCode, difference);
+        }}
+        onStaticFinalDifferenceCalculated={(staticDiff) => {
+          setStaticFinalDifference((prev) => (prev === staticDiff ? prev : staticDiff));
 
           // Calculate Late Deduction Days with different buffers for Staff vs Worker
-          // Staff: 30-minute buffer
-          // Worker: 2-hour (120-minute) buffer
+          // Staff: 30-minute buffer, always applies
+          // Non-Staff: If final difference ≤ 2 hours, no deduction. If > 2 hours, deduct only excess beyond 2 hours (min 0.5)
+          // IMPORTANT: Use staticFinalDifference (not finalDifference) for late deduction
           let deduction = 0;
-          if (difference < 0) {
-            const absDiff = Math.abs(difference);
+          if (staticDiff < 0) {
+            const absDiff = Math.abs(staticDiff);
             const isStaff = getIsStaff(employee);
-            const bufferMinutes = isStaff ? 30 : 120; // 30 mins for staff, 120 mins (2 hours) for workers
             
-            // Apply buffer based on employee type
-            // For Staff: 0-30 mins => 0 deduction, 31-270 mins (4h 30m) => 0.5 days, etc.
-            // For Worker: 0-120 mins => 0 deduction, 121-360 mins (6h) => 0.5 days, etc.
-            const bufferedDiff = Math.max(0, absDiff - bufferMinutes);
-            deduction = Math.ceil(bufferedDiff / 240) * 0.5;
-            
-            console.log(
-              `🔍 ${employee.empName} (${isStaff ? 'Staff' : 'Worker'}) - ` +
-              `Final Diff: ${difference} mins, Abs: ${absDiff} mins, ` +
-              `Buffer: ${bufferMinutes} mins, Buffered: ${bufferedDiff} mins, ` +
-              `Deduction: ${deduction} days`
-            );
+            if (isStaff) {
+              // Staff logic: 30-minute buffer
+              const bufferMinutes = 30;
+              const exceeds4Hours = absDiff > 240;
+              const bufferedDiff = Math.max(0, absDiff - bufferMinutes);
+              
+              // Calculate deduction: every 240 minutes (4 hours) after buffer = 0.5 days
+              if (bufferedDiff >= 240) {
+                deduction = Math.floor(bufferedDiff / 240) * 0.5;
+                // If there's a remainder, add 0.5 days
+                if (bufferedDiff % 240 > 0) {
+                  deduction += 0.5;
+                }
+              } else if (bufferedDiff > 0) {
+                // Less than 240 minutes but more than 0
+                deduction = 0.5;
+              }
+              
+              // If the original difference exceeds 4 hours, ensure minimum 1.0 days deduction
+              if (exceeds4Hours && deduction < 1.0) {
+                deduction = 1.0;
+              }
+              
+              console.log(
+                `🔍 ${employee.empName} (Staff) - ` +
+                `Static Final Diff: ${staticDiff} mins, Abs: ${absDiff} mins, ` +
+                `Exceeds 4hrs: ${exceeds4Hours}, Buffer: ${bufferMinutes} mins, ` +
+                `Buffered: ${bufferedDiff} mins, Deduction: ${deduction} days`
+              );
+            } else {
+              // Non-Staff logic: No deduction if ≤ 2 hours, else deduct only excess beyond 2 hours
+              const threshold = 120; // 2 hours in minutes
+              
+              if (absDiff <= threshold) {
+                // No deduction if final difference is ≤ 2 hours
+                deduction = 0;
+                console.log(
+                  `🔍 ${employee.empName} (Non-Staff) - ` +
+                  `Static Final Diff: ${staticDiff} mins, Abs: ${absDiff} mins, ` +
+                  `≤ 2 hours threshold, No Deduction`
+                );
+              } else {
+                // Deduct only the excess beyond 2 hours, minimum 0.5 days
+                const excessBeyond2Hours = absDiff - threshold;
+                deduction = 0.5; // Minimum deduction
+                
+                console.log(
+                  `🔍 ${employee.empName} (Non-Staff) - ` +
+                  `Static Final Diff: ${staticDiff} mins, Abs: ${absDiff} mins, ` +
+                  `> 2 hours threshold, Excess: ${excessBeyond2Hours} mins, ` +
+                  `Deduction: ${deduction} days (minimum 0.5)`
+                );
+              }
+            }
           }
           setLateDeductionDays(deduction);
         }}

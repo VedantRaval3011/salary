@@ -119,28 +119,11 @@ export const calculateEarlyDepartureMinutes = (employee: EmployeeData): number =
        const inM = timeToMinutes(day.attendance.inTime);
        const outM = timeToMinutes(day.attendance.outTime);
        if (outM > inM) {
-           workMins = outM - inM;
-       }
-    }
-
-    const isHalfDay = workMins > 0 && workMins <= 240;
-
-    // 1. Skip early departure for explicit P/A and adj-P/A statuses
-    if (status === "P/A" || status === "PA" || 
-        status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA") {
-      return; // Skip
-    }
-
-    // 2. Handle adj-P
-    if (status === "ADJ-P" || status === "ADJP") {
-      if (isHalfDay) {
-        // Treat as adj-P/A -> Skip early departure
-        return;
+        workMins = outM - inM;
       }
-      // Else (Full Day adj-P) -> Count early departure
     }
     
-    // 3. Count for others (P, Full Day adj-P, etc.)
+    // Count for others (P, Full Day adj-P, etc.)
     if (earlyDepMins > 0) {
       earlyDepartureTotalMinutes += earlyDepMins;
     }
@@ -179,13 +162,13 @@ export const calculateLessThan4HoursMinutes = (employee: EmployeeData): number =
 
 /**
  * Calculate break excess minutes
- * NOTE: This requires lunch data which needs to be passed in
+ * NOTE: This now accepts punchData from PunchDataContext
  */
 export const calculateBreakExcessMinutes = (
   employee: EmployeeData,
-  lunchData?: any
+  punchData?: { attendance: { [date: string]: { in: string[]; out: string[] } } }
 ): number => {
-  if (!lunchData || !lunchData.dailyPunches) {
+  if (!punchData || !punchData.attendance) {
     return 0;
   }
 
@@ -197,85 +180,96 @@ export const calculateBreakExcessMinutes = (
 
   let totalExcessMinutes = 0;
 
-  for (const dayData of lunchData.dailyPunches) {
-    const punches = dayData.punches || [];
-    if (punches.length < 2) continue;
+  // Iterate through all dates in the punch data
+  for (const [date, dayData] of Object.entries(punchData.attendance)) {
+    const ins = dayData.in || [];
+    const outs = dayData.out || [];
+    
+    if (ins.length === 0 || outs.length === 0) continue;
+    
+    // Combine In and Out punches
+    const punches: any[] = [];
+    
+    ins.forEach((time: string) => {
+      const minutes = timeToMinutes(time);
+      if (minutes > 0) {
+        punches.push({ type: "In", time, minutes });
+      }
+    });
+    
+    outs.forEach((time: string) => {
+      const minutes = timeToMinutes(time);
+      if (minutes > 0) {
+        punches.push({ type: "Out", time, minutes });
+      }
+    });
+    
+    // Sort by time
+    punches.sort((a, b) => a.minutes - b.minutes);
 
-    // ⭐ STEP 1: Convert to minutes, filter invalid, and sort
-    let punchTimes = punches
-      .map((p: any) => ({
-        type: p.type,
-        minutes: timeToMinutes(p.time),
-        time: p.time,
-      }))
-      .filter((p: any) => p.minutes > 0)
-      .sort((a: any, b: any) => a.minutes - b.minutes);
-
-    // ⭐ STEP 2: Clean up invalid punch sequences (IN-IN or OUT-OUT)
+    // ⭐ Clean up invalid punch sequences (IN-IN or OUT-OUT)
     // Valid pattern should be: IN, OUT, IN, OUT, ...
     const cleanedPunches: any[] = [];
     let expectedNext: "In" | "Out" = "In"; // We expect to start with IN
     
-    for (const punch of punchTimes) {
-        if (punch.type === expectedNext) {
-            cleanedPunches.push(punch);
-            expectedNext = expectedNext === "In" ? "Out" : "In";
-        }
-        // Skip invalid punches silently
+    for (const punch of punches) {
+      if (punch.type === expectedNext) {
+        cleanedPunches.push(punch);
+        expectedNext = expectedNext === "In" ? "Out" : "In";
+      }
+      // Skip invalid punches silently
     }
-    
-    punchTimes = cleanedPunches;
 
-    if (punchTimes.length < 2) continue;
+    if (cleanedPunches.length < 2) continue;
 
     // ⭐ Calculate break excess for valid Out-In pairs
-    for (let i = 0; i < punchTimes.length - 1; i++) {
-        const current = punchTimes[i];
-        const next = punchTimes[i+1];
-        
-        // Only process if current is Out and next is In (break period)
-        // AND ensure Out time is before In time
-        if (current.type === "Out" && next.type === "In" && current.minutes < next.minutes) {
-            const outMin = current.minutes;
-            let inMin = next.minutes;
+    for (let i = 0; i < cleanedPunches.length - 1; i++) {
+      const current = cleanedPunches[i];
+      const next = cleanedPunches[i+1];
+      
+      // Only process if current is Out and next is In (break period)
+      // AND ensure Out time is before In time
+      if (current.type === "Out" && next.type === "In" && current.minutes < next.minutes) {
+        const outMin = current.minutes;
+        let inMin = next.minutes;
 
-            // [NEW LOGIC] Handle 5:30 PM cutoff for non-fullnight employees
-            const isFullNight = employee.otGrantedType === "fullnight";
-            const CUTOFF_TIME = 17 * 60 + 30; // 17:30 (5:30 PM)
+        // [NEW LOGIC] Handle 5:30 PM cutoff for non-fullnight employees
+        const isFullNight = employee.otGrantedType === "fullnight";
+        const CUTOFF_TIME = 17 * 60 + 30; // 17:30 (5:30 PM)
 
-            if (!isFullNight) {
-                if (outMin >= CUTOFF_TIME) {
-                    // Break starts after 5:30 PM, ignore completely
-                    continue;
-                }
-                if (inMin > CUTOFF_TIME) {
-                    // Break ends after 5:30 PM, truncate to 5:30 PM
-                    inMin = CUTOFF_TIME;
-                }
-            }
-
-            const duration = inMin - outMin;
-            
-            if (duration > 0) {
-                 let allowed = 0;
-                 
-                 // Calculate allowed time based on break window overlaps
-                 for (const defBreak of BREAKS) {
-                    const overlapStart = Math.max(outMin, defBreak.start);
-                    const overlapEnd = Math.min(inMin, defBreak.end);
-                    const overlap = Math.max(0, overlapEnd - overlapStart);
-                    if (overlap > 0) allowed += defBreak.allowed;
-                 }
-                 
-                 // Evening break allowance (after 5:30 PM)
-                 if (outMin >= 17 * 60 + 30 || inMin >= 17 * 60 + 30) {
-                    allowed = Math.max(allowed, 15);
-                 }
-                 
-                 const excess = Math.max(0, duration - allowed);
-                 totalExcessMinutes += excess;
-            }
+        if (!isFullNight) {
+          if (outMin >= CUTOFF_TIME) {
+            // Break starts after 5:30 PM, ignore completely
+            continue;
+          }
+          if (inMin > CUTOFF_TIME) {
+            // Break ends after 5:30 PM, truncate to 5:30 PM
+            inMin = CUTOFF_TIME;
+          }
         }
+
+        const duration = inMin - outMin;
+        
+        if (duration > 0) {
+          let allowed = 0;
+          
+          // Calculate allowed time based on break window overlaps
+          for (const defBreak of BREAKS) {
+            const overlapStart = Math.max(outMin, defBreak.start);
+            const overlapEnd = Math.min(inMin, defBreak.end);
+            const overlap = Math.max(0, overlapEnd - overlapStart);
+            if (overlap > 0) allowed += defBreak.allowed;
+          }
+          
+          // Evening break allowance (after 5:30 PM)
+          if (outMin >= 17 * 60 + 30 || inMin >= 17 * 60 + 30) {
+            allowed = Math.max(allowed, 15);
+          }
+          
+          const excess = Math.max(0, duration - allowed);
+          totalExcessMinutes += excess;
+        }
+      }
     }
   }
 
@@ -288,7 +282,7 @@ export const calculateBreakExcessMinutes = (
  */
 export const calculateTotalCombinedMinutes = (
   employee: EmployeeData,
-  lunchData?: any,
+  punchData?: { attendance: { [date: string]: { in: string[]; out: string[] } } },
   customStartMinutes?: number
 ): {
   lateMinutes: number;
@@ -305,7 +299,7 @@ export const calculateTotalCombinedMinutes = (
   // Calculate all components
   const lateMinutes = calculateLateMinutes(employee, customStartMinutes);
   const earlyDepartureMinutes = calculateEarlyDepartureMinutes(employee);
-  const breakExcessMinutes = calculateBreakExcessMinutes(employee, lunchData);
+  const breakExcessMinutes = calculateBreakExcessMinutes(employee, punchData);
   const lessThan4HoursMinutes = calculateLessThan4HoursMinutes(employee);
 
   // Calculate total before relaxation

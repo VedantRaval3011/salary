@@ -4,6 +4,7 @@
 import React, { useMemo } from "react";
 import { DayAttendance, EmployeeData } from "@/lib/types";
 import { useExcel } from "@/context/ExcelContext";
+import { usePunchData } from "@/context/PunchDataContext";
 
 interface AttendanceGridProps {
   days: DayAttendance[];
@@ -233,9 +234,8 @@ function useStaffOTGrantedLookup() {
 
 // Helper to check if employee is Staff or Worker
 const getIsStaff = (emp: EmployeeData): boolean => {
-  const inStr = `${emp.companyName ?? ""} ${
-    emp.department ?? ""
-  }`.toLowerCase();
+  const inStr = `${emp.companyName ?? ""} ${emp.department ?? ""
+    }`.toLowerCase();
   if (inStr.includes("worker")) return false;
   if (inStr.includes("staff")) return true;
   return true;
@@ -249,193 +249,101 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
   isOTGranted,
   employee,
 }) => {
-  const { getLunchDataForEmployee } = useLunchInOutLookup();
+  const { getPunchDataForEmployee } = usePunchData();
   const { getGrantForEmployee } = useStaffOTGrantedLookup();
 
-  // --- Compute Daily Punches for this Employee ---
+
+
+  // --- Compute Daily Punches for this Employee from PunchData Context ---
   const dailyPunchesMap = useMemo(() => {
-    const lunchData = getLunchDataForEmployee(employee);
+    const punchData = getPunchDataForEmployee(employee.empCode);
     const map = new Map<string, any[]>();
 
-    // console.log("AttendanceGrid: Lunch Data for", employee.empCode, lunchData);
+    console.log("AttendanceGrid: Punch Data for", employee.empCode, punchData);
 
-    if (lunchData && lunchData.dailyPunches) {
-      lunchData.dailyPunches.forEach((dp: any) => {
-        const rawKey = String(dp.date);
-        
-        const punches = dp.punches || [];
-        
-        // ⭐ STEP 1: Convert to minutes and filter invalid punches
-        let punchTimes = punches.map((p: any) => ({
-            type: p.type,
-            minutes: timeToMinutes(p.time),
-            time: p.time,
-        }))
-        .filter((p: any) => p.minutes > 0)
-        .sort((a: any, b: any) => a.minutes - b.minutes); // Sort by time
-        
-        // ⭐ STEP 2: Clean up invalid punch sequences (IN-IN or OUT-OUT)
+    if (punchData && punchData.attendance) {
+      // Iterate through all dates in the punch data
+      Object.entries(punchData.attendance).forEach(([dateKey, dayData]) => {
+        const ins = dayData.in || [];
+        const outs = dayData.out || [];
+
+        // Combine In and Out punches
+        const punches: any[] = [];
+
+        ins.forEach((time: string) => {
+          const minutes = timeToMinutes(time);
+          if (minutes > 0) {
+            punches.push({ type: "In", time, minutes });
+          }
+        });
+
+        outs.forEach((time: string) => {
+          const minutes = timeToMinutes(time);
+          if (minutes > 0) {
+            punches.push({ type: "Out", time, minutes });
+          }
+        });
+
+        // Sort by time
+        punches.sort((a, b) => a.minutes - b.minutes);
+
+        // ⭐ Clean up invalid punch sequences (IN-IN or OUT-OUT)
         // Valid pattern should be: IN, OUT, IN, OUT, ...
         const cleanedPunches: any[] = [];
         let expectedNext: "In" | "Out" = "In"; // We expect to start with IN
-        
-        for (const punch of punchTimes) {
-            if (punch.type === expectedNext) {
-                cleanedPunches.push(punch);
-                expectedNext = expectedNext === "In" ? "Out" : "In";
-            }
-            // Skip invalid punches silently
+
+        for (const punch of punches) {
+          if (punch.type === expectedNext) {
+            cleanedPunches.push(punch);
+            expectedNext = expectedNext === "In" ? "Out" : "In";
+          }
+          // Skip invalid punches silently
         }
-        
-        punchTimes = cleanedPunches;
-        
-        // Helper to set map without merging
+
+        // Helper to set map with multiple key variants
         const setMap = (k: string) => {
-            map.set(k, punchTimes);
+          map.set(k, cleanedPunches);
         };
 
-        setMap(rawKey);
-        
+        setMap(dateKey);
+
         // Try to handle "01", "02" vs "1", "2"
-        if (rawKey.match(/^\d{1,2}$/)) {
-            // It's a simple number like "1", "10", "05"
-            const num = parseInt(rawKey, 10).toString(); // "1", "10", "5"
-            setMap(num);
-            setMap(num.padStart(2, '0'));
+        if (dateKey.match(/^\d{1,2}$/)) {
+          // It's a simple number like "1", "10", "05"
+          const num = parseInt(dateKey, 10).toString(); // "1", "10", "5"
+          setMap(num);
+          setMap(num.padStart(2, '0'));
         }
-        
+
         // Handle ISO Date: YYYY-MM-DD -> extract DD
-        const isoMatch = rawKey.match(/^\d{4}-\d{2}-(\d{2})/);
+        const isoMatch = dateKey.match(/^\d{4}-\d{2}-(\d{2})/);
         if (isoMatch) {
-             const dayPart = isoMatch[1];
-             setMap(dayPart); // "01"
-             setMap(dayPart.replace(/^0/, "")); // "1"
+          const dayPart = isoMatch[1];
+          setMap(dayPart); // "01"
+          setMap(dayPart.replace(/^0/, "")); // "1"
         }
 
         // Handle DD-Mon-YYYY (e.g. 10-Nov-2023)
-        const datePartsMatch = rawKey.match(/^(\d{1,2})[-\s\/]([A-Za-z]+)[-\s\/]/);
+        const datePartsMatch = dateKey.match(/^(\d{1,2})[-\s\/]([A-Za-z]+)[-\s\/]/);
         if (datePartsMatch) {
-             const dayPart = datePartsMatch[1];
-             setMap(dayPart);
-             setMap(dayPart.padStart(2, '0'));
-             setMap(dayPart.replace(/^0/, ""));
+          const dayPart = datePartsMatch[1];
+          setMap(dayPart);
+          setMap(dayPart.padStart(2, '0'));
+          setMap(dayPart.replace(/^0/, ""));
         }
 
         // Handle DD/MM/YYYY or DD-MM-YYYY (Numeric)
-        // This restores support for standard excel date formats
-        const numericDateMatch = rawKey.match(/^(\d{1,2})[-\s\/](\d{1,2})[-\s\/](\d{2,4})/);
+        const numericDateMatch = dateKey.match(/^(\d{1,2})[-\s\/](\d{1,2})[-\s\/](\d{2,4})/);
         if (numericDateMatch) {
-             const dayPart = numericDateMatch[1];
-             setMap(dayPart);
-             setMap(dayPart.padStart(2, '0'));
-             setMap(dayPart.replace(/^0/, ""));
+          const dayPart = numericDateMatch[1];
+          setMap(dayPart);
+          setMap(dayPart.padStart(2, '0'));
+          setMap(dayPart.replace(/^0/, ""));
         }
       });
     }
-    // --- Post-Processing: Fix Merged Days and Duplicate OUTs ---
-    const sortedDays = Array.from(map.keys()).sort((a, b) => {
-        // Simple numeric sort if possible, else string sort
-        const na = Number(a);
-        const nb = Number(b);
-        if (!isNaN(na) && !isNaN(nb)) return na - nb;
-        return a.localeCompare(b);
-    });
-
-    for (let i = 0; i < sortedDays.length; i++) {
-        const currentDay = sortedDays[i];
-        const punches = map.get(currentDay) || [];
-
-        // Check for the specific anomaly: 6 punches, I-O-I-I-O-O
-        if (punches.length === 6) {
-            const types = punches.map(p => p.type).join(',');
-            // Expected: In,Out,In,In,Out,Out
-            if (types === "In,Out,In,In,Out,Out") {
-                // We assume indices 0,1 are Morning
-                // Indices 2,4 are Afternoon (Day X)
-                // Indices 3,5 are Afternoon (Day X+1) - The "repeated" ones
-                
-                // Verify timestamps to be sure
-                // p[2] (13:28) vs p[3] (13:41) -> p[3] is later
-                // p[4] (18:35) vs p[5] (19:24) -> p[5] is later
-                
-                const p2 = punches[2];
-                const p3 = punches[3];
-                const p4 = punches[4];
-                const p5 = punches[5];
-
-                if (p3.minutes > p2.minutes && p5.minutes > p4.minutes) {
-                     // Identify the next day
-                     // If currentDay is "10", next is "11"
-                     // If currentDay is "10-Nov", next is ... harder. 
-                     // Let's rely on the sortedDays array if possible, or try to compute next day.
-                     
-                     let nextDayKey = null;
-                     
-                     // Try numeric increment first
-                     if (currentDay.match(/^\d+$/)) {
-                         nextDayKey = (parseInt(currentDay) + 1).toString();
-                         // Handle padding if consistent
-                         if (currentDay.startsWith('0')) nextDayKey = nextDayKey.padStart(2, '0');
-                     } else {
-                         // Try to find the next key in sorted list
-                         if (i + 1 < sortedDays.length) {
-                             nextDayKey = sortedDays[i+1];
-                         }
-                     }
-
-                     if (nextDayKey) {
-                         const nextDayPunches = map.get(nextDayKey);
-                         // Only move if next day is empty or missing
-                         if (!nextDayPunches || nextDayPunches.length === 0) {
-                             console.log(`🔧 Fixing merged data: Moving punches from Day ${currentDay} to ${nextDayKey}`);
-                             
-                             const dayXPunches = [punches[0], punches[1], punches[2], punches[4]];
-                             const dayXPlus1Punches = [punches[3], punches[5]];
-                             
-                             map.set(currentDay, dayXPunches);
-                             map.set(nextDayKey, dayXPlus1Punches);
-                         }
-                     }
-                }
-            }
-        }
-
-        // ⭐ Check for duplicate OUT punches across consecutive days
-        // Pattern: Day X ends with OUT at time T, Day X+1 starts with OUT at same time T
-        // Example: Day 2: IN 08:26, IN 08:36, OUT 17:28, OUT 17:29
-        //          Day 3: OUT 17:29, ...
-        if (i + 1 < sortedDays.length) {
-            const nextDay = sortedDays[i + 1];
-            const nextDayPunches = map.get(nextDay) || [];
-            
-            if (punches.length >= 2 && nextDayPunches.length > 0) {
-                // Get the last punch from current day
-                const lastPunch = punches[punches.length - 1];
-                
-                // Get the first punch from next day
-                const firstNextPunch = nextDayPunches[0];
-                
-                // Check if both are OUT punches with similar times (within 2 minutes)
-                if (lastPunch.type === "Out" && firstNextPunch.type === "Out") {
-                    const timeDiff = Math.abs(lastPunch.minutes - firstNextPunch.minutes);
-                    
-                    if (timeDiff <= 2) {
-                        console.log(`🔧 Fixing duplicate OUT: Day ${currentDay} last OUT at ${lastPunch.time} matches Day ${nextDay} first OUT at ${firstNextPunch.time}`);
-                        
-                        // Remove the last punch from current day
-                        const filteredCurrent = punches.slice(0, -1);
-                        
-                        map.set(currentDay, filteredCurrent);
-                        console.log(`   Removed duplicate OUT ${lastPunch.time} from Day ${currentDay}`);
-                    }
-                }
-            }
-        }
-    }
-
-    // console.log("AttendanceGrid: Daily Punches Map Keys:", Array.from(map.keys()));
     return map;
-  }, [employee, getLunchDataForEmployee]);
+  }, [employee.empCode, getPunchDataForEmployee]);
 
   // Parse custom timing to get start and end times
   const parseCustomTime = (timeStr: string | undefined) => {
@@ -609,11 +517,11 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
 
       // Fallback: Calculate from In/Out if workMins is 0
       if (workMins === 0 && day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
-         const inM = timeToMinutes(day.attendance.inTime);
-         const outM = timeToMinutes(day.attendance.outTime);
-         if (outM > inM) {
-             workMins = outM - inM;
-         }
+        const inM = timeToMinutes(day.attendance.inTime);
+        const outM = timeToMinutes(day.attendance.outTime);
+        if (outM > inM) {
+          workMins = outM - inM;
+        }
       }
 
       if (workMins > 0 && workMins <= 320) {
@@ -629,14 +537,52 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
       }
     }
 
+    // Recalculate Early Departure for P/A statuses
+    let originalEarlyDep = day.attendance.earlyDep;
+    let hasEarlyDepCalculation = false;
+
+    if (status === "P/A" || status === "PA" || status === "ADJ-P/A" || status === "ADJP/A") {
+      const outTime = day.attendance.outTime;
+      if (outTime && outTime !== "-") {
+        const outMinutes = timeToMinutes(outTime);
+        const TARGET_EXIT_MINUTES = 12 * 60 + 45; // 12:45
+
+        if (outMinutes < TARGET_EXIT_MINUTES) {
+          const newEarlyDep = TARGET_EXIT_MINUTES - outMinutes;
+          if (String(newEarlyDep) !== String(originalEarlyDep || "0")) {
+            hasEarlyDepCalculation = true;
+            day = {
+              ...day,
+              attendance: {
+                ...day.attendance,
+                earlyDep: newEarlyDep.toString()
+              }
+            };
+          }
+        } else {
+          if (String(originalEarlyDep || "0") !== "0") {
+            hasEarlyDepCalculation = true;
+            day = {
+              ...day,
+              attendance: {
+                ...day.attendance,
+                earlyDep: "0"
+              }
+            };
+
+          }
+        }
+      }
+    }
+
     let hasOTCalculation = false;
     let originalOTValue = "";
     let calculatedOTMinutes = 0;
 
     // Check if we should calculate OT for this day
-    const shouldCalculateOT = 
+    const shouldCalculateOT =
       (status === "P" || status === "ADJ-P" || status === "WO-I" || status === "ADJ-M" || status === "ADJ-P/A" || status === "ADJP/A") &&
-      day.attendance.outTime && 
+      day.attendance.outTime &&
       day.attendance.outTime !== "-";
 
     if (shouldCalculateOT) {
@@ -679,6 +625,8 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
         hasOTCalculation,
         originalOTValue,
         calculatedOTMinutes,
+        originalEarlyDep: hasEarlyDepCalculation ? originalEarlyDep : undefined,
+        hasEarlyDepCalculation,
       } as DayAttendance & {
         originalLateMins?: string;
         originalOTHrs?: string;
@@ -686,6 +634,8 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
         hasOTCalculation?: boolean;
         originalOTValue?: string;
         calculatedOTMinutes?: number;
+        originalEarlyDep?: string;
+        hasEarlyDepCalculation?: boolean;
       };
     }
 
@@ -713,6 +663,8 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
       hasOTCalculation,
       originalOTValue,
       calculatedOTMinutes,
+      originalEarlyDep: hasEarlyDepCalculation ? originalEarlyDep : undefined,
+      hasEarlyDepCalculation,
     } as DayAttendance & {
       originalLateMins?: string;
       originalOTHrs?: string;
@@ -720,8 +672,12 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
       hasOTCalculation?: boolean;
       originalOTValue?: string;
       calculatedOTMinutes?: number;
+      originalEarlyDep?: string;
+      hasEarlyDepCalculation?: boolean;
     };
   });
+
+
 
   const getStatusColor = (status: string, day?: DayAttendance) => {
     const s = status.toUpperCase();
@@ -745,25 +701,25 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
       {processedDays.map((day, index) => {
         // Retrieve punches for this day
         let punches = dailyPunchesMap.get(String(day.date));
-        
+
         // Fallback: if day.date is "1", try "01"
         if (!punches && String(day.date).length === 1) {
-            punches = dailyPunchesMap.get(String(day.date).padStart(2, "0"));
+          punches = dailyPunchesMap.get(String(day.date).padStart(2, "0"));
         }
-        
+
         // ⭐ Fallback: If no punch data, create from attendance In/Out times
         if ((!punches || punches.length === 0) && day.attendance.inTime && day.attendance.outTime) {
-            const inTime = day.attendance.inTime;
-            const outTime = day.attendance.outTime;
-            
-            if (inTime !== "-" && outTime !== "-") {
-                punches = [
-                    { type: "In", time: inTime, minutes: timeToMinutes(inTime) },
-                    { type: "Out", time: outTime, minutes: timeToMinutes(outTime) }
-                ];
-            }
+          const inTime = day.attendance.inTime;
+          const outTime = day.attendance.outTime;
+
+          if (inTime !== "-" && outTime !== "-") {
+            punches = [
+              { type: "In", time: inTime, minutes: timeToMinutes(inTime) },
+              { type: "Out", time: outTime, minutes: timeToMinutes(outTime) }
+            ];
+          }
         }
-        
+
         // Debug log for first few days
         // if (index < 3) {
         //     console.log(`AttendanceGrid: Day ${day.date} punches:`, punches);
@@ -772,64 +728,63 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
         // Calculate total break excess for the day
         let totalBreakExcess = 0;
         if (punches && punches.length > 0) {
-            for (let i = 0; i < punches.length - 1; i++) {
-                const current = punches[i];
-                const next = punches[i+1];
-                
-                // ⭐ FIX: Only process if current is Out and next is In (break period)
-                // AND ensure Out time is before In time
-                if (current.type === "Out" && next.type === "In" && current.minutes < next.minutes) {
-                    const duration = next.minutes - current.minutes;
-                    if (duration > 0) {
-                         let allowed = 0;
-                         const outMin = current.minutes;
-                         let inMin = next.minutes;
+          for (let i = 0; i < punches.length - 1; i++) {
+            const current = punches[i];
+            const next = punches[i + 1];
 
-                         // [NEW LOGIC] Handle 5:30 PM cutoff for non-fullnight employees
-                         const isFullNight = employee.otGrantedType === "fullnight";
-                         const CUTOFF_TIME = 17 * 60 + 30; // 17:30 (5:30 PM)
+            // ⭐ FIX: Only process if current is Out and next is In (break period)
+            // AND ensure Out time is before In time
+            if (current.type === "Out" && next.type === "In" && current.minutes < next.minutes) {
+              const duration = next.minutes - current.minutes;
+              if (duration > 0) {
+                let allowed = 0;
+                const outMin = current.minutes;
+                let inMin = next.minutes;
 
-                         if (!isFullNight) {
-                             if (outMin >= CUTOFF_TIME) {
-                                 // Break starts after 5:30 PM, ignore completely
-                                 continue;
-                             }
-                             if (inMin > CUTOFF_TIME) {
-                                 // Break ends after 5:30 PM, truncate to 5:30 PM
-                                 inMin = CUTOFF_TIME;
-                             }
-                         }
-                         
-                         // Recalculate duration based on truncated time for excess calculation
-                         const calcDuration = inMin - outMin;
+                // [NEW LOGIC] Handle 5:30 PM cutoff for non-fullnight employees
+                const isFullNight = employee.otGrantedType === "fullnight";
+                const CUTOFF_TIME = 17 * 60 + 30; // 17:30 (5:30 PM)
 
-                         for (const defBreak of BREAKS) {
-                            const overlapStart = Math.max(outMin, defBreak.start);
-                            const overlapEnd = Math.min(inMin, defBreak.end);
-                            const overlap = Math.max(0, overlapEnd - overlapStart);
-                            if (overlap > 0) allowed += defBreak.allowed;
-                         }
-                         
-                         if (outMin >= 17 * 60 + 30 || inMin >= 17 * 60 + 30) {
-                            allowed = Math.max(allowed, 15);
-                         }
-                         
-                         const excess = Math.max(0, calcDuration - allowed);
-                         totalBreakExcess += excess;
-                    }
+                if (!isFullNight) {
+                  if (outMin >= CUTOFF_TIME) {
+                    // Break starts after 5:30 PM, ignore completely
+                    continue;
+                  }
+                  if (inMin > CUTOFF_TIME) {
+                    // Break ends after 5:30 PM, truncate to 5:30 PM
+                    inMin = CUTOFF_TIME;
+                  }
                 }
+
+                // Recalculate duration based on truncated time for excess calculation
+                const calcDuration = inMin - outMin;
+
+                for (const defBreak of BREAKS) {
+                  const overlapStart = Math.max(outMin, defBreak.start);
+                  const overlapEnd = Math.min(inMin, defBreak.end);
+                  const overlap = Math.max(0, overlapEnd - overlapStart);
+                  if (overlap > 0) allowed += defBreak.allowed;
+                }
+
+                if (outMin >= 17 * 60 + 30 || inMin >= 17 * 60 + 30) {
+                  allowed = Math.max(allowed, 15);
+                }
+
+                const excess = Math.max(0, calcDuration - allowed);
+                totalBreakExcess += excess;
+              }
             }
+          }
         }
-        
+
         return (
           <div
             key={index}
             className={`border-2 rounded-lg p-4 cursor-pointer transition-all hover:shadow-lg ${getStatusColor(
               day.attendance.status,
               day
-            )} ${
-              day.isAdjustmentOriginal || day.isAdjustmentTarget ? "relative" : ""
-            }`}
+            )} ${day.isAdjustmentOriginal || day.isAdjustmentTarget ? "relative" : ""
+              }`}
             onClick={() => onAdjustmentClick?.(day.date)}
           >
             {/* Adjustment Badge */}
@@ -909,12 +864,15 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
 
               <div className="flex justify-between">
                 <span className="font-semibold">Early Dep:</span>
-                <span className={
-                    (day.attendance.status === "ADJ-P/A" || day.attendance.status === "ADJP/A" || day.attendance.status === "P/A" || day.attendance.status === "PA") 
-                    ? "line-through text-gray-400" 
-                    : ""
-                }>
+                <span className="">
+                  {day.hasEarlyDepCalculation && day.originalEarlyDep && (
+                    <span className="line-through text-gray-400 mr-2">
+                      {day.originalEarlyDep}
+                    </span>
+                  )}
+                  <span className={day.hasEarlyDepCalculation ? "font-bold text-red-600" : ""}>
                     {day.attendance.earlyDep || "0"}
+                  </span>
                 </span>
               </div>
 
@@ -923,11 +881,11 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
                 <span className="font-semibold">OT Hours:</span>
                 <span
                   className={
-                    day.hasCustomCalculation 
-                      ? "font-bold text-purple-700" 
-                      : day.hasOTCalculation 
-                      ? "font-bold text-blue-700" 
-                      : ""
+                    day.hasCustomCalculation
+                      ? "font-bold text-purple-700"
+                      : day.hasOTCalculation
+                        ? "font-bold text-blue-700"
+                        : ""
                   }
                 >
                   {day.attendance.otHrs || "0:00"}
@@ -963,10 +921,10 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
 
               {totalBreakExcess > 0 && (
                 <div className="flex justify-between">
-                    <span className="font-semibold">Break Excess:</span>
-                    <span className="font-bold text-red-600">
-                        +{totalBreakExcess}m
-                    </span>
+                  <span className="font-semibold">Break Excess:</span>
+                  <span className="font-bold text-red-600">
+                    +{totalBreakExcess}m
+                  </span>
                 </div>
               )}
               <div className="flex justify-between pt-2 border-t border-current border-opacity-30">
@@ -997,99 +955,128 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
                   ✓ OT calculated ({isStaff ? "Staff" : "Worker"} rules)
                 </div>
               )}
-              
+
               {/* --- MINI TRAIN VIEW --- */}
               {punches && punches.length > 0 && (
                 <div className="mt-3 pt-2 border-t border-current border-opacity-30">
-                    <div className="text-[10px] font-bold opacity-70 mb-1">Punch Timeline:</div>
-                    <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-gray-300">
-                        {punches.map((punch: any, pIdx: number) => {
-                            const isIn = punch.type === "In";
+                  <div className="text-[10px] font-bold opacity-70 mb-1">Punch Timeline:</div>
+                  <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-gray-300">
+                    {punches.map((punch: any, pIdx: number) => {
+                      const isIn = punch.type === "In";
+                      return (
+                        <React.Fragment key={pIdx}>
+                          {/* Node */}
+                          <div className="flex flex-col items-center flex-shrink-0">
+                            <div className={`w-10 h-8 rounded flex flex-col items-center justify-center shadow-sm border ${isIn ? "bg-green-50 border-green-400" : "bg-red-50 border-red-400"
+                              }`}>
+                              <div className={`text-[8px] font-bold leading-none ${isIn ? "text-green-700" : "text-red-700"}`}>
+                                {isIn ? "IN" : "OUT"}
+                              </div>
+                              <div className="text-[9px] font-bold text-gray-800 leading-none mt-0.5">
+                                {formatTime(punch.time)}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Arrow + Duration */}
+                          {pIdx < punches.length - 1 && (() => {
+                            const next = punches[pIdx + 1];
+                            const duration = next.minutes - punch.minutes;
+                            if (duration < 0) return null;
+
+                            // ⭐ FIX: Only calculate break excess for valid Out-In pairs
+                            const isBreak = punch.type === "Out" && next.type === "In" && punch.minutes < next.minutes;
+
+                            // Calculate excess
+                            let allowed = 0;
+                            let excess = 0;
+
+                            if (isBreak) {
+                              const outMin = punch.minutes;
+                              let inMin = next.minutes;
+
+                              // [NEW LOGIC] Handle 5:30 PM cutoff for non-fullnight employees
+                              const isFullNight = employee.otGrantedType === "fullnight";
+                              const CUTOFF_TIME = 17 * 60 + 30; // 17:30 (5:30 PM)
+                              let ignoreBreak = false;
+
+                              if (!isFullNight) {
+                                if (outMin >= CUTOFF_TIME) {
+                                  ignoreBreak = true;
+                                } else if (inMin > CUTOFF_TIME) {
+                                  inMin = CUTOFF_TIME;
+                                }
+                              }
+
+                              if (!ignoreBreak) {
+                                const calcDuration = inMin - outMin;
+
+                                for (const defBreak of BREAKS) {
+                                  const overlapStart = Math.max(outMin, defBreak.start);
+                                  const overlapEnd = Math.min(inMin, defBreak.end);
+                                  const overlap = Math.max(0, overlapEnd - overlapStart);
+                                  if (overlap > 0) allowed += defBreak.allowed;
+                                }
+                                if (outMin >= 17 * 60 + 30 || inMin >= 17 * 60 + 30) {
+                                  allowed = Math.max(allowed, 15);
+                                }
+
+                                excess = Math.max(0, calcDuration - allowed);
+                              }
+                            }
+
                             return (
-                                <React.Fragment key={pIdx}>
-                                    {/* Node */}
-                                    <div className="flex flex-col items-center flex-shrink-0">
-                                        <div className={`w-10 h-8 rounded flex flex-col items-center justify-center shadow-sm border ${
-                                            isIn ? "bg-green-50 border-green-400" : "bg-red-50 border-red-400"
-                                        }`}>
-                                            <div className={`text-[8px] font-bold leading-none ${isIn ? "text-green-700" : "text-red-700"}`}>
-                                                {isIn ? "IN" : "OUT"}
-                                            </div>
-                                            <div className="text-[9px] font-bold text-gray-800 leading-none mt-0.5">
-                                                {formatTime(punch.time)}
-                                            </div>
-                                        </div>
-                                    </div>
-                                    
-                                    {/* Arrow + Duration */}
-                                    {pIdx < punches.length - 1 && (() => {
-                                        const next = punches[pIdx + 1];
-                                        const duration = next.minutes - punch.minutes;
-                                        if (duration < 0) return null;
-                                        
-                                        // ⭐ FIX: Only calculate break excess for valid Out-In pairs
-                                        const isBreak = punch.type === "Out" && next.type === "In" && punch.minutes < next.minutes;
-                                        
-                                        // Calculate excess
-                                        let allowed = 0;
-                                        let excess = 0;
-
-                                        if (isBreak) {
-                                            const outMin = punch.minutes;
-                                            let inMin = next.minutes;
-
-                                            // [NEW LOGIC] Handle 5:30 PM cutoff for non-fullnight employees
-                                            const isFullNight = employee.otGrantedType === "fullnight";
-                                            const CUTOFF_TIME = 17 * 60 + 30; // 17:30 (5:30 PM)
-                                            let ignoreBreak = false;
-
-                                            if (!isFullNight) {
-                                                if (outMin >= CUTOFF_TIME) {
-                                                    ignoreBreak = true;
-                                                } else if (inMin > CUTOFF_TIME) {
-                                                    inMin = CUTOFF_TIME;
-                                                }
-                                            }
-
-                                            if (!ignoreBreak) {
-                                                const calcDuration = inMin - outMin;
-
-                                                for (const defBreak of BREAKS) {
-                                                    const overlapStart = Math.max(outMin, defBreak.start);
-                                                    const overlapEnd = Math.min(inMin, defBreak.end);
-                                                    const overlap = Math.max(0, overlapEnd - overlapStart);
-                                                    if (overlap > 0) allowed += defBreak.allowed;
-                                                }
-                                                if (outMin >= 17 * 60 + 30 || inMin >= 17 * 60 + 30) {
-                                                    allowed = Math.max(allowed, 15);
-                                                }
-                                                
-                                                excess = Math.max(0, calcDuration - allowed);
-                                            }
-                                        }
-                                        
-                                        return (
-                                            <div className="flex flex-col items-center justify-center mx-0.5 flex-shrink-0">
-                                                <div className="text-gray-400 text-[10px] -mb-1">→</div>
-                                                <div className={`text-[8px] px-1 rounded ${
-                                                    isBreak && excess > 0 ? "bg-red-200 text-red-800 font-bold" : "bg-white/50 text-gray-600"
-                                                }`}>
-                                                    {duration}m
-                                                    {isBreak && excess > 0 && ` +${excess}`}
-                                                </div>
-                                            </div>
-                                        );
-                                    })()}
-                                </React.Fragment>
+                              <div className="flex flex-col items-center justify-center mx-0.5 flex-shrink-0">
+                                <div className="text-gray-400 text-[10px] -mb-1">→</div>
+                                <div className={`text-[8px] px-1 rounded ${isBreak && excess > 0 ? "bg-red-200 text-red-800 font-bold" : "bg-white/50 text-gray-600"
+                                  }`}>
+                                  {duration}m
+                                  {isBreak && excess > 0 && ` +${excess}`}
+                                </div>
+                              </div>
                             );
-                        })}
-                    </div>
+                          })()}
+                        </React.Fragment>
+                      );
+                    })}
+                  </div>
                 </div>
+              )}
+
+              {/* Verification Details */}
+              {punches && punches.length > 0 && (
+                <details className="mt-2 text-xs border-t border-gray-200 pt-1 group">
+                  <summary className="cursor-pointer text-blue-600 hover:text-blue-800 font-medium select-none flex items-center gap-1 list-none">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Verify Punch Data
+                  </summary>
+                  <div className="mt-2 bg-gray-50 p-2 rounded border border-gray-200">
+                    <div className="grid grid-cols-1 gap-1 mb-2">
+                      <div className="break-words">
+                        <span className="font-bold text-green-700">In:</span> {punches.filter((p: any) => p.type === 'In').map((p: any) => p.time).join(', ')}
+                      </div>
+                      <div className="break-words">
+                        <span className="font-bold text-red-700">Out:</span> {punches.filter((p: any) => p.type === 'Out').map((p: any) => p.time).join(', ')}
+                      </div>
+                    </div>
+                    <div className="flex justify-end">
+                      <span className="bg-green-100 text-green-800 px-2 py-0.5 rounded text-[10px] font-bold border border-green-300 flex items-center gap-1">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        Verified
+                      </span>
+                    </div>
+                  </div>
+                </details>
               )}
             </div>
           </div>
         );
       })}
     </div>
+
   );
 };

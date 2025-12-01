@@ -7,6 +7,7 @@ import { useFinalDifference } from "@/context/FinalDifferenceContext";
 import { calculateBreakExcessMinutes } from "@/lib/unifiedCalculations";
 import { EyeIcon } from "lucide-react";
 import { useHRLateLookup } from "@/hooks/useHRLateLookup";
+import { usePunchData } from "@/context/PunchDataContext";
 
 // Utility helpers
 const canon = (s: string) => (s ?? "").toUpperCase().trim();
@@ -20,6 +21,7 @@ interface Props {
   otGrandTotal?: number;
   staticFinalDifference?: number;
   onFinalDifferenceCalculated?: (difference: number) => void; // 🆕 ADD THIS
+  onStaticFinalDifferenceCalculated?: (staticDiff: number) => void;
   onTotalMinus4Calculated?: (empCode: string, totalMinus4: number) => void;
 }
 
@@ -399,6 +401,7 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
   otGrandTotal = 0,
   staticFinalDifference = 0,
   onFinalDifferenceCalculated,
+  onStaticFinalDifferenceCalculated,
   onTotalMinus4Calculated,
 }) => {
   const {
@@ -412,7 +415,7 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
   } = useFinalDifference();
 
   const { getCustomTimingForEmployee } = useCustomTimingLookup();
-  const { getLunchDataForEmployee } = useLunchInOutLookup();
+  const { getPunchDataForEmployee } = usePunchData();
   const { getHRLateValue } = useHRLateLookup();
 
   const stats = useMemo(() => {
@@ -530,10 +533,25 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
 
       // ❌ RULE: Skip early departure for P/A and adj-P/A statuses
       // For adj-P, only skip if it is a half day (isAdjPHalfDay)
+      // ❌ RULE: Skip early departure for P/A and adj-P/A statuses
+      // For adj-P, only skip if it is a half day (isAdjPHalfDay)
       if (status === "P/A" || status === "PA" || 
-          status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA" || 
-          isAdjPHalfDay) {
-        // Do NOT add earlyDepMins
+          status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA") {
+        
+        // Check out time for P/A early departure (before 12:45)
+        const outTime = day.attendance.outTime;
+        if (outTime && outTime !== "-") {
+            const outMinutes = timeToMinutes(outTime);
+            const TARGET_EXIT_MINUTES = 12 * 60 + 45; // 12:45
+            
+            if (outMinutes < TARGET_EXIT_MINUTES) {
+                earlyDepartureTotalMinutes += (TARGET_EXIT_MINUTES - outMinutes);
+            }
+        }
+        return; // Done for this day
+      }
+
+      if (isAdjPHalfDay) {
         return; // skip this day
       }
 
@@ -544,7 +562,7 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
 
     });
 
-    const breakExcessMinutes = calculateBreakExcessMinutes(employee, getLunchDataForEmployee(employee));
+    const breakExcessMinutes = calculateBreakExcessMinutes(employee, getPunchDataForEmployee(employee.empCode) || undefined);
 
     // --- New: Calculate Total Combined Minutes BEFORE relaxation ---
     let totalBeforeRelaxation =
@@ -579,7 +597,7 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
       // when deduction is applied to otGrandTotal in the parent/sibling.
       finalDifference: Math.round(staticFinalDifference - totalAfterRelaxation),
     };
-  }, [employee, getCustomTimingForEmployee, getLunchDataForEmployee, otGrandTotal, staticFinalDifference]);
+  }, [employee, getCustomTimingForEmployee, getPunchDataForEmployee, otGrandTotal, staticFinalDifference]);
 
   // Add these useEffect hooks after the existing stats useMemo:
 
@@ -596,6 +614,20 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
     employee.empCode,
     updateFinalDifference,
     onFinalDifferenceCalculated,
+  ]);
+
+  useEffect(() => {
+    // Calculate and emit static final difference
+    const staticFinalDiff = staticFinalDifference - stats.totalCombinedMinutes;
+    
+    // Notify parent component if callback exists
+    if (onStaticFinalDifferenceCalculated) {
+      onStaticFinalDifferenceCalculated(staticFinalDiff);
+    }
+  }, [
+    staticFinalDifference,
+    stats.totalCombinedMinutes,
+    onStaticFinalDifferenceCalculated,
   ]);
 
   useEffect(() => {

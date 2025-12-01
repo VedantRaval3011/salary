@@ -7,6 +7,8 @@ import { EmployeeCard } from "@/components/EmployeeCard";
 import { useExcel } from "@/context/ExcelContext";
 import { EmployeeData } from "@/lib/types";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import Punches from "@/components/Punches";
+import { usePunchVerification } from "@/context/PunchVerificationContext";
 
 interface MonthConfig {
   month: string;
@@ -19,6 +21,7 @@ export default function Home() {
   // NOTE: cast to `any` so we can try optional methods without TS errors.
   const excelCtx = useExcel() as any;
   const { excelData, applyAdjustment, applyHolidays } = excelCtx ?? {};
+  const { isVerified } = usePunchVerification();
 
   // COMPANY FILTER
   const [selectedCompany, setSelectedCompany] = useState(
@@ -286,6 +289,11 @@ export default function Home() {
     setNumberOfHolidays(0);
     setConfigurationsApplied(false);
   };
+
+  // Step 0: Show Punches verification if not verified
+  if (!isVerified) {
+    return <Punches />;
+  }
 
   // Render setup wizard
   if (!setupComplete) {
@@ -668,9 +676,8 @@ export default function Home() {
 
   // Main application after setup
   return (
-    <ProtectedRoute>
-      <main className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 py-8 px-4">
-        <div className="max-w-7xl mx-auto">
+    <main className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 py-8 px-4">
+      <div className="max-w-7xl mx-auto">
           {/* Configuration Badge */}
           <div className="mb-4 bg-white rounded-lg shadow-md p-4 flex justify-between items-center border-l-4 border-blue-600">
             <div className="flex-1">
@@ -819,6 +826,5 @@ export default function Home() {
           )}
         </div>
       </main>
-    </ProtectedRoute>
   );
 }

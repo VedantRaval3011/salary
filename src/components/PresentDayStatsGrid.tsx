@@ -499,7 +499,8 @@ employee.days?.forEach((day) => {
        }
     }
 
-    if (workMins > 0 && workMins <= 240) {
+    // Updated threshold to 320 minutes (5h 20m) to match AttendanceGrid logic
+    if (workMins > 0 && workMins <= 320) {
       isAdjPHalfDay = true;
     }
   }
@@ -525,7 +526,7 @@ employee.days?.forEach((day) => {
     }
   } else if (status === "P") {
     fullPresentDays++;
-  } else if (status === "P/A" || status === "PA" || isAdjPHalfDay) {
+  } else if (status === "P/A" || status === "PA" || status === "ADJ-P/A" || status === "ADJP/A" || isAdjPHalfDay) {
     paCount++;
   } else if (status === "ADJ-P") {
     const inTime = day.attendance.inTime;

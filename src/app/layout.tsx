@@ -4,6 +4,8 @@ import "./globals.css";
 import { ExcelProvider } from "@/context/ExcelContext";
 import { FinalDifferenceProvider } from "@/context/FinalDifferenceContext";
 import { GrandOTProvider } from "@/context/GrandOTContext";
+import { PunchVerificationProvider } from "@/context/PunchVerificationContext";
+import { PunchDataProvider } from "@/context/PunchDataContext";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -20,11 +22,15 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        <ExcelProvider>
-          <GrandOTProvider>
-            <FinalDifferenceProvider>{children}</FinalDifferenceProvider>
-          </GrandOTProvider>
-        </ExcelProvider>
+        <PunchVerificationProvider>
+          <PunchDataProvider>
+            <ExcelProvider>
+              <GrandOTProvider>
+                <FinalDifferenceProvider>{children}</FinalDifferenceProvider>
+              </GrandOTProvider>
+            </ExcelProvider>
+          </PunchDataProvider>
+        </PunchVerificationProvider>
       </body>
     </html>
   );
