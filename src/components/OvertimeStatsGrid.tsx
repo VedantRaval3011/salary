@@ -539,7 +539,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
               dailyLateMins = inMinutes - EVENING_SHIFT_START_MINUTES;
             }
           }
-        } else if (status === "P" || status === "ADJ-P") {
+        } else if (status === "P" || status === "ADJ-P" || ((status === "M/WO-I" || status === "ADJ-M/WO-I") && (day.day?.toLowerCase() === "sa" || day.day?.toLowerCase() === "sat" || day.day?.toLowerCase() === "saturday"))) {
           if (inMinutes > employeeNormalStartMinutes) {
             dailyLateMins = inMinutes - employeeNormalStartMinutes;
           }

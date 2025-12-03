@@ -62,7 +62,7 @@ export const calculateLateMinutes = (
             dailyLateMins = inMinutes - EVENING_SHIFT_START_MINUTES;
           }
         }
-      } else if (status === "P") {
+      } else if (status === "P" || ((status === "M/WO-I" || status === "ADJ-M/WO-I") && (day.day?.toLowerCase() === "sa" || day.day?.toLowerCase() === "sat" || day.day?.toLowerCase() === "saturday"))) {
         // Full day present
         if (inMinutes > employeeNormalStartMinutes) {
           dailyLateMins = inMinutes - employeeNormalStartMinutes;
@@ -137,7 +137,19 @@ export const calculateEarlyDepartureMinutes = (
       // Else (Full Day adj-P) -> Count early departure
     }
     
-    // 3. Count for others (P, Full Day adj-P, etc.)
+    // 3. Handle M/WO-I and ADJ-M/WO-I - skip unless Saturday and arrived
+    if (status === "M/WO-I" || status === "ADJ-M/WO-I") {
+      const dayName = (day.day || "").toLowerCase();
+      const isSaturday = dayName === "sa" || dayName === "sat" || dayName === "saturday";
+      const hasArrived = day.attendance.inTime && day.attendance.inTime !== "-";
+      
+      if (!isSaturday || !hasArrived) {
+        return; // Skip early departure
+      }
+      // If Saturday and arrived, continue to calculate early departure
+    }
+    
+    // 4. Count for others (P, Full Day adj-P, etc.)
     let dailyEarlyDep = 0;
     if (customEndMinutes && day.attendance.outTime && day.attendance.outTime !== "-") {
       const outMinutes = timeToMinutes(day.attendance.outTime);

@@ -507,6 +507,9 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
   };
 
   const processedDays = days.map((day) => {
+    // SPECIAL RULE: Kaplesh Raloliya (143) always has 0 Late
+    const isKaplesh = employee.empCode === "143" || employee.empName?.toLowerCase().includes("kaplesh");
+
     let status = (day.attendance.status || "").toUpperCase();
 
     // Check for ADJ-P half day -> change to ADJ-P/A
@@ -627,6 +630,12 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
     if (!customTimingParsed || (status !== "P" && status !== "ADJ-P" && status !== "ADJ-P/A" && status !== "ADJP/A")) {
       return {
         ...day,
+        attendance: {
+          ...day.attendance,
+          // SPECIAL RULE: Force late and OT to 0 for employee 143
+          lateMins: isKaplesh ? "0" : day.attendance.lateMins,
+          otHrs: isKaplesh ? "0:00" : day.attendance.otHrs,
+        },
         hasOTCalculation,
         originalOTValue,
         calculatedOTMinutes,
@@ -646,11 +655,11 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
 
     const originalLateMins = String(day.attendance.lateMins ?? "");
     const originalOTHrs = String(day.attendance.otHrs ?? "");
-    const recalculatedLateMins = recalculateLateMinutes(
+    const recalculatedLateMins = isKaplesh ? 0 : recalculateLateMinutes(
       day.attendance.inTime,
       customTimingParsed
     );
-    const recalculatedOTHrs = recalculateOTHours(
+    const recalculatedOTHrs = isKaplesh ? "0:00" : recalculateOTHours(
       day.attendance.inTime,
       day.attendance.outTime,
       customTimingParsed

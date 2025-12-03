@@ -84,7 +84,7 @@ export const calculateLateMinutes = (
               dailyLateMins = inMinutes - EVENING_SHIFT_START_MINUTES;
             }
           }
-        } else if (status === "P") {
+        } else if (status === "P" || ((status === "M/WO-I" || status === "ADJ-M/WO-I") && (day.day?.toLowerCase() === "sa" || day.day?.toLowerCase() === "sat" || day.day?.toLowerCase() === "saturday"))) {
           if (inMinutes > employeeNormalStartMinutes) {
             dailyLateMins = inMinutes - employeeNormalStartMinutes;
           }
@@ -152,9 +152,16 @@ export const calculateEarlyDepartureMinutes = (
       return;
     }
 
-    // Ignore early departure completely if status is "M/WO-I"
-    if (status === "M/WO-I") {
-      return;
+    // Ignore early departure completely if status is "M/WO-I" UNLESS it is Saturday and they arrived
+    if (status === "M/WO-I" || status === "ADJ-M/WO-I") {
+      const dayName = (day.day || "").toLowerCase();
+      const isSaturday = dayName === "sa" || dayName === "sat" || dayName === "saturday";
+      const hasArrived = day.attendance.inTime && day.attendance.inTime !== "-";
+      
+      if (!isSaturday || !hasArrived) {
+        return;
+      }
+      // If Saturday and arrived, continue to calculate early departure
     }
 
     // Calculate early departure
