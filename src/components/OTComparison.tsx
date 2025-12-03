@@ -471,6 +471,11 @@ function calculateFinalOT(
   getCustomTimingForEmployee: any,
   isMaintenanceEmployee: any
 ): number {
+  // SPECIAL RULE: Kaplesh Raloliya (143) always has 0 OT
+  if (employee.empCode === "143" || employee.empName?.toLowerCase().includes("kaplesh")) {
+    return 0;
+  }
+
   // Reuse helpers already defined in this file:
   // - timeToMinutes
   // - minutesToHHMM (not needed here but exists)

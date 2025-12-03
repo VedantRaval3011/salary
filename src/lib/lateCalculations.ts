@@ -20,6 +20,7 @@ export const getIsStaff = (emp: EmployeeData): boolean => {
   return true;
 };
 
+
 /**
  * Calculate late arrival minutes for an employee
  * This is the SINGLE SOURCE OF TRUTH for late calculations
@@ -28,6 +29,11 @@ export const calculateLateMinutes = (
   employee: EmployeeData,
   employeeNormalStartMinutes: number = 8 * 60 + 30
 ): number => {
+  // SPECIAL RULE: Kaplesh Raloliya (143) always has 0 Late
+  if (employee.empCode === "143") {
+    return 0;
+  }
+
   const EVENING_SHIFT_START_MINUTES = 13 * 60 + 15;
   const MORNING_EVENING_CUTOFF_MINUTES = 10 * 60;
   const PERMISSIBLE_LATE_MINS = 5;

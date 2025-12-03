@@ -46,6 +46,11 @@ export const calculateLateMinutes = (
   employee: EmployeeData,
   customStartMinutes?: number
 ): number => {
+  // SPECIAL RULE: Kaplesh Raloliya (143) always has 0 Late
+  if (employee.empCode === "143" || employee.empName?.toLowerCase().includes("kaplesh")) {
+    return 0;
+  }
+
   const isStaff = getIsStaff(employee);
   const employeeNormalStartMinutes = customStartMinutes ?? STANDARD_START_MINUTES;
   let lateMinsTotal = 0;

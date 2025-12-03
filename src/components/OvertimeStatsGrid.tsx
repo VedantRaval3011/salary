@@ -472,6 +472,26 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
     originalFinalDifference.get(employee.empCode) ?? 0;
 
   const stats = useMemo(() => {
+    // SPECIAL RULE: Kaplesh Raloliya (143) always has 0 OT
+    if (employee.empCode === "143" || employee.empName?.toLowerCase().includes("kaplesh")) {
+      return {
+        baseOTValue: "0:00",
+        staffGrantedOTMinutes: 0,
+        staffNonGrantedOTMinutes: 0,
+        workerGrantedOTMinutes: 0,
+        worker9to6OTMinutes: 0,
+        grantedFromSheetStaffMinutes: 0,
+        totalMinutes: 0,
+        fullNightOTInMinutes: 0,
+        lateDeductionHours: 0,
+        grandTotalMinutes: 0,
+        lateMinsTotal: 0,
+        wasOTDeducted: false,
+        isStaff: getIsStaff(employee),
+        isWorker: !getIsStaff(employee),
+      };
+    }
+
     const customTiming = getCustomTimingForEmployee(employee);
     let lateMinsTotal = 0;
     let wasOTDeducted = false;
