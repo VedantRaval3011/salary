@@ -16,6 +16,7 @@ import { useAttendanceStore } from "@/store/attendanceStore";
 import { EmployeeStoreDisplay } from "./EmployeeStoreDisplay";
 import { LateComparison } from "./LateComparison";
 import { UnifiedComparison } from "./UnifiedComparison";
+import { PunchStatusSummary } from "./PunchStatusSummary";
 
 const norm = (s: any) =>
   String(s ?? "")
@@ -523,10 +524,14 @@ export const FileUploader: React.FC = () => {
   );
 
   return (
-    <div className="w-full max-w-7xl mx-auto p-6 bg-white rounded-lg shadow-md">
-      <h2 className="text-2xl font-bold mb-2 text-gray-800">
-        Excel File Manager
-      </h2>
+    <>
+      {/* Punch Status Summary - Above Excel File Manager */}
+      <PunchStatusSummary className="p-6" />
+      
+      <div className="w-full max-w-7xl mx-auto p-6 bg-white rounded-lg shadow-md">
+        <h2 className="text-2xl font-bold mb-2 text-gray-800">
+          Excel File Manager
+        </h2>
 
       <div className="mb-6 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border-2 border-blue-300">
         <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
@@ -752,5 +757,6 @@ export const FileUploader: React.FC = () => {
   <OTComparison />
 </div>
     </div>
+    </>
   );
 };

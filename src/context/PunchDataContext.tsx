@@ -24,6 +24,7 @@ interface PunchDataContextType {
   setPunchData: (data: EmployeePunchData[]) => void;
   getPunchDataForEmployee: (empCode: string) => EmployeePunchData | null;
   getPunchDataForDate: (empCode: string, date: string) => DailyPunchData | null;
+  getAllPunchData: () => EmployeePunchData[];
 }
 
 const PunchDataContext = createContext<PunchDataContextType | undefined>(
@@ -83,6 +84,10 @@ export const PunchDataProvider: React.FC<{ children: ReactNode }> = ({
     return null;
   };
 
+  const getAllPunchData = (): EmployeePunchData[] => {
+    return punchData;
+  };
+
   return (
     <PunchDataContext.Provider
       value={{
@@ -90,6 +95,7 @@ export const PunchDataProvider: React.FC<{ children: ReactNode }> = ({
         setPunchData,
         getPunchDataForEmployee,
         getPunchDataForDate,
+        getAllPunchData,
       }}
     >
       {children}
