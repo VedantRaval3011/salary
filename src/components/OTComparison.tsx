@@ -104,9 +104,9 @@ const minutesToHHMM = (totalMinutes: number): string => {
  * Check if employee is Staff or Worker
  */
 const getIsStaff = (emp: EmployeeData): boolean => {
-  const inStr = `${emp.companyName ?? ""} ${
-    emp.department ?? ""
-  }`.toLowerCase();
+  const inStr = `${emp.companyName ?? ""} ${emp.department ?? ""
+    }`.toLowerCase();
+  if (inStr.includes("c cash")) return false;
   if (inStr.includes("worker")) return false;
   if (inStr.includes("staff")) return true;
   return true; // default to staff
@@ -770,12 +770,12 @@ export const OTComparison: React.FC = () => {
           typeof ctxMinutes === "number"
             ? ctxMinutes
             : calculateFinalOT(
-                employee,
-                getGrantForEmployee,
-                getFullNightOTForEmployee,
-                getCustomTimingForEmployee,
-                isMaintenanceEmployee
-              );
+              employee,
+              getGrantForEmployee,
+              getFullNightOTForEmployee,
+              getCustomTimingForEmployee,
+              isMaintenanceEmployee
+            );
 
         const softwareOTHours: number = Number(
           (finalOTMinutes / 60).toFixed(2)

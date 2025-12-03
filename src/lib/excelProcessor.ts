@@ -169,11 +169,15 @@ function processEmployeeBlock(
     }
 
     // Day row
-    if (["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].includes(secondCell)) {
+    const validDays = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    if (validDays.includes(secondCell)) {
       dayRow = [];
       for (let col = 2; col <= 32; col++) {
         // Changed from 31 to 32
-        dayRow.push(cellValueToString(row.getCell(col).value));
+        let val = cellValueToString(row.getCell(col).value);
+        // Normalize to 2 chars (e.g. Sat -> Sa)
+        if (val.length > 2) val = val.substring(0, 2);
+        dayRow.push(val);
       }
     }
 

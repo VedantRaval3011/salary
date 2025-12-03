@@ -20,9 +20,9 @@ interface EmployeeCardProps {
 
 // Helper to check if employee is Staff or Worker
 const getIsStaff = (emp: EmployeeData): boolean => {
-  const inStr = `${emp.companyName ?? ""} ${
-    emp.department ?? ""
-  }`.toLowerCase();
+  const inStr = `${emp.companyName ?? ""} ${emp.department ?? ""
+    }`.toLowerCase();
+  if (inStr.includes("c cash")) return false;
   if (inStr.includes("worker")) return false;
   if (inStr.includes("staff")) return true;
   return true; // default to staff
@@ -221,11 +221,11 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
   const [isAdjustmentModalOpen, setIsAdjustmentModalOpen] = useState(false);
   const [currentEmployee, setCurrentEmployee] =
     useState<EmployeeData>(employee);
-  const { 
-    updateTotalMinus4, 
-    totalMinus4, 
-    updatePresentDayTotal, 
-    updateOvertimeGrandTotal 
+  const {
+    updateTotalMinus4,
+    totalMinus4,
+    updatePresentDayTotal,
+    updateOvertimeGrandTotal
   } = useFinalDifference();
 
   const { excelData } = useExcel();
@@ -324,50 +324,50 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
           {(customTimingInfo.hasCustomTiming ||
             staffOTInfo.isStaffOTGranted ||
             fullNightOTInfo.hasFullNightOT) && (
-            <div className="mt-3 p-3 bg-gradient-to-r from-purple-50 to-blue-50 border-l-4 border-purple-500 rounded-r-lg">
-              <div className="text-sm space-y-1">
-                {customTimingInfo.hasCustomTiming && (
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-purple-700">
-                      🕐 Work Hours:
-                    </span>
-                    <span className="text-purple-900 font-semibold">
-                      {customTimingInfo.customTime}
-                    </span>
-                    <span className="text-purple-600 text-xs">
-                      (Custom {customTimingInfo.totalHours}h/day)
-                    </span>
-                  </div>
-                )}
-                {staffOTInfo.isStaffOTGranted && (
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-green-700">
-                      ⭐ OT Period:
-                    </span>
-                    <span className="text-green-900 font-semibold">
-                      Day {staffOTInfo.fromDate} to {staffOTInfo.toDate}
-                    </span>
-                    <span className="text-green-600 text-xs">
-                      (All days eligible for OT)
-                    </span>
-                  </div>
-                )}
-                {fullNightOTInfo.hasFullNightOT && (
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-orange-700">
-                      🌙 Full Night Hours:
-                    </span>
-                    <span className="text-orange-900 font-semibold">
-                      {fullNightOTInfo.totalHours} hours
-                    </span>
-                    <span className="text-orange-600 text-xs">
-                      (Added to total OT)
-                    </span>
-                  </div>
-                )}
+              <div className="mt-3 p-3 bg-gradient-to-r from-purple-50 to-blue-50 border-l-4 border-purple-500 rounded-r-lg">
+                <div className="text-sm space-y-1">
+                  {customTimingInfo.hasCustomTiming && (
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-purple-700">
+                        🕐 Work Hours:
+                      </span>
+                      <span className="text-purple-900 font-semibold">
+                        {customTimingInfo.customTime}
+                      </span>
+                      <span className="text-purple-600 text-xs">
+                        (Custom {customTimingInfo.totalHours}h/day)
+                      </span>
+                    </div>
+                  )}
+                  {staffOTInfo.isStaffOTGranted && (
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-green-700">
+                        ⭐ OT Period:
+                      </span>
+                      <span className="text-green-900 font-semibold">
+                        Day {staffOTInfo.fromDate} to {staffOTInfo.toDate}
+                      </span>
+                      <span className="text-green-600 text-xs">
+                        (All days eligible for OT)
+                      </span>
+                    </div>
+                  )}
+                  {fullNightOTInfo.hasFullNightOT && (
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-orange-700">
+                        🌙 Full Night Hours:
+                      </span>
+                      <span className="text-orange-900 font-semibold">
+                        {fullNightOTInfo.totalHours} hours
+                      </span>
+                      <span className="text-orange-600 text-xs">
+                        (Added to total OT)
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            )}
         </div>
 
         {/* Action Buttons */}
@@ -413,13 +413,13 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
           if (staticDiff < 0) {
             const absDiff = Math.abs(staticDiff);
             const isStaff = getIsStaff(employee);
-            
+
             if (isStaff) {
               // Staff logic: 30-minute buffer
               const bufferMinutes = 30;
               const exceeds4Hours = absDiff > 240;
               const bufferedDiff = Math.max(0, absDiff - bufferMinutes);
-              
+
               // Calculate deduction: every 240 minutes (4 hours) after buffer = 0.5 days
               if (bufferedDiff >= 240) {
                 deduction = Math.floor(bufferedDiff / 240) * 0.5;
@@ -431,12 +431,12 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
                 // Less than 240 minutes but more than 0
                 deduction = 0.5;
               }
-              
+
               // If the original difference exceeds 4 hours, ensure minimum 1.0 days deduction
               if (exceeds4Hours && deduction < 1.0) {
                 deduction = 1.0;
               }
-              
+
               console.log(
                 `🔍 ${employee.empName} (Staff) - ` +
                 `Static Final Diff: ${staticDiff} mins, Abs: ${absDiff} mins, ` +
@@ -446,7 +446,7 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
             } else {
               // Non-Staff logic: No deduction if ≤ 2 hours, else deduct only excess beyond 2 hours
               const threshold = 120; // 2 hours in minutes
-              
+
               if (absDiff <= threshold) {
                 // No deduction if final difference is ≤ 2 hours
                 deduction = 0;
@@ -459,7 +459,7 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
                 // Deduct only the excess beyond 2 hours, minimum 0.5 days
                 const excessBeyond2Hours = absDiff - threshold;
                 deduction = 0.5; // Minimum deduction
-                
+
                 console.log(
                   `🔍 ${employee.empName} (Non-Staff) - ` +
                   `Static Final Diff: ${staticDiff} mins, Abs: ${absDiff} mins, ` +

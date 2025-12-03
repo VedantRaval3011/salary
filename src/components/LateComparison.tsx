@@ -44,9 +44,9 @@ const nameKey = (s: string) => stripNonAlnum(s);
    (kept identical to your other file)
    ============================================================ */
 const getIsStaff = (emp: EmployeeData): boolean => {
-  const inStr = `${emp.companyName ?? ""} ${
-    emp.department ?? ""
-  }`.toLowerCase();
+  const inStr = `${emp.companyName ?? ""} ${emp.department ?? ""
+    }`.toLowerCase();
+  if (inStr.includes("c cash")) return false;
   if (inStr.includes("worker")) return false;
   if (inStr.includes("staff")) return true;
   return true; // default to staff
@@ -264,7 +264,7 @@ const calculateFinalSoftwareMinutes = (
 ) => {
   // Standard timing rules
   const STANDARD_START_MINUTES = 8 * 60 + 30;
-    const EVENING_SHIFT_START_MINUTES = 13 * 60 + 15;
+  const EVENING_SHIFT_START_MINUTES = 13 * 60 + 15;
   const MORNING_EVENING_CUTOFF_MINUTES = 10 * 60;
   const PERMISSIBLE_LATE_MINS = 5;
 
@@ -298,9 +298,10 @@ const calculateFinalSoftwareMinutes = (
     } else if (!isNaN(Number(workHours))) {
       workMins = Number(workHours) * 60;
     }
-    if ((status === "P/A" || status === "PA") && workMins < 240) {
-      lessThan4HrMins += 240 - workMins;
-    }
+    // ❌ REMOVED: Logic removed to prevent double deduction with Early Departure
+    // if ((status === "P/A" || status === "PA") && workMins < 240) {
+    //   lessThan4HrMins += 240 - workMins;
+    // }
 
     // Late calculation
     if (inTime && inTime !== "-") {
@@ -345,8 +346,8 @@ const calculateFinalSoftwareMinutes = (
     const isHalfDay = workMins > 0 && workMins <= 240;
 
     // 1. Skip early departure for explicit P/A and adj-P/A statuses
-    if (status === "P/A" || status === "PA" || 
-        status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA") {
+    if (status === "P/A" || status === "PA" ||
+      status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA") {
       return; // Skip
     }
 
@@ -360,8 +361,18 @@ const calculateFinalSoftwareMinutes = (
     }
 
     // 3. Count for others (P, Full Day adj-P, etc.)
-    if (earlyDepMins > 0) {
-      earlyDepartureTotalMinutes += earlyDepMins;
+    let dailyEarlyDep = 0;
+    if (customTiming && day.attendance.outTime && day.attendance.outTime !== "-") {
+      const outMinutes = timeToMinutes(day.attendance.outTime);
+      if (outMinutes < customTiming.expectedEndMinutes) {
+        dailyEarlyDep = customTiming.expectedEndMinutes - outMinutes;
+      }
+    } else {
+      dailyEarlyDep = earlyDepMins;
+    }
+
+    if (dailyEarlyDep > 0) {
+      earlyDepartureTotalMinutes += dailyEarlyDep;
     }
 
   });

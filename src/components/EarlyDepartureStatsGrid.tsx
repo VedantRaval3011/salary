@@ -27,12 +27,12 @@ interface Props {
 
 // Helper to check if employee is Staff or Worker
 const getIsStaff = (emp: EmployeeData): boolean => {
-  const inStr = `${emp.companyName ?? ""} ${
-    emp.department ?? ""
-  }`.toLowerCase();
+  const inStr = `${emp.companyName ?? ""} ${emp.department ?? ""
+    }`.toLowerCase();
   // The original logic: if 'worker' is present, return false (Worker); if 'staff' is present, return true (Staff); otherwise, default to true (Staff).
   // The prompt states: "if the dept has staff in it's string then we consider him as staff employee"
   // Let's stick to the original, more complete logic unless explicitly told otherwise, but the core check is:
+  if (inStr.includes("c cash")) return false;
   if (inStr.includes("worker")) return false;
   if (inStr.includes("staff")) return true;
   return true; // Default to staff
@@ -438,26 +438,26 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
 
       // Fallback: Calculate from In/Out if workMins is 0
       if (workMins === 0 && day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
-         const inM = timeToMinutes(day.attendance.inTime);
-         const outM = timeToMinutes(day.attendance.outTime);
-         if (outM > inM) {
-             workMins = outM - inM;
-         }
+        const inM = timeToMinutes(day.attendance.inTime);
+        const outM = timeToMinutes(day.attendance.outTime);
+        if (outM > inM) {
+          workMins = outM - inM;
+        }
       }
 
       // If P/A or ADJ-P/A and less than 4 hours (240 mins)
       // ADJ-P/A should be treated the same as P/A
       // Also ADJ-P if < 4 hours
-      if ((status === "P/A" || status === "PA" || status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA") && workMins <= 240) {
-        lessThan4HrMins += 240 - workMins; // difference from 4 hours
-      }
+      // ❌ REMOVED: Logic removed to prevent double deduction with Early Departure
+      // if ((status === "P/A" || status === "PA" || status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA") && workMins <= 240) {
+      //   lessThan4HrMins += 240 - workMins; // difference from 4 hours
+      // }
     });
 
     const isStaff = getIsStaff(employee);
     const isWorker = !isStaff;
     console.log(
-      `👷 ${employee.empName} is ${isWorker ? "Worker" : "Staff"}. Applying ${
-        isWorker ? "Worker" : "Staff"
+      `👷 ${employee.empName} is ${isWorker ? "Worker" : "Staff"}. Applying ${isWorker ? "Worker" : "Staff"
       } late policy.`
     );
 
@@ -484,12 +484,12 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
       } else if (!isNaN(Number(workHours))) {
         workMins = Number(workHours) * 60;
       }
-      
+
       // Fallback to In/Out
       if (workMins === 0 && day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
-         const inM = timeToMinutes(day.attendance.inTime);
-         const outM = timeToMinutes(day.attendance.outTime);
-         if (outM > inM) workMins = outM - inM;
+        const inM = timeToMinutes(day.attendance.inTime);
+        const outM = timeToMinutes(day.attendance.outTime);
+        if (outM > inM) workMins = outM - inM;
       }
 
       // Check for ADJ-P half day
@@ -535,18 +535,18 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
       // For adj-P, only skip if it is a half day (isAdjPHalfDay)
       // ❌ RULE: Skip early departure for P/A and adj-P/A statuses
       // For adj-P, only skip if it is a half day (isAdjPHalfDay)
-      if (status === "P/A" || status === "PA" || 
-          status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA") {
-        
+      if (status === "P/A" || status === "PA" ||
+        status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA") {
+
         // Check out time for P/A early departure (before 12:45)
         const outTime = day.attendance.outTime;
         if (outTime && outTime !== "-") {
-            const outMinutes = timeToMinutes(outTime);
-            const TARGET_EXIT_MINUTES = 12 * 60 + 45; // 12:45
-            
-            if (outMinutes < TARGET_EXIT_MINUTES) {
-                earlyDepartureTotalMinutes += (TARGET_EXIT_MINUTES - outMinutes);
-            }
+          const outMinutes = timeToMinutes(outTime);
+          const TARGET_EXIT_MINUTES = 12 * 60 + 45; // 12:45
+
+          if (outMinutes < TARGET_EXIT_MINUTES) {
+            earlyDepartureTotalMinutes += (TARGET_EXIT_MINUTES - outMinutes);
+          }
         }
         return; // Done for this day
       }
@@ -556,8 +556,18 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
       }
 
       // For all other statuses (including Full Day adj-P), count early departure
-      if (earlyDepMins > 0) {
-        earlyDepartureTotalMinutes += earlyDepMins;
+      let dailyEarlyDep = 0;
+      if (customTiming && day.attendance.outTime && day.attendance.outTime !== "-") {
+        const outMinutes = timeToMinutes(day.attendance.outTime);
+        if (outMinutes < customTiming.expectedEndMinutes) {
+          dailyEarlyDep = customTiming.expectedEndMinutes - outMinutes;
+        }
+      } else {
+        dailyEarlyDep = earlyDepMins;
+      }
+
+      if (dailyEarlyDep > 0) {
+        earlyDepartureTotalMinutes += dailyEarlyDep;
       }
 
     });
@@ -619,7 +629,7 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
   useEffect(() => {
     // Calculate and emit static final difference
     const staticFinalDiff = staticFinalDifference - stats.totalCombinedMinutes;
-    
+
     // Notify parent component if callback exists
     if (onStaticFinalDifferenceCalculated) {
       onStaticFinalDifferenceCalculated(staticFinalDiff);
@@ -722,7 +732,7 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
           <span className="text-orange-600">🏃</span>
           Late & Early Departure
         </h4>
-        
+
         <div className="flex items-center gap-3">
           {/* HR Total(-4hrs) - Small Box */}
           <div className="px-4 py-2 bg-orange-100 border-2 border-orange-400 rounded-lg">
@@ -737,27 +747,24 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
           {/* Difference Box */}
           {difference !== null && (
             <div
-              className={`px-4 py-2 border-2 rounded-lg ${
-                Math.abs(difference) > 0.02
-                  ? "bg-red-100 border-red-400"
-                  : "bg-green-100 border-green-400"
-              }`}
+              className={`px-4 py-2 border-2 rounded-lg ${Math.abs(difference) > 0.02
+                ? "bg-red-100 border-red-400"
+                : "bg-green-100 border-green-400"
+                }`}
             >
               <div
-                className={`text-xs font-semibold ${
-                  Math.abs(difference) > 0.02
-                    ? "text-red-700"
-                    : "text-green-700"
-                }`}
+                className={`text-xs font-semibold ${Math.abs(difference) > 0.02
+                  ? "text-red-700"
+                  : "text-green-700"
+                  }`}
               >
                 Difference
               </div>
               <div
-                className={`text-lg font-bold ${
-                  Math.abs(difference) > 0.02
-                    ? "text-red-900"
-                    : "text-green-900"
-                }`}
+                className={`text-lg font-bold ${Math.abs(difference) > 0.02
+                  ? "text-red-900"
+                  : "text-green-900"
+                  }`}
               >
                 {difference > 0 ? "+" : ""}
                 {difference.toFixed(2)} hrs

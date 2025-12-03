@@ -13,6 +13,7 @@ const timeToMinutes = (timeStr: string): number => {
 
 const getIsStaff = (emp: EmployeeData): boolean => {
   const inStr = `${emp.companyName ?? ""} ${emp.department ?? ""}`.toLowerCase();
+  if (inStr.includes("c cash")) return false;
   if (inStr.includes("worker")) return false;
   if (inStr.includes("staff")) return true;
   return true; // default to staff
@@ -78,23 +79,23 @@ export function calculateTotalDeductionMinutes(
     } else if (!isNaN(Number(workHours))) {
       workMins = Number(workHours) * 60;
     }
-    
+
     // Fallback: Calculate from In/Out if workMins is 0
     if (workMins === 0 && day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
-       const inM = timeToMinutes(day.attendance.inTime);
-       const outM = timeToMinutes(day.attendance.outTime);
-       if (outM > inM) {
-           workMins = outM - inM;
-       }
+      const inM = timeToMinutes(day.attendance.inTime);
+      const outM = timeToMinutes(day.attendance.outTime);
+      if (outM > inM) {
+        workMins = outM - inM;
+      }
     }
 
     // ---- EARLY DEPARTURE ----
     const earlyDepMins = Number(day.attendance.earlyDep) || 0;
     const isHalfDay = workMins > 0 && workMins <= 240;
-    
+
     // 1. Skip early departure for explicit P/A and adj-P/A statuses
-    if (status === "P/A" || status === "PA" || 
-        status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA") {
+    if (status === "P/A" || status === "PA" ||
+      status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA") {
       // Skip
     }
     // 2. Handle adj-P
@@ -112,8 +113,9 @@ export function calculateTotalDeductionMinutes(
     }
 
     // ---- LESS THAN 4 HOURS (P/A) ----
-    if ((status === "P/A" || status === "PA") && workMins < 240)
-      lessThan4HrMins += 240 - workMins;
+    // ❌ REMOVED: Logic removed to prevent double deduction with Early Departure
+    // if ((status === "P/A" || status === "PA") && workMins < 240)
+    //   lessThan4HrMins += 240 - workMins;
   });
 
   // ---------- Combine ----------

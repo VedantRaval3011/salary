@@ -21,7 +21,7 @@ interface UnifiedComparisonRow {
   empCode: string;
   empName: string;
   company: string;
-  
+
   // Present Days
   softwarePresentDays: number;
   hrPresentDays: number | null;
@@ -62,6 +62,7 @@ const timeToMinutes = (timeStr: string): number => {
 
 const getIsStaff = (emp: EmployeeData): boolean => {
   const inStr = `${emp.companyName ?? ""} ${emp.department ?? ""}`.toLowerCase();
+  if (inStr.includes("c cash")) return false;
   if (inStr.includes("worker")) return false;
   if (inStr.includes("staff")) return true;
   return true;
@@ -108,7 +109,7 @@ function usePaidLeaveLookup() {
 
     // Build lookup maps... (Simplified for brevity, assuming same logic as PresentDayComparison)
     // Actually, to ensure correctness, I should copy the logic fully.
-    
+
     type PLRec = (typeof plRows)[number] & { _keys: string[]; _nameKey: string };
     const withKeys: PLRec[] = plRows.map((pl) => {
       const raw = canon(pl.empCode);
@@ -153,7 +154,7 @@ function useStaffOTGrantedLookup() {
   const { getAllUploadedFiles } = useExcel();
   return useMemo(() => {
     const files = getAllUploadedFiles?.() ?? [];
-    const staffOTFile = files.find((f: any) => 
+    const staffOTFile = files.find((f: any) =>
       f.status === "success" && f.fileName.toLowerCase().includes("staff") && f.fileName.toLowerCase().includes("ot") && f.fileName.toLowerCase().includes("granted")
     );
     if (!staffOTFile) return { getGrantForEmployee: () => undefined };
@@ -194,7 +195,7 @@ function useFullNightOTLookup() {
   const { getAllUploadedFiles } = useExcel();
   return useMemo(() => {
     const files = getAllUploadedFiles?.() ?? [];
-    const fullNightFile = files.find((f: any) => 
+    const fullNightFile = files.find((f: any) =>
       f.status === "success" && f.fileName.toLowerCase().includes("full") && f.fileName.toLowerCase().includes("night")
     );
     if (!fullNightFile) return { getFullNightOTForEmployee: () => 0 };
@@ -239,7 +240,7 @@ function useCustomTimingLookup() {
   const { getAllUploadedFiles } = useExcel();
   return useMemo(() => {
     const files = getAllUploadedFiles?.() ?? [];
-    const customTimingFile = files.find((f: any) => 
+    const customTimingFile = files.find((f: any) =>
       f.status === "success" && ((f.fileName.toLowerCase().includes("09") && f.fileName.toLowerCase().includes("06")) || (f.fileName.toLowerCase().includes("9") && f.fileName.toLowerCase().includes("6")))
     );
     if (!customTimingFile) return { getCustomTimingForEmployee: () => null };
@@ -270,7 +271,7 @@ function useCustomTimingLookup() {
       let found = employeeByCode.get(empCodeK);
       if (!found && numCodeK) found = employeeByCode.get(numCodeK);
       if (!found) found = employeeByName.get(empNameK);
-      
+
       if (!found || !found.customTime) return null;
       const timeStr = found.customTime;
       const match = timeStr.match(/(\d{1,2}):(\d{2})\s*TO\s*(\d{1,2}):(\d{2})/i);
@@ -550,7 +551,7 @@ export const UnifiedComparison: React.FC = () => {
       if (softwareLateMinutes === undefined) {
         const lunchData = getLunchDataForEmployee(employee);
         const customTiming = getCustomTimingForEmployee(employee);
-        const stats = calculateTotalCombinedMinutes(employee, lunchData, customTiming?.expectedStartMinutes);
+        const stats = calculateTotalCombinedMinutes(employee, lunchData, customTiming?.expectedStartMinutes, customTiming?.expectedEndMinutes);
         softwareLateMinutes = stats.totalAfterRelaxation;
       }
       const softwareLateHours = Number((softwareLateMinutes / 60).toFixed(2));
@@ -680,33 +681,33 @@ export const UnifiedComparison: React.FC = () => {
     <div className="mt-8 pt-6 border-t border-gray-300">
       <div className="flex items-center justify-between mb-4">
         <div className="flex gap-4">
-            <button
+          <button
             onClick={() => setShowTable(!showTable)}
             className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-lg font-bold shadow-md hover:bg-indigo-700 transition-all"
-            >
+          >
             {showTable ? "Hide Unified Comparison" : "Show Unified Comparison Table"}
             {showTable ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-            </button>
-            
-            {showTable && (
-              <>
-                <button
+          </button>
+
+          {showTable && (
+            <>
+              <button
                 onClick={() => exportUnifiedComparisonToExcel(sortedData)}
                 className="flex items-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg font-bold shadow-md hover:bg-green-700 transition-all"
-                >
+              >
                 Export All to Excel
                 <ArrowDown size={20} />
-                </button>
-                
-                <button
+              </button>
+
+              <button
                 onClick={() => exportMajorMediumDifferences(sortedData)}
                 className="flex items-center gap-2 px-6 py-3 bg-orange-600 text-white rounded-lg font-bold shadow-md hover:bg-orange-700 transition-all"
-                >
+              >
                 Export Major/Medium Issues
                 <ArrowDown size={20} />
-                </button>
-              </>
-            )}
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -724,7 +725,7 @@ export const UnifiedComparison: React.FC = () => {
                 <th className="px-4 py-3 text-left cursor-pointer hover:bg-gray-200" onClick={() => requestSort("empName")}>
                   <div className="flex items-center">Emp Name {getSortIcon("empName")}</div>
                 </th>
-                
+
                 {/* Present Days */}
                 <th className="px-4 py-3 text-right cursor-pointer hover:bg-gray-200 bg-blue-50" onClick={() => requestSort("softwarePresentDays")}>
                   <div className="flex items-center justify-end">Soft. Days {getSortIcon("softwarePresentDays")}</div>

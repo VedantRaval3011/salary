@@ -23,9 +23,9 @@ const nameKey = (s: string) => stripNonAlnum(s);
 
 // Helper to check if employee is Staff or Worker
 const getIsStaff = (emp: EmployeeData): boolean => {
-  const inStr = `${emp.companyName ?? ""} ${
-    emp.department ?? ""
-  }`.toLowerCase();
+  const inStr = `${emp.companyName ?? ""} ${emp.department ?? ""
+    }`.toLowerCase();
+  if (inStr.includes("c cash")) return false;
   if (inStr.includes("worker")) return false;
   if (inStr.includes("staff")) return true;
   return true; // default to staff
@@ -624,7 +624,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
 
           // We'll handle ADJ-P in its own block so it isn't double-counted with "sa".
           // Saturday (sa) but NOT ADJ-P should be processed using the OT field (or custom timing).
-          if (dayName === "sa" && status !== "ADJ-P") {
+          if (dayName === "sa" && status !== "ADJ-P" && status !== "ADJ-P/A" && status !== "ADJP/A") {
             let dayOTMinutes = 0;
             if (customTiming) {
               dayOTMinutes = calculateCustomTimingOT(
@@ -943,7 +943,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
         <h4 className="text-sm font-bold text-gray-800 flex items-center gap-2">
           <span className="text-indigo-600">📊 Overtime (OT) Calculation</span>
         </h4>
-        
+
         <div className="flex items-center gap-3">
           {/* HR OT Grand Total - Small Box */}
           <div className="px-4 py-2 bg-amber-100 border-2 border-amber-400 rounded-lg">
@@ -958,27 +958,24 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
           {/* Difference Box */}
           {difference !== null && (
             <div
-              className={`px-4 py-2 border-2 rounded-lg ${
-                Math.abs(difference) > 0.02
-                  ? "bg-red-100 border-red-400"
-                  : "bg-green-100 border-green-400"
-              }`}
+              className={`px-4 py-2 border-2 rounded-lg ${Math.abs(difference) > 0.02
+                ? "bg-red-100 border-red-400"
+                : "bg-green-100 border-green-400"
+                }`}
             >
               <div
-                className={`text-xs font-semibold ${
-                  Math.abs(difference) > 0.02
-                    ? "text-red-700"
-                    : "text-green-700"
-                }`}
+                className={`text-xs font-semibold ${Math.abs(difference) > 0.02
+                  ? "text-red-700"
+                  : "text-green-700"
+                  }`}
               >
                 Difference
               </div>
               <div
-                className={`text-lg font-bold ${
-                  Math.abs(difference) > 0.02
-                    ? "text-red-900"
-                    : "text-green-900"
-                }`}
+                className={`text-lg font-bold ${Math.abs(difference) > 0.02
+                  ? "text-red-900"
+                  : "text-green-900"
+                  }`}
               >
                 {difference > 0 ? "+" : ""}
                 {difference.toFixed(2)} hrs

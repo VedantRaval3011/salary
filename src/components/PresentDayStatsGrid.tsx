@@ -15,9 +15,9 @@ const nameKey = (s: string) => stripNonAlnum(s);
 
 // Helper to check if employee is Staff or Worker
 const getIsStaff = (emp: EmployeeData): boolean => {
-  const inStr = `${emp.companyName ?? ""} ${
-    emp.department ?? ""
-  }`.toLowerCase();
+  const inStr = `${emp.companyName ?? ""} ${emp.department ?? ""
+    }`.toLowerCase();
+  if (inStr.includes("c cash")) return false;
   if (inStr.includes("worker")) return false;
   if (inStr.includes("staff")) return true;
   return true;
@@ -41,7 +41,7 @@ function usePaidLeaveLookup() {
     type PLRec = (typeof plRows)[number] & {
       _keys: string[];
       _nameKey: string;
-       leave?: number
+      leave?: number
     };
 
     const withKeys: PLRec[] = plRows.map((pl) => {
@@ -67,31 +67,31 @@ function usePaidLeaveLookup() {
       byName.set(pl._nameKey, arr);
     });
 
-const getPL = (emp: Pick<EmployeeData, "empCode" | "empName">): { paidDays: number; adjDays: number; leaveDays: number } => {
-  const raw = canon(emp.empCode);
-  const s1 = stripNonAlnum(raw);
-  const num = numericOnly(raw);
-  const no0 = dropLeadingZeros(num);
-  const pads = [4, 5, 6].map((w) => num.padStart(w, "0"));
-  const candidates = [raw, s1, num, no0, ...pads];
-  for (const k of candidates) {
-    const hit = byKey.get(k);
-    if (hit) return { 
-      paidDays: hit.paidDays ?? 0, 
-      adjDays: hit.adjDays ?? 0,
-      leaveDays: hit.leave ?? 0  // ADD THIS LINE
+    const getPL = (emp: Pick<EmployeeData, "empCode" | "empName">): { paidDays: number; adjDays: number; leaveDays: number } => {
+      const raw = canon(emp.empCode);
+      const s1 = stripNonAlnum(raw);
+      const num = numericOnly(raw);
+      const no0 = dropLeadingZeros(num);
+      const pads = [4, 5, 6].map((w) => num.padStart(w, "0"));
+      const candidates = [raw, s1, num, no0, ...pads];
+      for (const k of candidates) {
+        const hit = byKey.get(k);
+        if (hit) return {
+          paidDays: hit.paidDays ?? 0,
+          adjDays: hit.adjDays ?? 0,
+          leaveDays: hit.leave ?? 0  // ADD THIS LINE
+        };
+      }
+      const foundByName = byName.get(nameKey(emp.empName)) ?? [];
+      if (foundByName.length === 1) {
+        return {
+          paidDays: foundByName[0].paidDays ?? 0,
+          adjDays: foundByName[0].adjDays ?? 0,
+          leaveDays: foundByName[0].leave ?? 0  // ADD THIS LINE
+        };
+      }
+      return { paidDays: 0, adjDays: 0, leaveDays: 0 };  // UPDATE THIS LINE
     };
-  }
-  const foundByName = byName.get(nameKey(emp.empName)) ?? [];
-  if (foundByName.length === 1) {
-    return { 
-      paidDays: foundByName[0].paidDays ?? 0, 
-      adjDays: foundByName[0].adjDays ?? 0,
-      leaveDays: foundByName[0].leave ?? 0  // ADD THIS LINE
-    };
-  }
-  return { paidDays: 0, adjDays: 0, leaveDays: 0 };  // UPDATE THIS LINE
-};
 
     return { getPL };
   }, [getAllUploadedFiles]);
@@ -477,65 +477,65 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
     let fullPresentDays = 0;
     let adjPresentDays = 0;
 
-employee.days?.forEach((day) => {
-  const status = (day.attendance.status || "").toUpperCase();
+    employee.days?.forEach((day) => {
+      const status = (day.attendance.status || "").toUpperCase();
 
-  // Check for ADJ-P half day (treat as P/A)
-  let isAdjPHalfDay = false;
-  if (status === "ADJ-P") {
-    const workHours = day.attendance.workHrs || 0;
-    let workMins = 0;
-    if (typeof workHours === "string" && workHours.includes(":")) {
-      const [h, m] = workHours.split(":").map(Number);
-      workMins = h * 60 + (m || 0);
-    } else if (!isNaN(Number(workHours))) {
-      workMins = Number(workHours) * 60;
-    }
-    if (workMins === 0 && day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
-       const inM = timeToMinutes(day.attendance.inTime);
-       const outM = timeToMinutes(day.attendance.outTime);
-       if (outM > inM) {
-           workMins = outM - inM;
-       }
-    }
+      // Check for ADJ-P half day (treat as P/A)
+      let isAdjPHalfDay = false;
+      if (status === "ADJ-P") {
+        const workHours = day.attendance.workHrs || 0;
+        let workMins = 0;
+        if (typeof workHours === "string" && workHours.includes(":")) {
+          const [h, m] = workHours.split(":").map(Number);
+          workMins = h * 60 + (m || 0);
+        } else if (!isNaN(Number(workHours))) {
+          workMins = Number(workHours) * 60;
+        }
+        if (workMins === 0 && day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
+          const inM = timeToMinutes(day.attendance.inTime);
+          const outM = timeToMinutes(day.attendance.outTime);
+          if (outM > inM) {
+            workMins = outM - inM;
+          }
+        }
 
-    // Updated threshold to 320 minutes (5h 20m) to match AttendanceGrid logic
-    if (workMins > 0 && workMins <= 320) {
-      isAdjPHalfDay = true;
-    }
-  }
-
-  // Handle WO-I (count if employee attended)
-  if (status === "WO-I") {
-    const inTime = day.attendance.inTime;
-    const outTime = day.attendance.outTime;
-    
-    if (inTime && inTime !== "-" && outTime && outTime !== "-") {
-      // Calculate work hours to determine if half day or full day
-      const inMinutes = timeToMinutes(inTime);
-      const outMinutes = timeToMinutes(outTime);
-      const workMinutes = outMinutes > inMinutes ? outMinutes - inMinutes : 0;
-      
-      if (workMinutes > 0 && workMinutes <= 240) {
-        // Half day (up to 4 hours)
-        paCount++;
-      } else if (workMinutes > 240) {
-        // Full day (more than 4 hours)
-        fullPresentDays++;
+        // Updated threshold to 320 minutes (5h 20m) to match AttendanceGrid logic
+        if (workMins > 0 && workMins <= 320) {
+          isAdjPHalfDay = true;
+        }
       }
-    }
-  } else if (status === "P") {
-    fullPresentDays++;
-  } else if (status === "P/A" || status === "PA" || status === "ADJ-P/A" || status === "ADJP/A" || isAdjPHalfDay) {
-    paCount++;
-  } else if (status === "ADJ-P") {
-    const inTime = day.attendance.inTime;
-    const outTime = day.attendance.outTime;
-    if (inTime && inTime !== "-" && outTime && outTime !== "-") {
-      adjPresentDays++;
-    }
-  }
-});
+
+      // Handle WO-I (count if employee attended)
+      if (status === "WO-I") {
+        const inTime = day.attendance.inTime;
+        const outTime = day.attendance.outTime;
+
+        if (inTime && inTime !== "-" && outTime && outTime !== "-") {
+          // Calculate work hours to determine if half day or full day
+          const inMinutes = timeToMinutes(inTime);
+          const outMinutes = timeToMinutes(outTime);
+          const workMinutes = outMinutes > inMinutes ? outMinutes - inMinutes : 0;
+
+          if (workMinutes > 0 && workMinutes <= 240) {
+            // Half day (up to 4 hours)
+            paCount++;
+          } else if (workMinutes > 240) {
+            // Full day (more than 4 hours)
+            fullPresentDays++;
+          }
+        }
+      } else if (status === "P") {
+        fullPresentDays++;
+      } else if (status === "P/A" || status === "PA" || status === "ADJ-P/A" || status === "ADJP/A" || isAdjPHalfDay) {
+        paCount++;
+      } else if (status === "ADJ-P") {
+        const inTime = day.attendance.inTime;
+        const outTime = day.attendance.outTime;
+        if (inTime && inTime !== "-" && outTime && outTime !== "-") {
+          adjPresentDays++;
+        }
+      }
+    });
 
     const PD_excel = employee.present || 0;
     const paAdjustment = paCount * 0.5;
@@ -666,11 +666,11 @@ employee.days?.forEach((day) => {
           workMins = Number(workHours) * 60;
         }
         if (workMins === 0 && day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
-           const inM = timeToMinutes(day.attendance.inTime);
-           const outM = timeToMinutes(day.attendance.outTime);
-           if (outM > inM) {
-               workMins = outM - inM;
-           }
+          const inM = timeToMinutes(day.attendance.inTime);
+          const outM = timeToMinutes(day.attendance.outTime);
+          if (outM > inM) {
+            workMins = outM - inM;
+          }
         }
 
         if (workMins > 0 && workMins <= 240) {
@@ -846,20 +846,20 @@ employee.days?.forEach((day) => {
     OT_hours = Number((totalOTMinutes / 60).toFixed(2));
     const customTimingOTHours = Number((customTimingOTMinutes / 60).toFixed(2));
 
-    const netTotal = PAA +(isCashEmployee ? 0 : validHolidays) - lateDeductionDays;
+    const netTotal = PAA + (isCashEmployee ? 0 : validHolidays) - lateDeductionDays;
     const ATotal = Math.max(netTotal, 0);
-    
+
     // Get paid leave data (both regular paid days and adj days)
     const plData = getPL(employee);
     const pl = plData.paidDays || 0;
     const adjDays = plData.adjDays || 0;
-    const leaveDays = plData.leaveDays || 0; 
-    
+    const leaveDays = plData.leaveDays || 0;
+
     // Calculate grand total including both paid days and adj days
     const GrandTotal = Math.max(ATotal + pl + adjDays + leaveDays, 0);
 
     // Corrected: Total = Present After Adj + Holidays (Base)
-const Total = PAA + (isCashEmployee ? 0 : validHolidays);
+    const Total = PAA + (isCashEmployee ? 0 : validHolidays);
 
 
     return {
@@ -879,7 +879,7 @@ const Total = PAA + (isCashEmployee ? 0 : validHolidays);
       fullNightOTHours,
       customTimingOTHours,
       wasOTDeducted,
-       Leave_days: leaveDays,
+      Leave_days: leaveDays,
       lateDeductionDays: Number(lateDeductionDays.toFixed(1)),
     };
   }, [
@@ -954,27 +954,24 @@ const Total = PAA + (isCashEmployee ? 0 : validHolidays);
           {/* Difference Box */}
           {difference !== null && (
             <div
-              className={`px-4 py-2 border-2 rounded-lg ${
-                Math.abs(difference) > 0.02
-                  ? "bg-red-100 border-red-400"
-                  : "bg-green-100 border-green-400"
-              }`}
+              className={`px-4 py-2 border-2 rounded-lg ${Math.abs(difference) > 0.02
+                ? "bg-red-100 border-red-400"
+                : "bg-green-100 border-green-400"
+                }`}
             >
               <div
-                className={`text-xs font-semibold ${
-                  Math.abs(difference) > 0.02
-                    ? "text-red-700"
-                    : "text-green-700"
-                }`}
+                className={`text-xs font-semibold ${Math.abs(difference) > 0.02
+                  ? "text-red-700"
+                  : "text-green-700"
+                  }`}
               >
                 Difference
               </div>
               <div
-                className={`text-lg font-bold ${
-                  Math.abs(difference) > 0.02
-                    ? "text-red-900"
-                    : "text-green-900"
-                }`}
+                className={`text-lg font-bold ${Math.abs(difference) > 0.02
+                  ? "text-red-900"
+                  : "text-green-900"
+                  }`}
               >
                 {difference > 0 ? "+" : ""}
                 {Number(difference.toFixed(2))}
@@ -1028,36 +1025,36 @@ const Total = PAA + (isCashEmployee ? 0 : validHolidays);
           textColor="text-purple-700"
           tooltipKey="ATotal"
         />
-<StatBox
-  label="Paid Leave"
-  value={stats.PL_days}
-  bgColor="bg-orange-50"
-  textColor="text-orange-700"
-  tooltipKey="PL_days"
-/>
-{stats.ADJ_days > 0 && (
-  <StatBox
-    label="ADJ Days (from PL)"
-    value={stats.ADJ_days}
-    bgColor="bg-amber-50"
-    textColor="text-amber-700"
-    tooltipKey="ADJ_days"
-  />
-)}
-<StatBox
-  label="Leave (from PL)"
-  value={stats.Leave_days}
-  bgColor="bg-pink-50"
-  textColor="text-pink-700"
-  tooltipKey="Leave_days"
-/>
-<StatBox
-  label="Grand Total"
-  value={stats.GrandTotal}
-  bgColor="bg-emerald-50"
-  textColor="text-emerald-700"
-  tooltipKey="GrandTotal"
-/>
+        <StatBox
+          label="Paid Leave"
+          value={stats.PL_days}
+          bgColor="bg-orange-50"
+          textColor="text-orange-700"
+          tooltipKey="PL_days"
+        />
+        {stats.ADJ_days > 0 && (
+          <StatBox
+            label="ADJ Days (from PL)"
+            value={stats.ADJ_days}
+            bgColor="bg-amber-50"
+            textColor="text-amber-700"
+            tooltipKey="ADJ_days"
+          />
+        )}
+        <StatBox
+          label="Leave (from PL)"
+          value={stats.Leave_days}
+          bgColor="bg-pink-50"
+          textColor="text-pink-700"
+          tooltipKey="Leave_days"
+        />
+        <StatBox
+          label="Grand Total"
+          value={stats.GrandTotal}
+          bgColor="bg-emerald-50"
+          textColor="text-emerald-700"
+          tooltipKey="GrandTotal"
+        />
       </div>
     </div>
   );

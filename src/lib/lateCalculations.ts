@@ -14,6 +14,7 @@ const timeToMinutes = (timeStr: string): number => {
 
 export const getIsStaff = (emp: EmployeeData): boolean => {
   const inStr = `${emp.companyName ?? ""} ${emp.department ?? ""}`.toLowerCase();
+  if (inStr.includes("c cash")) return false;
   if (inStr.includes("worker")) return false;
   if (inStr.includes("staff")) return true;
   return true;
@@ -84,7 +85,10 @@ export const calculateLateMinutes = (
  * - adj-P: Check work hours. If <= 4 hours (240 mins), treat as adj-P/A (skip). Else count.
  * - Others (P, etc): Count early departure
  */
-export const calculateEarlyDepartureMinutes = (employee: EmployeeData): number => {
+export const calculateEarlyDepartureMinutes = (
+  employee: EmployeeData,
+  customEndMinutes?: number
+): number => {
   let earlyDepartureTotalMinutes = 0;
 
   employee.days?.forEach((day) => {
@@ -128,8 +132,18 @@ export const calculateEarlyDepartureMinutes = (employee: EmployeeData): number =
     }
     
     // 3. Count for others (P, Full Day adj-P, etc.)
-    if (earlyDepMins > 0) {
-      earlyDepartureTotalMinutes += earlyDepMins;
+    let dailyEarlyDep = 0;
+    if (customEndMinutes && day.attendance.outTime && day.attendance.outTime !== "-") {
+      const outMinutes = timeToMinutes(day.attendance.outTime);
+      if (outMinutes < customEndMinutes) {
+        dailyEarlyDep = customEndMinutes - outMinutes;
+      }
+    } else {
+      dailyEarlyDep = earlyDepMins;
+    }
+
+    if (dailyEarlyDep > 0) {
+      earlyDepartureTotalMinutes += dailyEarlyDep;
     }
   });
 
@@ -140,28 +154,8 @@ export const calculateEarlyDepartureMinutes = (employee: EmployeeData): number =
  * Calculate less than 4 hours on P/A days
  */
 export const calculateLessThan4HoursMinutes = (employee: EmployeeData): number => {
-  let lessThan4HrMins = 0;
-
-  employee.days?.forEach((day) => {
-    const status = (day.attendance.status || "").toUpperCase();
-    const workHours = day.attendance.workHrs || 0;
-
-    // Convert work hours to minutes
-    let workMins = 0;
-    if (typeof workHours === "string" && workHours.includes(":")) {
-      const [h, m] = workHours.split(":").map(Number);
-      workMins = h * 60 + (m || 0);
-    } else if (!isNaN(Number(workHours))) {
-      workMins = Number(workHours) * 60;
-    }
-
-    // If P/A and less than 4 hours (240 mins)
-    if ((status === "P/A" || status === "PA") && workMins < 240) {
-      lessThan4HrMins += 240 - workMins;
-    }
-  });
-
-  return Math.round(lessThan4HrMins);
+  // Logic removed to prevent double deduction with Early Departure
+  return 0;
 };
 
 /**
@@ -171,7 +165,8 @@ export const calculateLessThan4HoursMinutes = (employee: EmployeeData): number =
 export const calculateTotalDeductionMinutes = (
   employee: EmployeeData,
   breakExcessMinutes: number = 0,
-  employeeNormalStartMinutes?: number
+  employeeNormalStartMinutes?: number,
+  customEndMinutes?: number
 ): {
   lateMinutes: number;
   earlyDepartureMinutes: number;
@@ -185,7 +180,7 @@ export const calculateTotalDeductionMinutes = (
   const STAFF_RELAXATION_MINUTES = 4 * 60;
 
   const lateMinutes = calculateLateMinutes(employee, employeeNormalStartMinutes);
-  const earlyDepartureMinutes = calculateEarlyDepartureMinutes(employee);
+  const earlyDepartureMinutes = calculateEarlyDepartureMinutes(employee, customEndMinutes);
   const lessThan4HoursMinutes = calculateLessThan4HoursMinutes(employee);
   
   const isStaff = getIsStaff(employee);
