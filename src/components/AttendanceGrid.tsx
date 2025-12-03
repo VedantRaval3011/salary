@@ -399,6 +399,8 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
     const inMinutes = timeToMinutes(inTime);
     const expectedStartMinutes =
       customTiming.startHour * 60 + customTiming.startMin;
+
+    // STRICT CUSTOM TIMING: Always compare against expected start
     const lateMins = inMinutes - expectedStartMinutes;
     return lateMins > 0 ? lateMins : 0;
   };

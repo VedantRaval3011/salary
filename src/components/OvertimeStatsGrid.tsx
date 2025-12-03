@@ -522,19 +522,27 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
       const inMinutes = timeToMinutes(inTime);
       let dailyLateMins = 0;
 
-      if (status === "P/A" || status === "PA") {
-        if (inMinutes < MORNING_EVENING_CUTOFF_MINUTES) {
+      // ⭐ STRICT CUSTOM TIMING RULE:
+      if (customTiming) {
+        if (inMinutes > employeeNormalStartMinutes) {
+          dailyLateMins = inMinutes - employeeNormalStartMinutes;
+        }
+      } else {
+        // Standard Logic
+        if (status === "P/A" || status === "PA") {
+          if (inMinutes < MORNING_EVENING_CUTOFF_MINUTES) {
+            if (inMinutes > employeeNormalStartMinutes) {
+              dailyLateMins = inMinutes - employeeNormalStartMinutes;
+            }
+          } else {
+            if (inMinutes > EVENING_SHIFT_START_MINUTES) {
+              dailyLateMins = inMinutes - EVENING_SHIFT_START_MINUTES;
+            }
+          }
+        } else if (status === "P" || status === "ADJ-P") {
           if (inMinutes > employeeNormalStartMinutes) {
             dailyLateMins = inMinutes - employeeNormalStartMinutes;
           }
-        } else {
-          if (inMinutes > EVENING_SHIFT_START_MINUTES) {
-            dailyLateMins = inMinutes - EVENING_SHIFT_START_MINUTES;
-          }
-        }
-      } else if (status === "P" || status === "ADJ-P") {
-        if (inMinutes > employeeNormalStartMinutes) {
-          dailyLateMins = inMinutes - employeeNormalStartMinutes;
         }
       }
 

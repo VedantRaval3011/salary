@@ -506,19 +506,27 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
         let dailyLateMins = 0;
 
         // ADJ-P/A should be treated the same as P/A
-        if (status === "P/A" || status === "PA" || status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA" || isAdjPHalfDay) {
-          if (inMinutes < MORNING_EVENING_CUTOFF_MINUTES) {
+        // ⭐ STRICT CUSTOM TIMING RULE:
+        if (customTiming) {
+          if (inMinutes > employeeNormalStartMinutes) {
+            dailyLateMins = inMinutes - employeeNormalStartMinutes;
+          }
+        } else {
+          // Standard Logic
+          if (status === "P/A" || status === "PA" || status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA" || isAdjPHalfDay) {
+            if (inMinutes < MORNING_EVENING_CUTOFF_MINUTES) {
+              if (inMinutes > employeeNormalStartMinutes) {
+                dailyLateMins = inMinutes - employeeNormalStartMinutes;
+              }
+            } else {
+              if (inMinutes > EVENING_SHIFT_START_MINUTES) {
+                dailyLateMins = inMinutes - EVENING_SHIFT_START_MINUTES;
+              }
+            }
+          } else if (status === "P" || status === "ADJ-P") {
             if (inMinutes > employeeNormalStartMinutes) {
               dailyLateMins = inMinutes - employeeNormalStartMinutes;
             }
-          } else {
-            if (inMinutes > EVENING_SHIFT_START_MINUTES) {
-              dailyLateMins = inMinutes - EVENING_SHIFT_START_MINUTES;
-            }
-          }
-        } else if (status === "P" || status === "ADJ-P") {
-          if (inMinutes > employeeNormalStartMinutes) {
-            dailyLateMins = inMinutes - employeeNormalStartMinutes;
           }
         }
 
