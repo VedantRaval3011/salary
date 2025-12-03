@@ -8,6 +8,7 @@ import { calculateBreakExcessMinutes } from "@/lib/unifiedCalculations";
 import { EyeIcon } from "lucide-react";
 import { useHRLateLookup } from "@/hooks/useHRLateLookup";
 import { usePunchData } from "@/context/PunchDataContext";
+import { useMaintenanceDeductLookup } from "@/hooks/useMaintenanceDeductLookup";
 
 // Utility helpers
 const canon = (s: string) => (s ?? "").toUpperCase().trim();
@@ -417,9 +418,11 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
   const { getCustomTimingForEmployee } = useCustomTimingLookup();
   const { getPunchDataForEmployee } = usePunchData();
   const { getHRLateValue } = useHRLateLookup();
+  const { isMaintenanceEmployee } = useMaintenanceDeductLookup();
 
   const stats = useMemo(() => {
     const customTiming = getCustomTimingForEmployee(employee);
+    const isMaintenance = isMaintenanceEmployee(employee); // Determine maintenance status
     let lateMinsTotal = 0;
     let lessThan4HrMins = 0;
 
@@ -572,7 +575,7 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
 
     });
 
-    const breakExcessMinutes = calculateBreakExcessMinutes(employee, getPunchDataForEmployee(employee.empCode) || undefined);
+    const breakExcessMinutes = calculateBreakExcessMinutes(employee, getPunchDataForEmployee(employee.empCode) || undefined, isMaintenance);
 
     // --- New: Calculate Total Combined Minutes BEFORE relaxation ---
     let totalBeforeRelaxation =

@@ -15,6 +15,7 @@ import {
 
 // --- Import new hook (HR lookup) ---
 import { useHRLateLookup } from "@/hooks/useHRLateLookup";
+import { useMaintenanceDeductLookup } from "@/hooks/useMaintenanceDeductLookup";
 
 /* ============================================================
    Utility helpers (same as your other file)
@@ -249,9 +250,10 @@ function useCustomTimingLookup() {
 const STAFF_RELAXATION_MINUTES = 4 * 60; // 4 hours in minutes
 
 const BREAK_DEFINITIONS = [
-  { name: "Tea Break 1", start: 10 * 60 + 15, end: 10 * 60 + 30, allowed: 15 },
-  { name: "Lunch Break", start: 12 * 60 + 45, end: 13 * 60 + 15, allowed: 30 },
-  { name: "Tea Break 2", start: 15 * 60 + 15, end: 15 * 60 + 30, allowed: 15 },
+  { name: "Tea Break 1", start: 10 * 60 + 15, end: 10 * 60 + 30, allowed: 15 }, // 10:15 - 10:30
+  { name: "Lunch Break", start: 12 * 60 + 30, end: 14 * 60, allowed: 30 },      // 12:30 - 14:00
+  { name: "Tea Break 2", start: 15 * 60 + 15, end: 15 * 60 + 30, allowed: 15 }, // 15:15 - 15:30
+  { name: "Dinner Break", start: 19 * 60 + 30, end: 21 * 60, allowed: 30 },     // 19:30 - 21:00
 ];
 
 const calculateFinalSoftwareMinutes = (
@@ -260,7 +262,8 @@ const calculateFinalSoftwareMinutes = (
   customTiming: {
     expectedStartMinutes: number;
     expectedEndMinutes: number;
-  } | null
+  } | null,
+  isMaintenance: boolean = false
 ) => {
   // Standard timing rules
   const STANDARD_START_MINUTES = 8 * 60 + 30;
@@ -298,10 +301,6 @@ const calculateFinalSoftwareMinutes = (
     } else if (!isNaN(Number(workHours))) {
       workMins = Number(workHours) * 60;
     }
-    // ❌ REMOVED: Logic removed to prevent double deduction with Early Departure
-    // if ((status === "P/A" || status === "PA") && workMins < 240) {
-    //   lessThan4HrMins += 240 - workMins;
-    // }
 
     // Late calculation
     if (inTime && inTime !== "-") {
@@ -338,7 +337,6 @@ const calculateFinalSoftwareMinutes = (
 
     // ❌ RULE: Skip early departure completely if status is "M/WO-I"
     if (status === "M/WO-I") {
-      // Do NOT add earlyDepMins
       return; // skip this day
     }
 
@@ -379,6 +377,17 @@ const calculateFinalSoftwareMinutes = (
 
   // b) compute break excess using lunchData (if present)
   if (lunchData && Array.isArray(lunchData.dailyPunches)) {
+    // Define dynamic breaks including the evening break
+    const breaks = [
+      ...BREAK_DEFINITIONS,
+      {
+        name: "Evening Break",
+        start: 17 * 60 + 30,
+        end: isMaintenance ? 18 * 60 + 30 : 18 * 60,
+        allowed: 15
+      }
+    ];
+
     for (const dayData of lunchData.dailyPunches) {
       const punches = dayData.punches || [];
       if (!Array.isArray(punches) || punches.length < 2) continue;
@@ -402,9 +411,7 @@ const calculateFinalSoftwareMinutes = (
         if (
           punchTimes[i].type === "Out" &&
           punchTimes[i + 1].type === "In" &&
-          punchTimes[i + 1].minutes > punchTimes[i].minutes &&
-          punchTimes[i].minutes >= 9 * 60 &&
-          punchTimes[i].minutes <= 19 * 60
+          punchTimes[i + 1].minutes > punchTimes[i].minutes
         ) {
           breakPeriods.push({
             outMinutes: punchTimes[i].minutes,
@@ -416,24 +423,15 @@ const calculateFinalSoftwareMinutes = (
 
       if (breakPeriods.length === 0) continue;
 
-      // Was there a return after 5:30 PM?
-      const lastIn = punchTimes.filter((p) => p.type === "In").pop();
-      const hasPostEvening = lastIn && lastIn.minutes >= 17 * 60 + 30;
-
       for (const bp of breakPeriods) {
         let allowed = 0;
 
         // Allowed break overlaps
-        for (const defBreak of BREAK_DEFINITIONS) {
+        for (const defBreak of breaks) {
           const overlapStart = Math.max(bp.outMinutes, defBreak.start);
           const overlapEnd = Math.min(bp.inMinutes, defBreak.end);
           const overlap = Math.max(0, overlapEnd - overlapStart);
           allowed += Math.min(overlap, defBreak.allowed);
-        }
-
-        // Post evening rule (minimum 15 mins)
-        if (bp.outMinutes >= 17 * 60 + 30 || bp.inMinutes >= 17 * 60 + 30) {
-          allowed = Math.max(allowed, 15);
         }
 
         // Excess
@@ -527,6 +525,7 @@ export const LateComparison: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
 
   const { getHRLateValue } = useHRLateLookup();
+  const { isMaintenanceEmployee } = useMaintenanceDeductLookup();
 
   // Use the in-file hooks
   const { getLunchDataForEmployee } = useLunchInOutLookup();
@@ -556,12 +555,32 @@ export const LateComparison: React.FC = () => {
     if (!excelData || !excelData.employees || !showTable) return [];
     setIsLoading(true);
 
-    // In the categorizedData useMemo, replace this section:
-
-    // In LateComparison.tsx, in the categorizedData useMemo:
-
     const data: SortableLateComparisonData[] = excelData.employees.map(
       (employee: EmployeeData) => {
+        // We need to calculate the software total here if we want to compare against HR
+        // But wait, the user said "Get Total(-4hrs) from context" in line 524.
+        // However, the context might not be updated with the new break rules unless we update the context provider too.
+        // The context provider likely uses `unifiedCalculations.ts`.
+        // If we updated `unifiedCalculations.ts`, the context should be correct.
+        // BUT, `LateComparison` seems to be recalculating it locally or using context?
+
+        // Line 524: const { totalMinus4 } = useFinalDifference();
+        // Line 565: const softwareTotalMinutes = totalMinus4.get(employee.empCode) ?? 0;
+
+        // If `LateComparison` relies on `totalMinus4` from context, and context uses `unifiedCalculations.ts`,
+        // then my update to `unifiedCalculations.ts` should be enough for the context value.
+        // BUT `LateComparison` ALSO has `calculateFinalSoftwareMinutes` defined locally.
+        // Is it used?
+        // Let's check where `calculateFinalSoftwareMinutes` is called.
+        // It seems it is NOT called in the `categorizedData` useMemo in the previous file content (Step 79).
+        // It uses `totalMinus4.get(employee.empCode)`.
+
+        // So `calculateFinalSoftwareMinutes` might be dead code or used elsewhere?
+        // Ah, I see `calculateFinalSoftwareMinutes` definition but I don't see it being CALLED in the visible part of Step 79.
+        // Wait, if `LateComparison` uses `totalMinus4` from context, then I need to make sure `FinalDifferenceContext` passes `isMaintenance` to `unifiedCalculations`.
+
+        // Let's check `FinalDifferenceContext.tsx`.
+
         const softwareTotalMinutes = totalMinus4.get(employee.empCode) ?? 0;
 
         // Convert to decimal hours
@@ -577,8 +596,6 @@ export const LateComparison: React.FC = () => {
             : Number((softwareTotalHours - hrLateHours).toFixed(2));
 
         const { category } = getDifferenceCategory(difference);
-
-
 
         return {
           empCode: employee.empCode,
@@ -598,8 +615,9 @@ export const LateComparison: React.FC = () => {
     excelData,
     showTable,
     getHRLateValue,
-    getLunchDataForEmployee,
-    getCustomTimingForEmployee,
+    totalMinus4, // Added dependency
+    // getLunchDataForEmployee, // Unused if we use context
+    // getCustomTimingForEmployee, // Unused if we use context
   ]);
 
   /* ------------------ Sorting ------------------ */

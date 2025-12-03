@@ -181,22 +181,33 @@ export const calculateLessThan4HoursMinutes = (employee: EmployeeData): number =
  * Calculate break excess minutes
  * NOTE: This now accepts punchData from PunchDataContext
  */
+/**
+ * Calculate break excess minutes
+ * NOTE: This now accepts punchData from PunchDataContext
+ */
 export const calculateBreakExcessMinutes = (
   employee: EmployeeData,
-  punchData?: { attendance: { [date: string]: { in: string[]; out: string[] } } }
+  punchData?: { attendance: { [date: string]: { in: string[]; out: string[] } } },
+  isMaintenance: boolean = false
 ): number => {
   if (!punchData || !punchData.attendance) {
     return 0;
   }
 
   const BREAKS = [
-    { name: "Tea Break 1", start: 10 * 60 + 15, end: 10 * 60 + 30, allowed: 15 },
-    { name: "Lunch Break", start: 12 * 60, end: 14 * 60 + 30, allowed: 30 },
-    { name: "Tea Break 2", start: 15 * 60 + 15, end: 15 * 60 + 30, allowed: 15 },
+    { name: "Tea Break 1", start: 10 * 60 + 15, end: 10 * 60 + 30, allowed: 15 }, // 10:15 - 10:30
+    { name: "Lunch Break", start: 12 * 60 + 30, end: 14 * 60, allowed: 30 },      // 12:30 - 14:00
+    { name: "Tea Break 2", start: 15 * 60 + 15, end: 15 * 60 + 30, allowed: 15 }, // 15:15 - 15:30
+    // Evening Break: 5:30 PM start. End depends on maintenance status.
+    { 
+      name: "Evening Break", 
+      start: 17 * 60 + 30, 
+      end: isMaintenance ? 18 * 60 + 30 : 18 * 60, // 17:30 - 18:30 (Maint) or 17:30 - 18:00 (Non-Maint)
+      allowed: 15 
+    },
+    { name: "Dinner Break", start: 19 * 60 + 30, end: 21 * 60, allowed: 30 },     // 19:30 - 21:00
   ];
 
-  const CUTOFF_TIME = 17 * 60 + 30; // 17:30 (5:30 PM)
-  const isStaff = getIsStaff(employee);
   let totalExcessMinutes = 0;
 
   // Iterate through all dates in the punch data
@@ -256,65 +267,12 @@ export const calculateBreakExcessMinutes = (
         if (duration > 0) {
           let allowed = 0;
           
-          // ⭐ NEW LOGIC: Different rules for staff vs non-staff employees
-          if (!isStaff) {
-            // For NON-STAFF (workers): After 5:30 PM, only 15 mins break allowed
-            if (outMin >= CUTOFF_TIME) {
-              // Break starts after 5:30 PM - only 15 mins allowed
-              allowed = 15;
-            } else if (inMin > CUTOFF_TIME) {
-              // Break spans across 5:30 PM
-              // Calculate allowed time before 5:30 PM based on break windows
-              for (const defBreak of BREAKS) {
-                const overlapStart = Math.max(outMin, defBreak.start);
-                const overlapEnd = Math.min(CUTOFF_TIME, defBreak.end);
-                const overlap = Math.max(0, overlapEnd - overlapStart);
-                if (overlap > 0) allowed += defBreak.allowed;
-              }
-              // Add 15 mins for the portion after 5:30 PM
-              allowed += 15;
-            } else {
-              // Break is entirely before 5:30 PM - use normal break windows
-              for (const defBreak of BREAKS) {
-                const overlapStart = Math.max(outMin, defBreak.start);
-                const overlapEnd = Math.min(inMin, defBreak.end);
-                const overlap = Math.max(0, overlapEnd - overlapStart);
-                if (overlap > 0) allowed += defBreak.allowed;
-              }
-            }
-          } else {
-            // For STAFF: Original logic - ignore breaks after 5:30 PM for non-fullnight
-            const isFullNight = employee.otGrantedType === "fullnight";
-            
-            if (!isFullNight && outMin >= CUTOFF_TIME) {
-              // Break starts after 5:30 PM, ignore completely for staff
-              continue;
-            }
-            
-            let effectiveInMin = inMin;
-            if (!isFullNight && inMin > CUTOFF_TIME) {
-              // Break ends after 5:30 PM, truncate to 5:30 PM for staff
-              effectiveInMin = CUTOFF_TIME;
-            }
-            
-            const effectiveDuration = effectiveInMin - outMin;
-            
-            if (effectiveDuration > 0) {
-              // Calculate allowed time based on break window overlaps
-              for (const defBreak of BREAKS) {
-                const overlapStart = Math.max(outMin, defBreak.start);
-                const overlapEnd = Math.min(effectiveInMin, defBreak.end);
-                const overlap = Math.max(0, overlapEnd - overlapStart);
-                if (overlap > 0) allowed += defBreak.allowed;
-              }
-              
-              // Evening break allowance (after 5:30 PM) for staff
-              if (outMin >= CUTOFF_TIME || inMin >= CUTOFF_TIME) {
-                allowed = Math.max(allowed, 15);
-              }
-            } else {
-              continue;
-            }
+          // Calculate allowed time based on break window overlaps
+          for (const defBreak of BREAKS) {
+            const overlapStart = Math.max(outMin, defBreak.start);
+            const overlapEnd = Math.min(inMin, defBreak.end);
+            const overlap = Math.max(0, overlapEnd - overlapStart);
+            if (overlap > 0) allowed += Math.min(overlap, defBreak.allowed);
           }
           
           const excess = Math.max(0, duration - allowed);
@@ -335,7 +293,8 @@ export const calculateTotalCombinedMinutes = (
   employee: EmployeeData,
   punchData?: { attendance: { [date: string]: { in: string[]; out: string[] } } },
   customStartMinutes?: number,
-  customEndMinutes?: number
+  customEndMinutes?: number,
+  isMaintenance: boolean = false
 ): {
   lateMinutes: number;
   earlyDepartureMinutes: number;
@@ -346,12 +305,26 @@ export const calculateTotalCombinedMinutes = (
   totalAfterRelaxation: number;
   isStaff: boolean;
 } => {
+  // SPECIAL RULE: Kaplesh Raloliya (143) always has 0 Total Deduction
+  if (employee.empCode === "143") {
+    return {
+      lateMinutes: 0,
+      earlyDepartureMinutes: 0,
+      breakExcessMinutes: 0,
+      lessThan4HoursMinutes: 0,
+      totalBeforeRelaxation: 0,
+      staffRelaxationApplied: 0,
+      totalAfterRelaxation: 0,
+      isStaff: getIsStaff(employee),
+    };
+  }
+
   const isStaff = getIsStaff(employee);
 
   // Calculate all components
   const lateMinutes = calculateLateMinutes(employee, customStartMinutes);
   const earlyDepartureMinutes = calculateEarlyDepartureMinutes(employee, customEndMinutes);
-  const breakExcessMinutes = calculateBreakExcessMinutes(employee, punchData);
+  const breakExcessMinutes = calculateBreakExcessMinutes(employee, punchData, isMaintenance);
   const lessThan4HoursMinutes = calculateLessThan4HoursMinutes(employee);
 
   // Calculate total before relaxation

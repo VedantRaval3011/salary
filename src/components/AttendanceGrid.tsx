@@ -5,6 +5,7 @@ import React, { useMemo } from "react";
 import { DayAttendance, EmployeeData } from "@/lib/types";
 import { useExcel } from "@/context/ExcelContext";
 import { usePunchData } from "@/context/PunchDataContext";
+import { useMaintenanceDeductLookup } from "@/hooks/useMaintenanceDeductLookup";
 
 interface AttendanceGridProps {
   days: DayAttendance[];
@@ -150,9 +151,10 @@ function useLunchInOutLookup() {
 
 // --- Break Rules (Copied) ---
 const BREAKS = [
-  { name: "Tea Break 1", start: 10 * 60 + 15, end: 10 * 60 + 30, allowed: 15 },
-  { name: "Lunch Break", start: 12 * 60, end: 14 * 60 + 30, allowed: 30 },
-  { name: "Tea Break 2", start: 15 * 60 + 15, end: 15 * 60 + 30, allowed: 15 },
+  { name: "Tea Break 1", start: 10 * 60 + 15, end: 10 * 60 + 30, allowed: 15 }, // 10:15 - 10:30
+  { name: "Lunch Break", start: 12 * 60 + 30, end: 14 * 60, allowed: 30 },      // 12:30 - 14:00
+  { name: "Tea Break 2", start: 15 * 60 + 15, end: 15 * 60 + 30, allowed: 15 }, // 15:15 - 15:30
+  { name: "Dinner Break", start: 19 * 60 + 30, end: 21 * 60, allowed: 30 },     // 19:30 - 21:00
 ];
 
 // ---- Staff OT Granted Lookup Hook ---- //
@@ -252,8 +254,8 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
 }) => {
   const { getPunchDataForEmployee } = usePunchData();
   const { getGrantForEmployee } = useStaffOTGrantedLookup();
-
-
+  const { isMaintenanceEmployee } = useMaintenanceDeductLookup();
+  const isMaintenance = isMaintenanceEmployee(employee);
 
   // --- Compute Daily Punches for this Employee from PunchData Context ---
   const dailyPunchesMap = useMemo(() => {
@@ -729,6 +731,17 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
         // Calculate total break excess for the day
         let totalBreakExcess = 0;
         if (punches && punches.length > 0) {
+          // Define dynamic breaks including the evening break
+          const breaks = [
+            ...BREAKS,
+            {
+              name: "Evening Break",
+              start: 17 * 60 + 30,
+              end: isMaintenance ? 18 * 60 + 30 : 18 * 60,
+              allowed: 15
+            }
+          ];
+
           for (let i = 0; i < punches.length - 1; i++) {
             const current = punches[i];
             const next = punches[i + 1];
@@ -740,38 +753,16 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
               if (duration > 0) {
                 let allowed = 0;
                 const outMin = current.minutes;
-                let inMin = next.minutes;
+                const inMin = next.minutes;
 
-                // [NEW LOGIC] Handle 5:30 PM cutoff for non-fullnight employees
-                const isFullNight = employee.otGrantedType === "fullnight";
-                const CUTOFF_TIME = 17 * 60 + 30; // 17:30 (5:30 PM)
-
-                if (!isFullNight) {
-                  if (outMin >= CUTOFF_TIME) {
-                    // Break starts after 5:30 PM, ignore completely
-                    continue;
-                  }
-                  if (inMin > CUTOFF_TIME) {
-                    // Break ends after 5:30 PM, truncate to 5:30 PM
-                    inMin = CUTOFF_TIME;
-                  }
-                }
-
-                // Recalculate duration based on truncated time for excess calculation
-                const calcDuration = inMin - outMin;
-
-                for (const defBreak of BREAKS) {
+                for (const defBreak of breaks) {
                   const overlapStart = Math.max(outMin, defBreak.start);
                   const overlapEnd = Math.min(inMin, defBreak.end);
                   const overlap = Math.max(0, overlapEnd - overlapStart);
-                  if (overlap > 0) allowed += defBreak.allowed;
+                  if (overlap > 0) allowed += Math.min(overlap, defBreak.allowed);
                 }
 
-                if (outMin >= 17 * 60 + 30 || inMin >= 17 * 60 + 30) {
-                  allowed = Math.max(allowed, 15);
-                }
-
-                const excess = Math.max(0, calcDuration - allowed);
+                const excess = Math.max(0, duration - allowed);
                 totalBreakExcess += excess;
               }
             }

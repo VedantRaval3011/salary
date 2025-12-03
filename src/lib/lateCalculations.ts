@@ -185,6 +185,20 @@ export const calculateTotalDeductionMinutes = (
 } => {
   const STAFF_RELAXATION_MINUTES = 4 * 60;
 
+  // SPECIAL RULE: Kaplesh Raloliya (143) always has 0 Total Deduction
+  if (employee.empCode === "143") {
+    return {
+      lateMinutes: 0,
+      earlyDepartureMinutes: 0,
+      lessThan4HoursMinutes: 0,
+      breakExcessMinutes: 0,
+      subtotal: 0,
+      staffRelaxation: 0,
+      total: 0,
+      isStaff: getIsStaff(employee),
+    };
+  }
+
   const lateMinutes = calculateLateMinutes(employee, employeeNormalStartMinutes);
   const earlyDepartureMinutes = calculateEarlyDepartureMinutes(employee, customEndMinutes);
   const lessThan4HoursMinutes = calculateLessThan4HoursMinutes(employee);
