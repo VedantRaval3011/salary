@@ -626,6 +626,74 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
       };
     }
 
+    // Handle P/A status late minutes override
+    let originalLateMinsForPA: string | undefined = undefined;
+    let hasLateOverride = false;
+    const isPAStatus = status === "P/A" || status === "PA" ||
+      status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA";
+
+    if (isPAStatus && !isKaplesh) {
+      const currentLateMins = String(day.attendance.lateMins || "0");
+      const inTime = day.attendance.inTime;
+
+      if (inTime && inTime !== "-") {
+        const inMinutes = timeToMinutes(inTime);
+        const dayName = (day.day || "").toLowerCase();
+        const isSaturday = dayName === "sa" || dayName === "sat" || dayName === "saturday";
+
+        let calculatedLateMins = 0;
+
+        if (!isSaturday) {
+          // Non-Saturday P/A: Half day starts at 12:30 PM
+          const HALF_DAY_START_MINUTES = 12 * 60 + 30; // 12:30 PM (750 minutes)
+          if (inMinutes > HALF_DAY_START_MINUTES) {
+            calculatedLateMins = inMinutes - HALF_DAY_START_MINUTES;
+          }
+          // If at or before 12:30 PM, late is 0
+        } else {
+          // Saturday P/A: Use normal shift logic
+          const MORNING_EVENING_CUTOFF_MINUTES = 10 * 60; // 10:00 AM
+          const EVENING_SHIFT_START_MINUTES = 13 * 60 + 15; // 1:15 PM
+          const employeeNormalStartMinutes = 8 * 60 + 30; // 8:30 AM
+
+          if (inMinutes < MORNING_EVENING_CUTOFF_MINUTES) {
+            // Morning shift
+            if (inMinutes > employeeNormalStartMinutes) {
+              calculatedLateMins = inMinutes - employeeNormalStartMinutes;
+            }
+          } else {
+            // Evening shift
+            if (inMinutes > EVENING_SHIFT_START_MINUTES) {
+              calculatedLateMins = inMinutes - EVENING_SHIFT_START_MINUTES;
+            }
+          }
+        }
+
+        // Apply 5-minute grace period
+        const PERMISSIBLE_LATE_MINS = 5;
+        if (calculatedLateMins > PERMISSIBLE_LATE_MINS) {
+          calculatedLateMins = calculatedLateMins;
+        } else {
+          calculatedLateMins = 0;
+        }
+
+        const calculatedLateStr = String(Math.round(calculatedLateMins));
+
+        // If calculated value differs from Excel value, override it
+        if (calculatedLateStr !== currentLateMins) {
+          originalLateMinsForPA = currentLateMins;
+          hasLateOverride = true;
+          day = {
+            ...day,
+            attendance: {
+              ...day.attendance,
+              lateMins: calculatedLateStr,
+            },
+          };
+        }
+      }
+    }
+
     // Handle custom timing recalculation
     if (!customTimingParsed || (status !== "P" && status !== "ADJ-P" && status !== "ADJ-P/A" && status !== "ADJP/A")) {
       return {
@@ -641,6 +709,8 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
         calculatedOTMinutes,
         originalEarlyDep: hasEarlyDepCalculation ? originalEarlyDep : undefined,
         hasEarlyDepCalculation,
+        originalLateMins: originalLateMinsForPA,
+        hasLateOverride,
       } as DayAttendance & {
         originalLateMins?: string;
         originalOTHrs?: string;
@@ -650,6 +720,7 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
         calculatedOTMinutes?: number;
         originalEarlyDep?: string;
         hasEarlyDepCalculation?: boolean;
+        hasLateOverride?: boolean;
       };
     }
 
@@ -671,7 +742,7 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
         lateMins: recalculatedLateMins.toString(),
         otHrs: recalculatedOTHrs,
       },
-      originalLateMins,
+      originalLateMins: originalLateMinsForPA || originalLateMins,
       originalOTHrs,
       hasCustomCalculation: true,
       hasOTCalculation,
@@ -679,6 +750,7 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
       calculatedOTMinutes,
       originalEarlyDep: hasEarlyDepCalculation ? originalEarlyDep : undefined,
       hasEarlyDepCalculation,
+      hasLateOverride,
     } as DayAttendance & {
       originalLateMins?: string;
       originalOTHrs?: string;
@@ -688,6 +760,7 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
       calculatedOTMinutes?: number;
       originalEarlyDep?: string;
       hasEarlyDepCalculation?: boolean;
+      hasLateOverride?: boolean;
     };
   });
 
@@ -846,17 +919,48 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
               {/* Late Mins */}
               <div className="flex justify-between">
                 <span className="font-semibold">Late Mins:</span>
-                <span
-                  className={
-                    day.hasCustomCalculation ? "font-bold text-purple-700" : ""
-                  }
-                >
-                  {day.attendance.lateMins || "0"}
-                  {day.hasCustomCalculation && " *"}
+                <span className="">
+                  {(() => {
+                    const status = (day.attendance.status || "").toUpperCase();
+                    const isPAStatus = status === "P/A" || status === "PA" ||
+                      status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA";
+                    const lateMins = day.attendance.lateMins || "0";
+                    const originalLateMins = day.originalLateMins || lateMins;
+
+                    // Check if this is a P/A status with non-zero original late mins
+                    if (isPAStatus && originalLateMins !== "0" && lateMins === "0") {
+                      return (
+                        <>
+                          <span className="line-through text-gray-400 mr-2">
+                            {originalLateMins}
+                          </span>
+                          <span className="font-bold text-red-600">0</span>
+                        </>
+                      );
+                    }
+
+                    // Custom calculation styling
+                    if (day.hasCustomCalculation) {
+                      return (
+                        <span className="font-bold text-purple-700">
+                          {lateMins}
+                          {" *"}
+                        </span>
+                      );
+                    }
+
+                    // Default display
+                    return lateMins;
+                  })()}
                 </span>
               </div>
               {day.hasCustomCalculation &&
-                day.originalLateMins !== day.attendance.lateMins && (
+                day.originalLateMins !== day.attendance.lateMins &&
+                !((day.attendance.status || "").toUpperCase() === "P/A" ||
+                  (day.attendance.status || "").toUpperCase() === "PA" ||
+                  (day.attendance.status || "").toUpperCase() === "ADJ-P/A" ||
+                  (day.attendance.status || "").toUpperCase() === "ADJP/A" ||
+                  (day.attendance.status || "").toUpperCase() === "ADJ-PA") && (
                   <div className="flex justify-between text-xs opacity-60 -mt-1 ml-4">
                     <span>Prev Late:</span>
                     <span className="line-through">

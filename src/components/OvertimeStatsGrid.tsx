@@ -509,6 +509,8 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
 
     const employeeNormalStartMinutes =
       customTiming?.expectedStartMinutes ?? STANDARD_START_MINUTES;
+    const employeeNormalEndMinutes =
+      customTiming?.expectedEndMinutes ?? (17 * 60 + 30); // Default 5:30 PM
 
     // Calculate Late Minutes
     employee.days?.forEach((day) => {
@@ -607,15 +609,15 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
           );
         }
 
-        // 2) ADJ-P override → OT after 6:00 PM only
+        // 2) ADJ-P override → OT after shift end time only
         else if (status === "ADJ-P") {
           if (isStaff) {
             dayOTMinutes = 0;
           } else {
             if (outTime && outTime !== "-") {
               const outMin = timeToMinutes(outTime);
-              const cutoff = 17 * 60 + 30; // 5:30 PM
-              dayOTMinutes = outMin > cutoff ? outMin - cutoff : 0;
+              // Use custom timing if available, otherwise default to 5:30 PM
+              dayOTMinutes = outMin > employeeNormalEndMinutes ? outMin - employeeNormalEndMinutes : 0;
             } else {
               dayOTMinutes = 0;
             }
@@ -758,19 +760,19 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
               worker9to6OTMinutes += dayOTMinutes; // Track 9-6 OT separately
             }
           }
-          // ADJ-P OT rule → OT after 6:00 PM (5:30 PM + 30 min buffer)
+          // ADJ-P OT rule → OT after shift end + 30 min buffer
           else if (status === "ADJ-P") {
             const outTime = day.attendance.outTime;
             if (outTime && outTime !== "-") {
               const outMinutes = timeToMinutes(outTime);
 
-              const ADJ_P_SHIFT_END = 17 * 60 + 30; // 17:30
+              // Use custom timing if available, otherwise default to 5:30 PM
               const ADJ_P_BUFFER = 30; // minutes
-              const ADJ_P_BUFFER_END = ADJ_P_SHIFT_END + ADJ_P_BUFFER; // 18:00
+              const bufferEnd = employeeNormalEndMinutes + ADJ_P_BUFFER;
 
               // Only if buffer is exceeded do we count OT, and then include the buffer in OT.
-              if (outMinutes > ADJ_P_BUFFER_END) {
-                dayOTMinutes = outMinutes - ADJ_P_SHIFT_END;
+              if (outMinutes > bufferEnd) {
+                dayOTMinutes = outMinutes - employeeNormalEndMinutes;
               } else {
                 dayOTMinutes = 0;
               }
@@ -937,13 +939,16 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
     if (tooltipKey === "lateDeduction") {
       suffix = " hrs";
       displayValue = value; // value will now be hours
+      minutesDisplay = `${Math.round(value * 60)} mins`;
     } else if (tooltipKey === "baseOT") {
       suffix = "";
       displayValue = value;
+      const mins = timeToMinutes(value);
+      minutesDisplay = `${mins} mins`;
     } else {
       suffix = "";
       displayValue = minutesToHHMM(value);
-      minutesDisplay = `(${value} mins)`;
+      minutesDisplay = `${value} mins`;
     }
 
     return (
@@ -957,6 +962,11 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
           {displayValue}
           {suffix}
         </div>
+        {minutesDisplay && (
+          <div className="text-[10px] text-gray-500 mt-0.5">
+            {minutesDisplay}
+          </div>
+        )}
       </div>
     );
   };
@@ -1007,6 +1017,9 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
               >
                 {difference > 0 ? "+" : ""}
                 {difference.toFixed(2)} hrs
+              </div>
+              <div className="text-[10px] text-gray-500 mt-0.5">
+                {Math.round(difference * 60)} mins
               </div>
             </div>
           )}

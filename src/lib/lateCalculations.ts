@@ -49,18 +49,32 @@ export const calculateLateMinutes = (
       const inMinutes = timeToMinutes(inTime);
       let dailyLateMins = 0;
 
-      if (status === "P/A" || status === "PA") {
-        // P/A: Check if morning or evening shift
-        if (inMinutes < MORNING_EVENING_CUTOFF_MINUTES) {
-          // Morning shift
-          if (inMinutes > employeeNormalStartMinutes) {
-            dailyLateMins = inMinutes - employeeNormalStartMinutes;
+      if (status === "P/A" || status === "PA" || 
+          status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA") {
+        // P/A and adj-P/A: Check if Saturday or non-Saturday
+        const dayName = (day.day || "").toLowerCase();
+        const isSaturday = dayName === "sa" || dayName === "sat" || dayName === "saturday";
+        
+        if (isSaturday) {
+          // Saturday P/A: Check if morning or evening shift
+          if (inMinutes < MORNING_EVENING_CUTOFF_MINUTES) {
+            // Morning shift
+            if (inMinutes > employeeNormalStartMinutes) {
+              dailyLateMins = inMinutes - employeeNormalStartMinutes;
+            }
+          } else {
+            // Evening shift
+            if (inMinutes > EVENING_SHIFT_START_MINUTES) {
+              dailyLateMins = inMinutes - EVENING_SHIFT_START_MINUTES;
+            }
           }
         } else {
-          // Evening shift
-          if (inMinutes > EVENING_SHIFT_START_MINUTES) {
-            dailyLateMins = inMinutes - EVENING_SHIFT_START_MINUTES;
+          // Non-Saturday P/A and adj-P/A: Half day starts at 12:30 PM
+          const HALF_DAY_START_MINUTES = 12 * 60 + 30; // 12:30 PM
+          if (inMinutes > HALF_DAY_START_MINUTES) {
+            dailyLateMins = inMinutes - HALF_DAY_START_MINUTES;
           }
+          // If at or before 12:30 PM, late is 0
         }
       } else if (status === "P" || ((status === "M/WO-I" || status === "ADJ-M/WO-I") && (day.day?.toLowerCase() === "sa" || day.day?.toLowerCase() === "sat" || day.day?.toLowerCase() === "saturday"))) {
         // Full day present
