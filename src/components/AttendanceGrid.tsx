@@ -164,10 +164,13 @@ const BREAKS = [
 const getIsStaff = (emp: EmployeeData): boolean => {
   const inStr = `${emp.companyName ?? ""} ${emp.department ?? ""
     }`.toLowerCase();
+  // Check for explicit staff keywords first
+  if (inStr.includes("staff")) return true;
+  // Check for explicit worker keywords (including c cash)
   if (inStr.includes("c cash")) return false;
   if (inStr.includes("worker")) return false;
-  if (inStr.includes("staff")) return true;
-  return true;
+  // ⭐ Default to WORKER (false)
+  return false;
 };
 
 export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
@@ -569,30 +572,24 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
 
         let calculatedLateMins = 0;
 
-        if (!isSaturday) {
-          // Non-Saturday P/A: Half day starts at 12:30 PM
-          const HALF_DAY_START_MINUTES = 12 * 60 + 30; // 12:30 PM (750 minutes)
+        // P/A: Use morning/evening cutoff logic for ALL days (not just Saturday)
+        // Morning shift: before 10:00 AM cutoff → late from 8:30 AM
+        // Afternoon shift: after 10:00 AM cutoff → late from 1:15 PM
+        const MORNING_EVENING_CUTOFF_MINUTES = 10 * 60; // 10:00 AM
+        const HALF_DAY_START_MINUTES = 13 * 60 + 15; // 1:15 PM (second shift start)
+        const employeeNormalStartMinutes = 8 * 60 + 30; // 8:30 AM
+
+        if (inMinutes < MORNING_EVENING_CUTOFF_MINUTES) {
+          // Morning shift P/A - late from standard start time (8:30 AM)
+          if (inMinutes > employeeNormalStartMinutes) {
+            calculatedLateMins = inMinutes - employeeNormalStartMinutes;
+          }
+        } else {
+          // Afternoon shift P/A - late from 1:15 PM (second shift start)
           if (inMinutes > HALF_DAY_START_MINUTES) {
             calculatedLateMins = inMinutes - HALF_DAY_START_MINUTES;
           }
-          // If at or before 12:30 PM, late is 0
-        } else {
-          // Saturday P/A: Use normal shift logic
-          const MORNING_EVENING_CUTOFF_MINUTES = 10 * 60; // 10:00 AM
-          const EVENING_SHIFT_START_MINUTES = 13 * 60 + 15; // 1:15 PM
-          const employeeNormalStartMinutes = 8 * 60 + 30; // 8:30 AM
-
-          if (inMinutes < MORNING_EVENING_CUTOFF_MINUTES) {
-            // Morning shift
-            if (inMinutes > employeeNormalStartMinutes) {
-              calculatedLateMins = inMinutes - employeeNormalStartMinutes;
-            }
-          } else {
-            // Evening shift
-            if (inMinutes > EVENING_SHIFT_START_MINUTES) {
-              calculatedLateMins = inMinutes - EVENING_SHIFT_START_MINUTES;
-            }
-          }
+          // If between 10:00 AM and 1:15 PM, late is 0 (arrived on time for afternoon shift)
         }
 
         // Apply 5-minute grace period
@@ -774,16 +771,16 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
 
                 const excess = Math.max(0, duration - allowed);
 
-                // ⭐ CONDITIONAL BREAK EXCESS LOGIC:
-                // If the break starts after 5:30 PM (17:30 = 1050 mins),
-                // AND the employee is NOT in the Granted OT Sheet,
-                // then IGNORE this excess (treat as 0).
-                const EVENING_BREAK_START = 17 * 60 + 30; // 17:30
+                // ⭐ CORRECT BREAK EXCESS LOGIC for cards:
+                // Staff employees get NO break excess (unless OT granted)
+                // Workers and OT Granted employees ALWAYS get break excess calculated
+                const isStaffEmployee = getIsStaff(employee);
                 const isGranted = !!grant;
 
-                if (outMin >= EVENING_BREAK_START && !isGranted) {
-                  // Do not add excess for this evening break
+                if (isStaffEmployee && !isGranted) {
+                  // Staff without OT grant: don't add break excess
                 } else {
+                  // Workers and OT Granted: always add break excess
                   totalBreakExcess += excess;
                 }
               }
@@ -1040,26 +1037,30 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
                               const outMin = punch.minutes;
                               let inMin = next.minutes;
 
-                              // [NEW LOGIC] Handle 5:30 PM cutoff
-                              const CUTOFF_TIME = 17 * 60 + 30; // 17:30 (5:30 PM)
-                              let ignoreBreak = false;
+                              // ⭐ CORRECT LOGIC:
+                              // Staff without OT grant = no break excess
+                              // Workers and OT Granted = always calculate break excess
+                              const isStaffEmployee = getIsStaff(employee);
                               const isGranted = !!grant;
 
-                              if (outMin >= CUTOFF_TIME && !isGranted) {
-                                ignoreBreak = true;
-                              }
-
-                              if (!ignoreBreak) {
+                              // Staff without grant: don't show break excess
+                              if (isStaffEmployee && !isGranted) {
+                                excess = 0;
+                              } else {
+                                // Workers and OT Granted: calculate break excess
                                 const calcDuration = inMin - outMin;
 
-                                for (const defBreak of BREAKS) {
+                                // Include Evening Break in the calculation
+                                const allBreaks = [
+                                  ...BREAKS,
+                                  { name: "Evening Break", start: 17 * 60 + 30, end: 18 * 60 + 30, allowed: 15 }
+                                ];
+
+                                for (const defBreak of allBreaks) {
                                   const overlapStart = Math.max(outMin, defBreak.start);
                                   const overlapEnd = Math.min(inMin, defBreak.end);
                                   const overlap = Math.max(0, overlapEnd - overlapStart);
                                   if (overlap > 0) allowed += defBreak.allowed;
-                                }
-                                if (outMin >= 17 * 60 + 30 || inMin >= 17 * 60 + 30) {
-                                  allowed = Math.max(allowed, 15);
                                 }
 
                                 excess = Math.max(0, calcDuration - allowed);

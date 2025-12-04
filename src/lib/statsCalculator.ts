@@ -47,7 +47,8 @@ const getIsStaff = (emp: EmployeeData): boolean => {
   if (inStr.includes("c cash")) return false;
   if (inStr.includes("worker")) return false;
   if (inStr.includes("staff")) return true;
-  return true; // default to staff
+  // ⭐ Default to WORKER (false)
+  return false;
 };
 
 /**

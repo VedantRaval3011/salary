@@ -51,30 +51,21 @@ export const calculateLateMinutes = (
 
       if (status === "P/A" || status === "PA" || 
           status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA") {
-        // P/A and adj-P/A: Check if Saturday or non-Saturday
-        const dayName = (day.day || "").toLowerCase();
-        const isSaturday = dayName === "sa" || dayName === "sat" || dayName === "saturday";
-        
-        if (isSaturday) {
-          // Saturday P/A: Check if morning or evening shift
-          if (inMinutes < MORNING_EVENING_CUTOFF_MINUTES) {
-            // Morning shift
-            if (inMinutes > employeeNormalStartMinutes) {
-              dailyLateMins = inMinutes - employeeNormalStartMinutes;
-            }
-          } else {
-            // Evening shift
-            if (inMinutes > EVENING_SHIFT_START_MINUTES) {
-              dailyLateMins = inMinutes - EVENING_SHIFT_START_MINUTES;
-            }
+        // P/A: Use morning/evening cutoff logic for ALL days (not just Saturday)
+        // Morning shift: before 10:00 AM cutoff → late from 8:30 AM
+        // Afternoon shift: after 10:00 AM cutoff → late from 1:15 PM
+        if (inMinutes < MORNING_EVENING_CUTOFF_MINUTES) {
+          // Morning shift P/A - late from standard start time (8:30 AM)
+          if (inMinutes > employeeNormalStartMinutes) {
+            dailyLateMins = inMinutes - employeeNormalStartMinutes;
           }
         } else {
-          // Non-Saturday P/A and adj-P/A: Half day starts at 1:15 PM
+          // Afternoon shift P/A - late from 1:15 PM (second shift start)
           const HALF_DAY_START_MINUTES = 13 * 60 + 15; // 1:15 PM
           if (inMinutes > HALF_DAY_START_MINUTES) {
             dailyLateMins = inMinutes - HALF_DAY_START_MINUTES;
           }
-          // If at or before 1:15 PM, late is 0
+          // If between 10:00 AM and 1:15 PM, late is 0 (arrived on time for afternoon shift)
         }
       } else if (status === "P" || ((status === "M/WO-I" || status === "ADJ-M/WO-I") && (day.day?.toLowerCase() === "sa" || day.day?.toLowerCase() === "sat" || day.day?.toLowerCase() === "saturday"))) {
         // Full day present

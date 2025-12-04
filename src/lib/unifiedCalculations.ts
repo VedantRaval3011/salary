@@ -23,10 +23,13 @@ export const minutesToHHMM = (totalMinutes: number): string => {
 
 export const getIsStaff = (emp: EmployeeData): boolean => {
   const inStr = `${emp.companyName ?? ""} ${emp.department ?? ""}`.toLowerCase();
+  // Check for explicit staff keywords
+  if (inStr.includes("staff")) return true;
+  // Check for explicit worker keywords (including c cash)
   if (inStr.includes("c cash")) return false;
   if (inStr.includes("worker")) return false;
-  if (inStr.includes("staff")) return true;
-  return true; // Default to staff
+  // ⭐ Default to WORKER (false) - most employees are workers unless explicitly marked as staff
+  return false;
 };
 
 // ===== CONSTANTS =====
@@ -195,11 +198,14 @@ export const calculateLessThan4HoursMinutes = (employee: EmployeeData): number =
 
 /**
  * Calculate break excess minutes
- * NOTE: This now accepts punchData from PunchDataContext
- */
-/**
- * Calculate break excess minutes
- * NOTE: This now accepts punchData from PunchDataContext
+ * 
+ * RULES:
+ * 1. Staff employees: NO break excess (return 0) - unless they are in OT Granted sheet
+ * 2. Workers: Calculate break excess with proper breaks:
+ *    - Before 5:30 PM: Standard break windows (Tea 1, Lunch, Tea 2)
+ *    - 5:30 PM to 6:30 PM: 15 mins evening break allowed
+ *    - 7:30 PM to 9:00 PM: 30 mins dinner break allowed
+ * 3. OT Granted employees: Full break excess calculation (all breaks)
  */
 export const calculateBreakExcessMinutes = (
   employee: EmployeeData,
@@ -207,21 +213,41 @@ export const calculateBreakExcessMinutes = (
   isMaintenance: boolean = false,
   isGrantedOT: boolean = false
 ): number => {
+  // Debug logging
+  console.log(`🔍 calculateBreakExcessMinutes for ${employee.empCode}:`, {
+    hasPunchData: !!punchData,
+    hasAttendance: !!(punchData?.attendance),
+    attendanceKeys: punchData?.attendance ? Object.keys(punchData.attendance).length : 0,
+    isGrantedOT
+  });
+
   if (!punchData || !punchData.attendance) {
+    console.log(`❌ No punch data for ${employee.empCode}`);
     return 0;
   }
 
+  const isStaff = getIsStaff(employee);
+  
+  // ⭐ RULE 1: Staff employees get NO break excess, UNLESS they are in OT Granted list
+  if (isStaff && !isGrantedOT) {
+    return 0;
+  }
+
+  // ⭐ RULE 2 & 3: Workers and OT Granted employees get break excess calculated
+  
+  // Define break windows
   const BREAKS = [
     { name: "Tea Break 1", start: 10 * 60 + 15, end: 10 * 60 + 30, allowed: 15 }, // 10:15 - 10:30
     { name: "Lunch Break", start: 12 * 60 + 30, end: 14 * 60, allowed: 30 },      // 12:30 - 14:00
     { name: "Tea Break 2", start: 15 * 60 + 15, end: 15 * 60 + 30, allowed: 15 }, // 15:15 - 15:30
-    // Evening Break: 5:30 PM start. End depends on maintenance status.
+    // Evening Break: 5:30 PM to 6:30 PM - 15 mins allowed
     { 
       name: "Evening Break", 
-      start: 17 * 60 + 30, 
-      end: isMaintenance ? 18 * 60 + 30 : 18 * 60, // 17:30 - 18:30 (Maint) or 17:30 - 18:00 (Non-Maint)
+      start: 17 * 60 + 30, // 5:30 PM
+      end: 18 * 60 + 30,   // 6:30 PM
       allowed: 15 
     },
+    // Dinner Break: 7:30 PM to 9:00 PM - 30 mins allowed
     { name: "Dinner Break", start: 19 * 60 + 30, end: 21 * 60, allowed: 30 },     // 19:30 - 21:00
   ];
 
@@ -294,17 +320,14 @@ export const calculateBreakExcessMinutes = (
           
           const excess = Math.max(0, duration - allowed);
           
-          // ⭐ CONDITIONAL BREAK EXCESS LOGIC:
-          // If the break starts after 5:30 PM (17:30 = 1050 mins),
-          // AND the employee is NOT in the Granted OT Sheet,
-          // then IGNORE this excess (treat as 0).
-          const EVENING_BREAK_START = 17 * 60 + 30; // 17:30
-          
-          if (outMin >= EVENING_BREAK_START && !isGrantedOT) {
-             // Do not add excess for this evening break
-          } else {
-             totalExcessMinutes += excess;
-          }
+          // ⭐ CORRECT LOGIC:
+          // - Staff (non-OT-granted): Already returned 0 at the start of function
+          // - Workers: ALWAYS count break excess
+          // - OT Granted (staff or worker): ALWAYS count break excess
+          // 
+          // Since we already return 0 for staff at the start, if we reach here,
+          // we're either a Worker OR an OT Granted employee - both should count break excess
+          totalExcessMinutes += excess;
         }
       }
     }

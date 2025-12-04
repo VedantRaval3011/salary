@@ -31,13 +31,13 @@ interface Props {
 const getIsStaff = (emp: EmployeeData): boolean => {
   const inStr = `${emp.companyName ?? ""} ${emp.department ?? ""
     }`.toLowerCase();
-  // The original logic: if 'worker' is present, return false (Worker); if 'staff' is present, return true (Staff); otherwise, default to true (Staff).
-  // The prompt states: "if the dept has staff in it's string then we consider him as staff employee"
-  // Let's stick to the original, more complete logic unless explicitly told otherwise, but the core check is:
+  // Check for explicit staff keywords first
+  if (inStr.includes("staff")) return true;
+  // Check for explicit worker keywords (including c cash)
   if (inStr.includes("c cash")) return false;
   if (inStr.includes("worker")) return false;
-  if (inStr.includes("staff")) return true;
-  return true; // Default to staff
+  // ⭐ Default to WORKER (false) - most employees are workers unless explicitly marked as staff
+  return false;
 };
 
 /**
@@ -418,6 +418,45 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
 
   const { getCustomTimingForEmployee } = useCustomTimingLookup();
   const { getPunchDataForEmployee } = usePunchData();
+  const { getLunchDataForEmployee } = useLunchInOutLookup();
+
+  // ⭐ Helper to get punch data from multiple sources with format conversion
+  const getPunchDataWithFallback = (empCode: string) => {
+    // Try PunchDataContext first
+    const punchContextData = getPunchDataForEmployee(empCode);
+    if (punchContextData && Object.keys(punchContextData.attendance || {}).length > 0) {
+      return punchContextData;
+    }
+
+    // Fallback to Lunch file lookup
+    const lunchData = getLunchDataForEmployee({ empCode, empName: employee.empName });
+    if (lunchData && lunchData.dailyPunches && lunchData.dailyPunches.length > 0) {
+      // Convert lunch data format to PunchDataContext format
+      const attendance: { [date: string]: { in: string[]; out: string[] } } = {};
+
+      lunchData.dailyPunches.forEach((dayPunch: any) => {
+        const date = dayPunch.date;
+        const inTimes: string[] = [];
+        const outTimes: string[] = [];
+
+        if (Array.isArray(dayPunch.punches)) {
+          dayPunch.punches.forEach((punch: { type: string; time: string }) => {
+            if (punch.type === "In") {
+              inTimes.push(punch.time);
+            } else if (punch.type === "Out") {
+              outTimes.push(punch.time);
+            }
+          });
+        }
+
+        attendance[date] = { in: inTimes, out: outTimes };
+      });
+
+      return { attendance };
+    }
+
+    return undefined;
+  };
   const { getHRLateValue } = useHRLateLookup();
   const { isMaintenanceEmployee } = useMaintenanceDeductLookup();
   const { getGrantForEmployee } = useStaffOTGrantedLookup();
@@ -503,25 +542,21 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
         if (status === "P/A" || status === "PA" || status === "ADJ-P/A" ||
           status === "ADJP/A" || status === "ADJ-PA" || isAdjPHalfDay) {
 
-          if (isSaturday) {
-            // Saturday P/A: Use morning/evening cutoff logic
-            if (inMinutes < MORNING_EVENING_CUTOFF_MINUTES) {
-              if (inMinutes > employeeNormalStartMinutes) {
-                dailyLateMins = inMinutes - employeeNormalStartMinutes;
-              }
-            } else {
-              if (inMinutes > EVENING_SHIFT_START_MINUTES) {
-                dailyLateMins = inMinutes - EVENING_SHIFT_START_MINUTES;
-              }
+          // P/A: Use morning/evening cutoff logic for ALL days (not just Saturday)
+          // Morning shift: before 10:00 AM cutoff → late from 8:30 AM
+          // Afternoon shift: after 10:00 AM cutoff → late from 1:15 PM
+          if (inMinutes < MORNING_EVENING_CUTOFF_MINUTES) {
+            // Morning shift P/A - late from standard start time (8:30 AM)
+            if (inMinutes > employeeNormalStartMinutes) {
+              dailyLateMins = inMinutes - employeeNormalStartMinutes;
             }
           } else {
-            // Non-Saturday P/A: Half day starts at 1:15 PM (second shift)
-            // This applies regardless of custom timing!
+            // Afternoon shift P/A - late from 1:15 PM (second shift start)
             const HALF_DAY_START_MINUTES = 13 * 60 + 15; // 1:15 PM
             if (inMinutes > HALF_DAY_START_MINUTES) {
               dailyLateMins = inMinutes - HALF_DAY_START_MINUTES;
             }
-            // If at or before 1:15 PM, late is 0 (no late for P/A arriving on time)
+            // If between 10:00 AM and 1:15 PM, late is 0 (arrived on time for afternoon shift)
           }
         } else if (customTiming) {
           // Use custom timing for regular P/ADJ-P status
@@ -594,7 +629,7 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
     const isGrantedOT = !!getGrantForEmployee(employee);
     const breakExcessMinutes = calculateBreakExcessMinutes(
       employee,
-      getPunchDataForEmployee(employee.empCode) || undefined,
+      getPunchDataWithFallback(employee.empCode) || undefined,
       isMaintenance,
       isGrantedOT
     );
@@ -630,7 +665,7 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
       otGrandTotal: Math.round(otGrandTotal),
       finalDifference: Math.round(staticFinalDifference - totalAfterRelaxation),
     };
-  }, [employee, getCustomTimingForEmployee, getPunchDataForEmployee, otGrandTotal, staticFinalDifference]);
+  }, [employee, getCustomTimingForEmployee, getPunchDataForEmployee, getLunchDataForEmployee, getGrantForEmployee, isMaintenanceEmployee, otGrandTotal, staticFinalDifference]);
 
   // Add these useEffect hooks after the existing stats useMemo:
 
