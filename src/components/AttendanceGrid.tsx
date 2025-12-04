@@ -164,13 +164,10 @@ const BREAKS = [
 const getIsStaff = (emp: EmployeeData): boolean => {
   const inStr = `${emp.companyName ?? ""} ${emp.department ?? ""
     }`.toLowerCase();
-  // Check for explicit staff keywords first
-  if (inStr.includes("staff")) return true;
-  // Check for explicit worker keywords (including c cash)
   if (inStr.includes("c cash")) return false;
   if (inStr.includes("worker")) return false;
-  // ⭐ Default to WORKER (false)
-  return false;
+  if (inStr.includes("staff")) return true;
+  return true; // Default to staff
 };
 
 export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
@@ -738,49 +735,45 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
         // Calculate total break excess for the day
         let totalBreakExcess = 0;
         if (punches && punches.length > 0) {
-          // Define dynamic breaks including the evening break
-          const breaks = [
-            ...BREAKS,
-            {
-              name: "Evening Break",
-              start: 17 * 60 + 30,
-              end: isMaintenance ? 18 * 60 + 30 : 18 * 60,
-              allowed: 15
-            }
-          ];
+          // ⭐ BREAK EXCESS RULES:
+          // 1. Staff (not OT granted): NO break excess
+          // 2. Workers: Calculate break excess with all allowances
+          // 3. OT Granted (staff or worker): Calculate break excess
+          const isStaffEmployee = getIsStaff(employee);
+          const isGranted = !!grant;
 
-          for (let i = 0; i < punches.length - 1; i++) {
-            const current = punches[i];
-            const next = punches[i + 1];
+          // Staff without OT grant: skip break excess calculation entirely
+          if (isStaffEmployee && !isGranted) {
+            totalBreakExcess = 0;
+          } else {
+            // Workers and OT Granted: Calculate break excess
+            // Define breaks including evening/dinner breaks
+            const breaks = [
+              ...BREAKS,
+              { name: "Evening Break", start: 17 * 60 + 30, end: 18 * 60 + 30, allowed: 15 }, // 5:30-6:30 PM
+              { name: "Dinner Break", start: 19 * 60 + 30, end: 21 * 60, allowed: 30 },       // 7:30-9:00 PM
+            ];
 
-            // ⭐ FIX: Only process if current is Out and next is In (break period)
-            // AND ensure Out time is before In time
-            if (current.type === "Out" && next.type === "In" && current.minutes < next.minutes) {
-              const duration = next.minutes - current.minutes;
-              if (duration > 0) {
-                let allowed = 0;
-                const outMin = current.minutes;
-                const inMin = next.minutes;
+            for (let i = 0; i < punches.length - 1; i++) {
+              const current = punches[i];
+              const next = punches[i + 1];
 
-                for (const defBreak of breaks) {
-                  const overlapStart = Math.max(outMin, defBreak.start);
-                  const overlapEnd = Math.min(inMin, defBreak.end);
-                  const overlap = Math.max(0, overlapEnd - overlapStart);
-                  if (overlap > 0) allowed += defBreak.allowed;
-                }
+              // Only process if current is Out and next is In (break period)
+              if (current.type === "Out" && next.type === "In" && current.minutes < next.minutes) {
+                const duration = next.minutes - current.minutes;
+                if (duration > 0) {
+                  let allowed = 0;
+                  const outMin = current.minutes;
+                  const inMin = next.minutes;
 
-                const excess = Math.max(0, duration - allowed);
+                  for (const defBreak of breaks) {
+                    const overlapStart = Math.max(outMin, defBreak.start);
+                    const overlapEnd = Math.min(inMin, defBreak.end);
+                    const overlap = Math.max(0, overlapEnd - overlapStart);
+                    if (overlap > 0) allowed += defBreak.allowed;
+                  }
 
-                // ⭐ CORRECT BREAK EXCESS LOGIC:
-                // Breaks BEFORE 5:30 PM: Calculate for ALL employees
-                // Breaks AFTER 5:30 PM: Only calculate if OT Granted
-                const EVENING_CUTOFF = 17 * 60 + 30; // 5:30 PM
-                const isGranted = !!grant;
-
-                // If break starts after 5:30 PM and employee is NOT OT Granted, skip it
-                if (outMin >= EVENING_CUTOFF && !isGranted) {
-                  // Skip evening/dinner break excess for non-granted employees
-                } else {
+                  const excess = Math.max(0, duration - allowed);
                   totalBreakExcess += excess;
                 }
               }
@@ -1037,23 +1030,25 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
                               const outMin = punch.minutes;
                               let inMin = next.minutes;
 
-                              // ⭐ CORRECT LOGIC:
-                              // Breaks BEFORE 5:30 PM: Calculate for ALL employees
-                              // Breaks AFTER 5:30 PM: Only calculate if OT Granted
-                              const EVENING_CUTOFF = 17 * 60 + 30; // 5:30 PM
+                              // ⭐ BREAK EXCESS RULES:
+                              // 1. Staff (not OT granted): NO break excess
+                              // 2. Workers: Calculate break excess with all allowances
+                              // 3. OT Granted (staff or worker): Calculate break excess
+                              const isStaffEmployee = getIsStaff(employee);
                               const isGranted = !!grant;
 
-                              // If break starts after 5:30 PM and employee is NOT OT Granted, skip it
-                              if (outMin >= EVENING_CUTOFF && !isGranted) {
+                              if (isStaffEmployee && !isGranted) {
+                                // Staff without OT grant: no break excess
                                 excess = 0;
                               } else {
-                                // Calculate break excess
+                                // Workers and OT Granted: Calculate break excess
                                 const calcDuration = inMin - outMin;
 
-                                // Include Evening Break in the calculation
+                                // Include Evening and Dinner breaks
                                 const allBreaks = [
                                   ...BREAKS,
-                                  { name: "Evening Break", start: 17 * 60 + 30, end: 18 * 60 + 30, allowed: 15 }
+                                  { name: "Evening Break", start: 17 * 60 + 30, end: 18 * 60 + 30, allowed: 15 }, // 5:30-6:30 PM
+                                  { name: "Dinner Break", start: 19 * 60 + 30, end: 21 * 60, allowed: 30 },       // 7:30-9:00 PM
                                 ];
 
                                 for (const defBreak of allBreaks) {

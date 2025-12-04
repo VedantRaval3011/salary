@@ -223,27 +223,25 @@ export const calculateBreakExcessMinutes = (
     return 0;
   }
 
-  // ⭐ RULES:
-  // 1. For ALL employees: Calculate break excess for breaks BEFORE 5:30 PM
-  // 2. For breaks AFTER 5:30 PM: Only calculate if employee is OT Granted
+  const isStaff = getIsStaff(employee);
   
-  // Define break windows
+  // ⭐ RULE 1: Staff employees get NO break excess, UNLESS they are in OT Granted list
+  if (isStaff && !isGrantedOT) {
+    console.log(`📋 Staff employee ${employee.empCode} (not OT granted) - 0 break excess`);
+    return 0;
+  }
+
+  console.log(`👷 Worker/OT-granted employee ${employee.empCode} - calculating break excess`);
+
+  // ⭐ RULE 2 & 3: Workers and OT Granted employees get break excess calculated
+  // Define break windows including evening/dinner breaks
   const BREAKS = [
     { name: "Tea Break 1", start: 10 * 60 + 15, end: 10 * 60 + 30, allowed: 15 }, // 10:15 - 10:30
     { name: "Lunch Break", start: 12 * 60 + 30, end: 14 * 60, allowed: 30 },      // 12:30 - 14:00
     { name: "Tea Break 2", start: 15 * 60 + 15, end: 15 * 60 + 30, allowed: 15 }, // 15:15 - 15:30
-    // Evening Break: 5:30 PM to 6:30 PM - 15 mins allowed
-    { 
-      name: "Evening Break", 
-      start: 17 * 60 + 30, // 5:30 PM
-      end: 18 * 60 + 30,   // 6:30 PM
-      allowed: 15 
-    },
-    // Dinner Break: 7:30 PM to 9:00 PM - 30 mins allowed
-    { name: "Dinner Break", start: 19 * 60 + 30, end: 21 * 60, allowed: 30 },     // 19:30 - 21:00
+    { name: "Evening Break", start: 17 * 60 + 30, end: 18 * 60 + 30, allowed: 15 }, // 5:30-6:30 PM
+    { name: "Dinner Break", start: 19 * 60 + 30, end: 21 * 60, allowed: 30 },       // 7:30-9:00 PM
   ];
-
-  const EVENING_CUTOFF = 17 * 60 + 30; // 5:30 PM = 1050 minutes
 
   let totalExcessMinutes = 0;
 
@@ -275,16 +273,14 @@ export const calculateBreakExcessMinutes = (
     punches.sort((a, b) => a.minutes - b.minutes);
 
     // ⭐ Clean up invalid punch sequences (IN-IN or OUT-OUT)
-    // Valid pattern should be: IN, OUT, IN, OUT, ...
     const cleanedPunches: any[] = [];
-    let expectedNext: "In" | "Out" = "In"; // We expect to start with IN
+    let expectedNext: "In" | "Out" = "In";
     
     for (const punch of punches) {
       if (punch.type === expectedNext) {
         cleanedPunches.push(punch);
         expectedNext = expectedNext === "In" ? "Out" : "In";
       }
-      // Skip invalid punches silently
     }
 
     if (cleanedPunches.length < 2) continue;
@@ -295,20 +291,12 @@ export const calculateBreakExcessMinutes = (
       const next = cleanedPunches[i+1];
       
       // Only process if current is Out and next is In (break period)
-      // AND ensure Out time is before In time
       if (current.type === "Out" && next.type === "In" && current.minutes < next.minutes) {
         const outMin = current.minutes;
         const inMin = next.minutes;
         const duration = inMin - outMin;
         
         if (duration > 0) {
-          // ⭐ KEY LOGIC: Handle 5:30 PM cutoff
-          // If break starts after 5:30 PM and employee is NOT OT Granted, skip this break
-          if (outMin >= EVENING_CUTOFF && !isGrantedOT) {
-            // Skip this evening/dinner break for non-granted employees
-            continue;
-          }
-          
           let allowed = 0;
           
           // Calculate allowed time based on break window overlaps
@@ -326,6 +314,7 @@ export const calculateBreakExcessMinutes = (
     }
   }
 
+  console.log(`✅ Break excess for ${employee.empCode}: ${Math.round(totalExcessMinutes)} mins`);
   return Math.round(totalExcessMinutes);
 };
 

@@ -421,12 +421,23 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
   const getPunchDataWithFallback = (empCode: string) => {
     // Try PunchDataContext first
     const punchContextData = getPunchDataForEmployee(empCode);
+    console.log(`📊 EarlyDepartureStatsGrid punch lookup for ${empCode}:`, {
+      punchContextData: !!punchContextData,
+      attendanceKeys: punchContextData?.attendance ? Object.keys(punchContextData.attendance).length : 0
+    });
+
     if (punchContextData && Object.keys(punchContextData.attendance || {}).length > 0) {
+      console.log(`✅ Using PunchDataContext for ${empCode}`);
       return punchContextData;
     }
 
     // Fallback to Lunch file lookup
     const lunchData = getLunchDataForEmployee({ empCode, empName: employee.empName });
+    console.log(`🍴 Lunch data lookup for ${empCode}:`, {
+      lunchData: !!lunchData,
+      dailyPunchesCount: lunchData?.dailyPunches?.length || 0
+    });
+
     if (lunchData && lunchData.dailyPunches && lunchData.dailyPunches.length > 0) {
       // Convert lunch data format to PunchDataContext format
       const attendance: { [date: string]: { in: string[]; out: string[] } } = {};
@@ -449,9 +460,11 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
         attendance[date] = { in: inTimes, out: outTimes };
       });
 
+      console.log(`✅ Using Lunch file data for ${empCode}, dates: ${Object.keys(attendance).length}`);
       return { attendance };
     }
 
+    console.log(`❌ No punch data found for ${empCode}`);
     return undefined;
   };
   const { getHRLateValue } = useHRLateLookup();
