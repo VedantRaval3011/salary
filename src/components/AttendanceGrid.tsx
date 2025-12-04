@@ -737,6 +737,7 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
 
         // Calculate total break excess for the day
         let totalBreakExcess = 0;
+        let rawBreakExcess = 0; // ⭐ Track the raw excess BEFORE any cutoff rules
         if (punches && punches.length > 0) {
           // Define dynamic breaks including the evening break
           const breaks = [
@@ -771,16 +772,18 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
 
                 const excess = Math.max(0, duration - allowed);
 
-                // ⭐ REFINED LOGIC (Final v2):
-                // 1. Staff + Granted OT + Maintenance: ALWAYS calculate excess
-                // 2. Staff + Granted OT + !Maintenance: Skip after 5:30 PM
-                // 3. Others: ALWAYS calculate excess
+                // ⭐ Always add to raw excess (for display purposes)
+                rawBreakExcess += excess;
+
+                // ⭐ REFINED LOGIC (Final v3):
+                // 1. Maintenance: ALWAYS calculate excess
+                // 2. Non-Maintenance: Skip after 5:30 PM
 
                 const EVENING_CUTOFF = 17 * 60 + 30; // 5:30 PM
 
-                // If Staff + Granted OT + !Maintenance AND break starts after 5:30 PM -> Skip
-                if (isStaff && grant && !isMaintenance && outMin >= EVENING_CUTOFF) {
-                  // Skip evening break excess for Staff with OT Grant (Non-Maintenance)
+                // If !Maintenance AND break starts after 5:30 PM -> Skip
+                if (!isMaintenance && outMin >= EVENING_CUTOFF) {
+                  // Skip evening break excess for Non-Maintenance (but rawBreakExcess still tracks it)
                 } else {
                   totalBreakExcess += excess;
                 }
@@ -788,6 +791,9 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
             }
           }
         }
+
+        // ⭐ Calculate if any excess was removed
+        const hasBreakExcessRemoved = rawBreakExcess > 0 && rawBreakExcess !== totalBreakExcess;
 
         return (
           <div
@@ -962,11 +968,19 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
                 </span>
               </div>
 
-              {totalBreakExcess > 0 && (
+              {/* Break Excess - Show removal if applicable */}
+              {(totalBreakExcess > 0 || hasBreakExcessRemoved) && (
                 <div className="flex justify-between">
                   <span className="font-semibold">Break Excess:</span>
-                  <span className="font-bold text-red-600">
-                    +{totalBreakExcess}m
+                  <span>
+                    {hasBreakExcessRemoved && (
+                      <span className="line-through text-gray-400 mr-2">
+                        +{rawBreakExcess}m
+                      </span>
+                    )}
+                    <span className={hasBreakExcessRemoved ? "font-bold text-green-600" : "font-bold text-red-600"}>
+                      {totalBreakExcess > 0 ? `+${totalBreakExcess}m` : "0"}
+                    </span>
                   </span>
                 </div>
               )}
@@ -1038,10 +1052,9 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
                               const outMin = punch.minutes;
                               let inMin = next.minutes;
 
-                              // ⭐ REFINED LOGIC (Final v2):
-                              // 1. Staff + Granted OT + Maintenance: ALWAYS calculate excess
-                              // 2. Staff + Granted OT + !Maintenance: Skip after 5:30 PM
-                              // 3. Others: ALWAYS calculate excess
+                              // ⭐ REFINED LOGIC (Final v3):
+                              // 1. Maintenance: ALWAYS calculate excess
+                              // 2. Non-Maintenance: Skip after 5:30 PM
 
                               const EVENING_CUTOFF = 17 * 60 + 30; // 5:30 PM
 
@@ -1063,8 +1076,8 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
 
                               excess = Math.max(0, calcDuration - allowed);
 
-                              // Apply the specific rule for Staff + OT Grant + !Maintenance
-                              if (isStaff && grant && !isMaintenance && outMin >= EVENING_CUTOFF) {
+                              // Apply the specific rule for Non-Maintenance
+                              if (!isMaintenance && outMin >= EVENING_CUTOFF) {
                                 excess = 0;
                               }
                             }
