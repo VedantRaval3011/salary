@@ -771,16 +771,16 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
 
                 const excess = Math.max(0, duration - allowed);
 
-                // ⭐ CORRECT BREAK EXCESS LOGIC for cards:
-                // Staff employees get NO break excess (unless OT granted)
-                // Workers and OT Granted employees ALWAYS get break excess calculated
-                const isStaffEmployee = getIsStaff(employee);
+                // ⭐ CORRECT BREAK EXCESS LOGIC:
+                // Breaks BEFORE 5:30 PM: Calculate for ALL employees
+                // Breaks AFTER 5:30 PM: Only calculate if OT Granted
+                const EVENING_CUTOFF = 17 * 60 + 30; // 5:30 PM
                 const isGranted = !!grant;
 
-                if (isStaffEmployee && !isGranted) {
-                  // Staff without OT grant: don't add break excess
+                // If break starts after 5:30 PM and employee is NOT OT Granted, skip it
+                if (outMin >= EVENING_CUTOFF && !isGranted) {
+                  // Skip evening/dinner break excess for non-granted employees
                 } else {
-                  // Workers and OT Granted: always add break excess
                   totalBreakExcess += excess;
                 }
               }
@@ -1038,16 +1038,16 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
                               let inMin = next.minutes;
 
                               // ⭐ CORRECT LOGIC:
-                              // Staff without OT grant = no break excess
-                              // Workers and OT Granted = always calculate break excess
-                              const isStaffEmployee = getIsStaff(employee);
+                              // Breaks BEFORE 5:30 PM: Calculate for ALL employees
+                              // Breaks AFTER 5:30 PM: Only calculate if OT Granted
+                              const EVENING_CUTOFF = 17 * 60 + 30; // 5:30 PM
                               const isGranted = !!grant;
 
-                              // Staff without grant: don't show break excess
-                              if (isStaffEmployee && !isGranted) {
+                              // If break starts after 5:30 PM and employee is NOT OT Granted, skip it
+                              if (outMin >= EVENING_CUTOFF && !isGranted) {
                                 excess = 0;
                               } else {
-                                // Workers and OT Granted: calculate break excess
+                                // Calculate break excess
                                 const calcDuration = inMin - outMin;
 
                                 // Include Evening Break in the calculation

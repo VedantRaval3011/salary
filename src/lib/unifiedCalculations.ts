@@ -23,13 +23,10 @@ export const minutesToHHMM = (totalMinutes: number): string => {
 
 export const getIsStaff = (emp: EmployeeData): boolean => {
   const inStr = `${emp.companyName ?? ""} ${emp.department ?? ""}`.toLowerCase();
-  // Check for explicit staff keywords
-  if (inStr.includes("staff")) return true;
-  // Check for explicit worker keywords (including c cash)
   if (inStr.includes("c cash")) return false;
   if (inStr.includes("worker")) return false;
-  // ⭐ Default to WORKER (false) - most employees are workers unless explicitly marked as staff
-  return false;
+  if (inStr.includes("staff")) return true;
+  return true; // Default to staff
 };
 
 // ===== CONSTANTS =====
@@ -226,14 +223,9 @@ export const calculateBreakExcessMinutes = (
     return 0;
   }
 
-  const isStaff = getIsStaff(employee);
-  
-  // ⭐ RULE 1: Staff employees get NO break excess, UNLESS they are in OT Granted list
-  if (isStaff && !isGrantedOT) {
-    return 0;
-  }
-
-  // ⭐ RULE 2 & 3: Workers and OT Granted employees get break excess calculated
+  // ⭐ RULES:
+  // 1. For ALL employees: Calculate break excess for breaks BEFORE 5:30 PM
+  // 2. For breaks AFTER 5:30 PM: Only calculate if employee is OT Granted
   
   // Define break windows
   const BREAKS = [
@@ -250,6 +242,8 @@ export const calculateBreakExcessMinutes = (
     // Dinner Break: 7:30 PM to 9:00 PM - 30 mins allowed
     { name: "Dinner Break", start: 19 * 60 + 30, end: 21 * 60, allowed: 30 },     // 19:30 - 21:00
   ];
+
+  const EVENING_CUTOFF = 17 * 60 + 30; // 5:30 PM = 1050 minutes
 
   let totalExcessMinutes = 0;
 
@@ -308,6 +302,13 @@ export const calculateBreakExcessMinutes = (
         const duration = inMin - outMin;
         
         if (duration > 0) {
+          // ⭐ KEY LOGIC: Handle 5:30 PM cutoff
+          // If break starts after 5:30 PM and employee is NOT OT Granted, skip this break
+          if (outMin >= EVENING_CUTOFF && !isGrantedOT) {
+            // Skip this evening/dinner break for non-granted employees
+            continue;
+          }
+          
           let allowed = 0;
           
           // Calculate allowed time based on break window overlaps
@@ -319,14 +320,6 @@ export const calculateBreakExcessMinutes = (
           }
           
           const excess = Math.max(0, duration - allowed);
-          
-          // ⭐ CORRECT LOGIC:
-          // - Staff (non-OT-granted): Already returned 0 at the start of function
-          // - Workers: ALWAYS count break excess
-          // - OT Granted (staff or worker): ALWAYS count break excess
-          // 
-          // Since we already return 0 for staff at the start, if we reach here,
-          // we're either a Worker OR an OT Granted employee - both should count break excess
           totalExcessMinutes += excess;
         }
       }

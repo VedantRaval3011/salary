@@ -31,13 +31,10 @@ interface Props {
 const getIsStaff = (emp: EmployeeData): boolean => {
   const inStr = `${emp.companyName ?? ""} ${emp.department ?? ""
     }`.toLowerCase();
-  // Check for explicit staff keywords first
-  if (inStr.includes("staff")) return true;
-  // Check for explicit worker keywords (including c cash)
   if (inStr.includes("c cash")) return false;
   if (inStr.includes("worker")) return false;
-  // ⭐ Default to WORKER (false) - most employees are workers unless explicitly marked as staff
-  return false;
+  if (inStr.includes("staff")) return true;
+  return true; // Default to staff
 };
 
 /**

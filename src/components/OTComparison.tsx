@@ -106,13 +106,10 @@ const minutesToHHMM = (totalMinutes: number): string => {
 const getIsStaff = (emp: EmployeeData): boolean => {
   const inStr = `${emp.companyName ?? ""} ${emp.department ?? ""
     }`.toLowerCase();
-  // Check for explicit staff keywords first
-  if (inStr.includes("staff")) return true;
-  // Check for explicit worker keywords (including c cash)
   if (inStr.includes("c cash")) return false;
   if (inStr.includes("worker")) return false;
-  // ⭐ Default to WORKER (false)
-  return false;
+  if (inStr.includes("staff")) return true;
+  return true; // Default to staff
 };
 
 /**
