@@ -492,7 +492,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
 
   const stats = useMemo(() => {
     // SPECIAL RULE: Kalpesh Raloliya (143) always has 0 OT
-    if (employee.empCode === "143" || employee.empName?.toLowerCase().includes("kalpesh")) {
+    if (employee.empCode === "143" || employee.empName?.toLowerCase().includes("kalpesh raloliya")) {
       return {
         baseOTValue: "0:00",
         staffGrantedOTMinutes: 0,
