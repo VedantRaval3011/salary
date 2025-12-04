@@ -347,9 +347,9 @@ function useCustomTimingLookup() {
         found = employeeByName.get(empNameK);
       }
 
-      if (!found || !found.customTime) return null;
+      if (!found) return null;
 
-      const timeStr = found.customTime;
+      const timeStr = found.customTime || "9:00 TO 6:00";
       const match = timeStr.match(
         /(\d{1,2}):(\d{2})\s*TO\s*(\d{1,2}):(\d{2})/i
       );
@@ -458,11 +458,11 @@ const handleScrollToEmployee = (empCode: string) => {
   }
 };
 
-interface PresentDayComparisonProps {}
+interface PresentDayComparisonProps { }
 
 export const PresentDayComparison: React.FC<
   PresentDayComparisonProps
-> = ({}) => {
+> = ({ }) => {
   const { excelData } = useExcel();
   const [showTable, setShowTable] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -527,7 +527,7 @@ export const PresentDayComparison: React.FC<
         let softwareTotal = presentDayTotals.get(employee.empCode);
 
         if (softwareTotal === undefined) {
-           const stats = calculateEmployeeStats(
+          const stats = calculateEmployeeStats(
             employee,
             baseHolidaysCount,
             selectedHolidaysCount,

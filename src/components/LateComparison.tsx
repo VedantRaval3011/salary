@@ -211,9 +211,9 @@ function useCustomTimingLookup() {
       if (!found && numCodeK) found = employeeByCode.get(numCodeK);
       if (!found) found = employeeByName.get(empNameK);
 
-      if (!found || !found.customTime) return null;
+      if (!found) return null;
 
-      const timeStr = found.customTime;
+      const timeStr = found.customTime || "9:00 TO 6:00";
       const match = timeStr.match(
         /(\d{1,2}):(\d{2})\s*TO\s*(\d{1,2}):(\d{2})/i
       );

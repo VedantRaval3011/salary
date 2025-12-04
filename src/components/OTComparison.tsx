@@ -351,9 +351,8 @@ function useCustomTimingLookup() {
       if (!found && numCodeK) found = employeeByCode.get(numCodeK);
       if (!found) found = employeeByName.get(empNameK);
 
-      if (!found || !found.customTime) return null;
-
-      const timeStr = found.customTime;
+      if (!found) return null;
+      const timeStr = found.customTime || "9:00 TO 6:00";
       const match = timeStr.match(
         /(\d{1,2}):(\d{2})\s*TO\s*(\d{1,2}):(\d{2})/i
       );
@@ -615,12 +614,8 @@ function calculateFinalOT(
           status === "ADJ-M"
         ) {
           let dayOTMinutes = 0;
-          if (customTiming) {
-            dayOTMinutes = calculateCustomTimingOT(
-              day.attendance.outTime,
-              customTiming.expectedEndMinutes
-            );
-          } else if (status === "ADJ-P") {
+
+          if (status === "ADJ-P") {
             // ADJ-P uses cutoff + buffer
             const outTime = day.attendance.outTime;
             if (outTime && outTime !== "-") {
@@ -631,8 +626,11 @@ function calculateFinalOT(
                   : 0;
             }
           } else {
+            // ✅ FIXED: For Saturday/Holiday OT (M/WO-I etc), ALWAYS use the sheet value.
+            // This matches the fix in OvertimeStatsGrid.tsx
             dayOTMinutes = getOtFieldMinutes(day.attendance);
           }
+
           staffGrantedOTMinutes += dayOTMinutes;
         }
       });

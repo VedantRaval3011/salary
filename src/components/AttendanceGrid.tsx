@@ -843,7 +843,7 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
                   const overlapStart = Math.max(outMin, defBreak.start);
                   const overlapEnd = Math.min(inMin, defBreak.end);
                   const overlap = Math.max(0, overlapEnd - overlapStart);
-                  if (overlap > 0) allowed += Math.min(overlap, defBreak.allowed);
+                  if (overlap > 0) allowed += defBreak.allowed;
                 }
 
                 const excess = Math.max(0, duration - allowed);

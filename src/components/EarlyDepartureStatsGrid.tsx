@@ -334,9 +334,9 @@ function useCustomTimingLookup() {
         found = employeeByName.get(empNameK);
       }
 
-      if (!found || !found.customTime) return null;
+      if (!found) return null;
 
-      const timeStr = found.customTime;
+      const timeStr = found.customTime || "9:00 TO 6:00";
       const match = timeStr.match(
         /(\d{1,2}):(\d{2})\s*TO\s*(\d{1,2}):(\d{2})/i
       );
@@ -420,63 +420,50 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
   const { getHRLateValue } = useHRLateLookup();
   const { isMaintenanceEmployee } = useMaintenanceDeductLookup();
 
+  // Key fixes in the stats calculation useMemo:
+
   const stats = useMemo(() => {
+    // SPECIAL RULE: Kalpesh Raloliya (143) always has 0 Late/Early
+    if (employee.empCode === "143" || employee.empName?.toLowerCase().includes("kalpesh")) {
+      return {
+        Late_hours_in_minutes: 0,
+        earlyDepartureTotalMinutes: 0,
+        breakExcessMinutes: 0,
+        lessThan4HrMins: 0,
+        totalBeforeRelaxation: 0,
+        totalCombinedMinutes: 0,
+        isStaff: getIsStaff(employee),
+        staffRelaxationApplied: 0,
+        otGrandTotal: 0,
+        finalDifference: 0,
+      };
+    }
+
     const customTiming = getCustomTimingForEmployee(employee);
-    const isMaintenance = isMaintenanceEmployee(employee); // Determine maintenance status
+    const isMaintenance = isMaintenanceEmployee(employee);
     let lateMinsTotal = 0;
     let lessThan4HrMins = 0;
 
-    employee.days?.forEach((day) => {
-      const status = (day.attendance.status || "").toUpperCase();
-      const workHours = day.attendance.workHrs || 0;
-
-      // Convert work hours like "3:50" to total minutes
-      let workMins = 0;
-      if (typeof workHours === "string" && workHours.includes(":")) {
-        const [h, m] = workHours.split(":").map(Number);
-        workMins = h * 60 + (m || 0);
-      } else if (!isNaN(Number(workHours))) {
-        workMins = Number(workHours) * 60;
-      }
-
-      // Fallback: Calculate from In/Out if workMins is 0
-      if (workMins === 0 && day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
-        const inM = timeToMinutes(day.attendance.inTime);
-        const outM = timeToMinutes(day.attendance.outTime);
-        if (outM > inM) {
-          workMins = outM - inM;
-        }
-      }
-
-      // If P/A or ADJ-P/A and less than 4 hours (240 mins)
-      // ADJ-P/A should be treated the same as P/A
-      // Also ADJ-P if < 4 hours
-      // ❌ REMOVED: Logic removed to prevent double deduction with Early Departure
-      // if ((status === "P/A" || status === "PA" || status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA") && workMins <= 240) {
-      //   lessThan4HrMins += 240 - workMins; // difference from 4 hours
-      // }
-    });
-
     const isStaff = getIsStaff(employee);
     const isWorker = !isStaff;
-    console.log(
-      `👷 ${employee.empName} is ${isWorker ? "Worker" : "Staff"}. Applying ${isWorker ? "Worker" : "Staff"
-      } late policy.`
-    );
 
     const STANDARD_START_MINUTES = 8 * 60 + 30;
     const EVENING_SHIFT_START_MINUTES = 13 * 60 + 15;
     const MORNING_EVENING_CUTOFF_MINUTES = 10 * 60;
     const PERMISSIBLE_LATE_MINS = 5;
 
+    // Use custom timing if available, otherwise use standard
     const employeeNormalStartMinutes =
       customTiming?.expectedStartMinutes ?? STANDARD_START_MINUTES;
+    const employeeNormalEndMinutes =
+      customTiming?.expectedEndMinutes ?? (17 * 60 + 30);
 
     let earlyDepartureTotalMinutes = 0;
 
     employee.days?.forEach((day) => {
       const status = (day.attendance.status || "").toUpperCase();
       const inTime = day.attendance.inTime;
+      const outTime = day.attendance.outTime;
 
       // Calculate workMins for half-day check
       const workHours = day.attendance.workHrs || 0;
@@ -489,9 +476,9 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
       }
 
       // Fallback to In/Out
-      if (workMins === 0 && day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
-        const inM = timeToMinutes(day.attendance.inTime);
-        const outM = timeToMinutes(day.attendance.outTime);
+      if (workMins === 0 && inTime && outTime && inTime !== "-" && outTime !== "-") {
+        const inM = timeToMinutes(inTime);
+        const outM = timeToMinutes(outTime);
         if (outM > inM) workMins = outM - inM;
       }
 
@@ -501,19 +488,20 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
         isAdjPHalfDay = true;
       }
 
+      // === LATE ARRIVAL CALCULATION ===
       if (inTime && inTime !== "-") {
         const inMinutes = timeToMinutes(inTime);
         let dailyLateMins = 0;
 
-        // ADJ-P/A should be treated the same as P/A
-        // ⭐ STRICT CUSTOM TIMING RULE:
+        // ⭐ FIXED: Use custom timing for ALL calculations when available
         if (customTiming) {
           if (inMinutes > employeeNormalStartMinutes) {
             dailyLateMins = inMinutes - employeeNormalStartMinutes;
           }
         } else {
-          // Standard Logic
-          if (status === "P/A" || status === "PA" || status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA" || isAdjPHalfDay) {
+          // Standard Logic (only when NO custom timing)
+          if (status === "P/A" || status === "PA" || status === "ADJ-P/A" ||
+            status === "ADJP/A" || status === "ADJ-PA" || isAdjPHalfDay) {
             if (inMinutes < MORNING_EVENING_CUTOFF_MINUTES) {
               if (inMinutes > employeeNormalStartMinutes) {
                 dailyLateMins = inMinutes - employeeNormalStartMinutes;
@@ -535,22 +523,16 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
         }
       }
 
-      const earlyDepMins = Number(day.attendance.earlyDep) || 0;
-
-      // ❌ Ignore early departure completely if status is "M/WO-I"
+      // === EARLY DEPARTURE CALCULATION ===
+      // Skip M/WO-I completely
       if (status === "M/WO-I") {
-        return; // <-- do not count anything from this day
+        return;
       }
 
-      // ❌ RULE: Skip early departure for P/A and adj-P/A statuses
-      // For adj-P, only skip if it is a half day (isAdjPHalfDay)
-      // ❌ RULE: Skip early departure for P/A and adj-P/A statuses
-      // For adj-P, only skip if it is a half day (isAdjPHalfDay)
+      // Handle P/A special case (before 12:45 exit)
       if (status === "P/A" || status === "PA" ||
         status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA") {
 
-        // Check out time for P/A early departure (before 12:45)
-        const outTime = day.attendance.outTime;
         if (outTime && outTime !== "-") {
           const outMinutes = timeToMinutes(outTime);
           const TARGET_EXIT_MINUTES = 12 * 60 + 45; // 12:45
@@ -559,40 +541,53 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
             earlyDepartureTotalMinutes += (TARGET_EXIT_MINUTES - outMinutes);
           }
         }
-        return; // Done for this day
+        return;
       }
 
+      // Skip ADJ-P half day
       if (isAdjPHalfDay) {
-        return; // skip this day
+        return;
       }
 
-      // For all other statuses (including Full Day adj-P), count early departure
+      // === FIXED: Consistent early departure logic ===
       let dailyEarlyDep = 0;
-      if (customTiming && day.attendance.outTime && day.attendance.outTime !== "-") {
-        const outMinutes = timeToMinutes(day.attendance.outTime);
-        if (outMinutes < customTiming.expectedEndMinutes) {
-          dailyEarlyDep = customTiming.expectedEndMinutes - outMinutes;
+
+      if (outTime && outTime !== "-") {
+        const outMinutes = timeToMinutes(outTime);
+
+        // ✅ ALWAYS use custom timing if available
+        if (customTiming) {
+          if (outMinutes < customTiming.expectedEndMinutes) {
+            dailyEarlyDep = customTiming.expectedEndMinutes - outMinutes;
+          }
         }
-      } else {
-        dailyEarlyDep = earlyDepMins;
+        // ✅ Otherwise use standard end time
+        else {
+          if (outMinutes < employeeNormalEndMinutes) {
+            dailyEarlyDep = employeeNormalEndMinutes - outMinutes;
+          }
+        }
       }
 
       if (dailyEarlyDep > 0) {
         earlyDepartureTotalMinutes += dailyEarlyDep;
       }
-
     });
 
-    const breakExcessMinutes = calculateBreakExcessMinutes(employee, getPunchDataForEmployee(employee.empCode) || undefined, isMaintenance);
+    const breakExcessMinutes = calculateBreakExcessMinutes(
+      employee,
+      getPunchDataForEmployee(employee.empCode) || undefined,
+      isMaintenance
+    );
 
-    // --- New: Calculate Total Combined Minutes BEFORE relaxation ---
+    // Calculate totals
     let totalBeforeRelaxation =
       lateMinsTotal +
       earlyDepartureTotalMinutes +
       breakExcessMinutes +
       lessThan4HrMins;
 
-    // --- Apply Staff Relaxation ---
+    // Apply Staff Relaxation
     let totalAfterRelaxation = totalBeforeRelaxation;
     let staffRelaxationApplied = 0;
 
@@ -614,8 +609,6 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
       isStaff,
       staffRelaxationApplied: Math.round(staffRelaxationApplied),
       otGrandTotal: Math.round(otGrandTotal),
-      // Use staticFinalDifference (Gross OT) for the calculation to avoid circular dependency
-      // when deduction is applied to otGrandTotal in the parent/sibling.
       finalDifference: Math.round(staticFinalDifference - totalAfterRelaxation),
     };
   }, [employee, getCustomTimingForEmployee, getPunchDataForEmployee, otGrandTotal, staticFinalDifference]);
