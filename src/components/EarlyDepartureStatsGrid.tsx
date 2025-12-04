@@ -495,15 +495,16 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
         const inMinutes = timeToMinutes(inTime);
         let dailyLateMins = 0;
 
-        // ⭐ FIXED: Use custom timing for ALL calculations when available
-        if (customTiming) {
-          if (inMinutes > employeeNormalStartMinutes) {
-            dailyLateMins = inMinutes - employeeNormalStartMinutes;
-          }
-        } else {
-          // Standard Logic (only when NO custom timing)
-          if (status === "P/A" || status === "PA" || status === "ADJ-P/A" ||
-            status === "ADJP/A" || status === "ADJ-PA" || isAdjPHalfDay) {
+        // Check if Saturday
+        const dayName = (day.day || "").toLowerCase();
+        const isSaturday = dayName === "sa" || dayName === "sat" || dayName === "saturday";
+
+        // ⭐ P/A status should ALWAYS use P/A-specific rules, regardless of custom timing
+        if (status === "P/A" || status === "PA" || status === "ADJ-P/A" ||
+          status === "ADJP/A" || status === "ADJ-PA" || isAdjPHalfDay) {
+
+          if (isSaturday) {
+            // Saturday P/A: Use morning/evening cutoff logic
             if (inMinutes < MORNING_EVENING_CUTOFF_MINUTES) {
               if (inMinutes > employeeNormalStartMinutes) {
                 dailyLateMins = inMinutes - employeeNormalStartMinutes;
@@ -513,10 +514,24 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
                 dailyLateMins = inMinutes - EVENING_SHIFT_START_MINUTES;
               }
             }
-          } else if (status === "P" || status === "ADJ-P") {
-            if (inMinutes > employeeNormalStartMinutes) {
-              dailyLateMins = inMinutes - employeeNormalStartMinutes;
+          } else {
+            // Non-Saturday P/A: Half day starts at 12:30 PM
+            // This applies regardless of custom timing!
+            const HALF_DAY_START_MINUTES = 12 * 60 + 30; // 12:30 PM
+            if (inMinutes > HALF_DAY_START_MINUTES) {
+              dailyLateMins = inMinutes - HALF_DAY_START_MINUTES;
             }
+            // If at or before 12:30 PM, late is 0 (no late for P/A arriving on time)
+          }
+        } else if (customTiming) {
+          // Use custom timing for regular P/ADJ-P status
+          if (inMinutes > employeeNormalStartMinutes) {
+            dailyLateMins = inMinutes - employeeNormalStartMinutes;
+          }
+        } else if (status === "P" || status === "ADJ-P") {
+          // Standard timing for P/ADJ-P
+          if (inMinutes > employeeNormalStartMinutes) {
+            dailyLateMins = inMinutes - employeeNormalStartMinutes;
           }
         }
 
