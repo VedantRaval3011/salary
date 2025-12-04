@@ -9,6 +9,7 @@ import { EyeIcon } from "lucide-react";
 import { useHRLateLookup } from "@/hooks/useHRLateLookup";
 import { usePunchData } from "@/context/PunchDataContext";
 import { useMaintenanceDeductLookup } from "@/hooks/useMaintenanceDeductLookup";
+import { useStaffOTGrantedLookup } from "@/hooks/useStaffOTGrantedLookup";
 
 // Utility helpers
 const canon = (s: string) => (s ?? "").toUpperCase().trim();
@@ -419,12 +420,13 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
   const { getPunchDataForEmployee } = usePunchData();
   const { getHRLateValue } = useHRLateLookup();
   const { isMaintenanceEmployee } = useMaintenanceDeductLookup();
+  const { getGrantForEmployee } = useStaffOTGrantedLookup();
 
   // Key fixes in the stats calculation useMemo:
 
   const stats = useMemo(() => {
     // SPECIAL RULE: Kalpesh Raloliya (143) always has 0 Late/Early
-    if (employee.empCode === "143" || employee.empName?.toLowerCase().includes("kalpesh")) {
+    if (employee.empCode === "143" || employee.empName?.toLowerCase().includes("kalpesh raloliya")) {
       return {
         Late_hours_in_minutes: 0,
         earlyDepartureTotalMinutes: 0,
@@ -574,10 +576,12 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
       }
     });
 
+    const isGrantedOT = !!getGrantForEmployee(employee);
     const breakExcessMinutes = calculateBreakExcessMinutes(
       employee,
       getPunchDataForEmployee(employee.empCode) || undefined,
-      isMaintenance
+      isMaintenance,
+      isGrantedOT
     );
 
     // Calculate totals

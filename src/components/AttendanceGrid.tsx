@@ -6,6 +6,7 @@ import { DayAttendance, EmployeeData } from "@/lib/types";
 import { useExcel } from "@/context/ExcelContext";
 import { usePunchData } from "@/context/PunchDataContext";
 import { useMaintenanceDeductLookup } from "@/hooks/useMaintenanceDeductLookup";
+import { useStaffOTGrantedLookup } from "@/hooks/useStaffOTGrantedLookup";
 
 interface AttendanceGridProps {
   days: DayAttendance[];
@@ -157,82 +158,7 @@ const BREAKS = [
   { name: "Dinner Break", start: 19 * 60 + 30, end: 21 * 60, allowed: 30 },     // 19:30 - 21:00
 ];
 
-// ---- Staff OT Granted Lookup Hook ---- //
-function useStaffOTGrantedLookup() {
-  const { getAllUploadedFiles } = useExcel();
 
-  return useMemo(() => {
-    const files = getAllUploadedFiles?.() ?? [];
-
-    const staffOTFile = files.find((f: any) => {
-      const n = (f?.fileName || "").toString().toLowerCase();
-      return (
-        f.status === "success" &&
-        n.includes("staff") &&
-        n.includes("ot") &&
-        n.includes("granted")
-      );
-    });
-
-    if (!staffOTFile) {
-      return { getGrantForEmployee: () => undefined };
-    }
-
-    let otEmployees: any[] = [];
-
-    if (staffOTFile.otGrantedData && Array.isArray(staffOTFile.otGrantedData)) {
-      otEmployees = staffOTFile.otGrantedData;
-    } else if (
-      staffOTFile.data?.employees &&
-      Array.isArray(staffOTFile.data.employees)
-    ) {
-      otEmployees = staffOTFile.data.employees;
-    }
-
-    const norm = (s: string) => (s ?? "").toString().toUpperCase().trim();
-    const key = (s: string) => norm(s).replace(/[^A-Z0-9]/g, "");
-    const numOnly = (s: string) => s.match(/\d+/g)?.join("") ?? "";
-
-    const byCode = new Map<string, any>();
-    const byName = new Map<string, any>();
-    const byNumericCode = new Map<string, any>();
-
-    for (const emp of otEmployees) {
-      if (emp.empCode) {
-        const codeKey = key(emp.empCode);
-        const numKey = numOnly(emp.empCode);
-
-        byCode.set(codeKey, emp);
-        if (numKey) byNumericCode.set(numKey, emp);
-      }
-      if (emp.empName) {
-        byName.set(key(emp.empName), emp);
-      }
-    }
-
-    const getGrantForEmployee = (
-      emp: Pick<EmployeeData, "empCode" | "empName">
-    ) => {
-      const empCodeK = key(emp.empCode);
-      const empNameK = key(emp.empName);
-      const numCodeK = numOnly(emp.empCode);
-
-      let found = byCode.get(empCodeK);
-
-      if (!found && numCodeK) {
-        found = byNumericCode.get(numCodeK);
-      }
-
-      if (!found) {
-        found = byName.get(empNameK);
-      }
-
-      return found;
-    };
-
-    return { getGrantForEmployee };
-  }, [getAllUploadedFiles]);
-}
 
 // Helper to check if employee is Staff or Worker
 const getIsStaff = (emp: EmployeeData): boolean => {
@@ -847,7 +773,19 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
                 }
 
                 const excess = Math.max(0, duration - allowed);
-                totalBreakExcess += excess;
+
+                // ⭐ CONDITIONAL BREAK EXCESS LOGIC:
+                // If the break starts after 5:30 PM (17:30 = 1050 mins),
+                // AND the employee is NOT in the Granted OT Sheet,
+                // then IGNORE this excess (treat as 0).
+                const EVENING_BREAK_START = 17 * 60 + 30; // 17:30
+                const isGranted = !!grant;
+
+                if (outMin >= EVENING_BREAK_START && !isGranted) {
+                  // Do not add excess for this evening break
+                } else {
+                  totalBreakExcess += excess;
+                }
               }
             }
           }
@@ -1102,17 +1040,13 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
                               const outMin = punch.minutes;
                               let inMin = next.minutes;
 
-                              // [NEW LOGIC] Handle 5:30 PM cutoff for non-fullnight employees
-                              const isFullNight = employee.otGrantedType === "fullnight";
+                              // [NEW LOGIC] Handle 5:30 PM cutoff
                               const CUTOFF_TIME = 17 * 60 + 30; // 17:30 (5:30 PM)
                               let ignoreBreak = false;
+                              const isGranted = !!grant;
 
-                              if (!isFullNight) {
-                                if (outMin >= CUTOFF_TIME) {
-                                  ignoreBreak = true;
-                                } else if (inMin > CUTOFF_TIME) {
-                                  inMin = CUTOFF_TIME;
-                                }
+                              if (outMin >= CUTOFF_TIME && !isGranted) {
+                                ignoreBreak = true;
                               }
 
                               if (!ignoreBreak) {

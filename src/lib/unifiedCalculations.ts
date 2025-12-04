@@ -204,7 +204,8 @@ export const calculateLessThan4HoursMinutes = (employee: EmployeeData): number =
 export const calculateBreakExcessMinutes = (
   employee: EmployeeData,
   punchData?: { attendance: { [date: string]: { in: string[]; out: string[] } } },
-  isMaintenance: boolean = false
+  isMaintenance: boolean = false,
+  isGrantedOT: boolean = false
 ): number => {
   if (!punchData || !punchData.attendance) {
     return 0;
@@ -292,7 +293,18 @@ export const calculateBreakExcessMinutes = (
           }
           
           const excess = Math.max(0, duration - allowed);
-          totalExcessMinutes += excess;
+          
+          // ⭐ CONDITIONAL BREAK EXCESS LOGIC:
+          // If the break starts after 5:30 PM (17:30 = 1050 mins),
+          // AND the employee is NOT in the Granted OT Sheet,
+          // then IGNORE this excess (treat as 0).
+          const EVENING_BREAK_START = 17 * 60 + 30; // 17:30
+          
+          if (outMin >= EVENING_BREAK_START && !isGrantedOT) {
+             // Do not add excess for this evening break
+          } else {
+             totalExcessMinutes += excess;
+          }
         }
       }
     }
@@ -310,7 +322,8 @@ export const calculateTotalCombinedMinutes = (
   punchData?: { attendance: { [date: string]: { in: string[]; out: string[] } } },
   customStartMinutes?: number,
   customEndMinutes?: number,
-  isMaintenance: boolean = false
+  isMaintenance: boolean = false,
+  isGrantedOT: boolean = false
 ): {
   lateMinutes: number;
   earlyDepartureMinutes: number;
@@ -340,7 +353,7 @@ export const calculateTotalCombinedMinutes = (
   // Calculate all components
   const lateMinutes = calculateLateMinutes(employee, customStartMinutes);
   const earlyDepartureMinutes = calculateEarlyDepartureMinutes(employee, customEndMinutes);
-  const breakExcessMinutes = calculateBreakExcessMinutes(employee, punchData, isMaintenance);
+  const breakExcessMinutes = calculateBreakExcessMinutes(employee, punchData, isMaintenance, isGrantedOT);
   const lessThan4HoursMinutes = calculateLessThan4HoursMinutes(employee);
 
   // Calculate total before relaxation

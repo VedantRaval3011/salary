@@ -702,21 +702,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
     const fullNightOTDecimalHours = getFullNightOTForEmployee(employee);
     const fullNightOTInMinutes = Math.round(fullNightOTDecimalHours * 60);
 
-    let finalOTForDeduction = 0;
-    let wasOTDeducted = false;
-
-    if (isStaff) {
-      finalOTForDeduction = totalMinutes;
-    } else if (isWorker) {
-      finalOTForDeduction = workerGrantedOTMinutes;
-    }
-
-    // Apply maintenance deduction if applicable
-    if (isMaintenanceEmployee(employee)) {
-      finalOTForDeduction = finalOTForDeduction * 0.95;
-      wasOTDeducted = true;
-    }
-
+    // Base total before full night OT & deductions
     const lateDeductionMinutes = Math.round(lateDeductionDays * 480);
 
     let grossTotalMinutes = 0;
@@ -726,7 +712,18 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
       grossTotalMinutes = workerGrantedOTMinutes;
     }
 
-    let grandTotalMinutes = finalOTForDeduction + fullNightOTInMinutes + lateDeductionMinutes;
+    // Grand total BEFORE 5% maintenance deduction
+    const preDeductionGrandTotal =
+      grossTotalMinutes + fullNightOTInMinutes + lateDeductionMinutes;
+
+    let grandTotalMinutes = preDeductionGrandTotal;
+    let wasOTDeducted = false;
+
+    // ✅ Apply 5% deduction on the *entire* grand total OT (incl. Full Night + late adj)
+    if (isMaintenanceEmployee(employee)) {
+      grandTotalMinutes = preDeductionGrandTotal * 0.95;
+      wasOTDeducted = true;
+    }
 
     return {
       baseOTValue: employee.totalOTHours || "0:00",
