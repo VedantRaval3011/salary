@@ -771,15 +771,17 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
 
                 const excess = Math.max(0, duration - allowed);
 
-                // ⭐ CORRECT BREAK EXCESS LOGIC:
-                // 1. Staff + Granted OT: NO break excess
-                // 2. Staff + !Granted OT: Calculate excess
-                // 3. Worker: ALWAYS calculate excess
+                // ⭐ REFINED LOGIC (Final v2):
+                // 1. Staff + Granted OT + Maintenance: ALWAYS calculate excess
+                // 2. Staff + Granted OT + !Maintenance: Skip after 5:30 PM
+                // 3. Others: ALWAYS calculate excess
 
-                if (isStaff && grant) {
-                  // Skip break excess for Staff with OT Grant
+                const EVENING_CUTOFF = 17 * 60 + 30; // 5:30 PM
+
+                // If Staff + Granted OT + !Maintenance AND break starts after 5:30 PM -> Skip
+                if (isStaff && grant && !isMaintenance && outMin >= EVENING_CUTOFF) {
+                  // Skip evening break excess for Staff with OT Grant (Non-Maintenance)
                 } else {
-                  // For Workers and Non-Granted Staff, add the excess
                   totalBreakExcess += excess;
                 }
               }
@@ -1036,31 +1038,34 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
                               const outMin = punch.minutes;
                               let inMin = next.minutes;
 
-                              // ⭐ REFINED LOGIC:
-                              // 1. Staff + Granted OT: NO break excess
-                              // 2. Staff + !Granted OT: Calculate excess
-                              // 3. Worker: ALWAYS calculate excess
+                              // ⭐ REFINED LOGIC (Final v2):
+                              // 1. Staff + Granted OT + Maintenance: ALWAYS calculate excess
+                              // 2. Staff + Granted OT + !Maintenance: Skip after 5:30 PM
+                              // 3. Others: ALWAYS calculate excess
 
-                              if (isStaff && grant) {
+                              const EVENING_CUTOFF = 17 * 60 + 30; // 5:30 PM
+
+                              // Calculate potential excess first
+                              const calcDuration = inMin - outMin;
+
+                              // Include Evening Break in the calculation
+                              const allBreaks = [
+                                ...BREAKS,
+                                { name: "Evening Break", start: 17 * 60 + 30, end: 18 * 60 + 30, allowed: 15 }
+                              ];
+
+                              for (const defBreak of allBreaks) {
+                                const overlapStart = Math.max(outMin, defBreak.start);
+                                const overlapEnd = Math.min(inMin, defBreak.end);
+                                const overlap = Math.max(0, overlapEnd - overlapStart);
+                                if (overlap > 0) allowed += defBreak.allowed;
+                              }
+
+                              excess = Math.max(0, calcDuration - allowed);
+
+                              // Apply the specific rule for Staff + OT Grant + !Maintenance
+                              if (isStaff && grant && !isMaintenance && outMin >= EVENING_CUTOFF) {
                                 excess = 0;
-                              } else {
-                                // Calculate break excess for everyone else (Workers + Non-Granted Staff)
-                                const calcDuration = inMin - outMin;
-
-                                // Include Evening Break in the calculation
-                                const allBreaks = [
-                                  ...BREAKS,
-                                  { name: "Evening Break", start: 17 * 60 + 30, end: 18 * 60 + 30, allowed: 15 }
-                                ];
-
-                                for (const defBreak of allBreaks) {
-                                  const overlapStart = Math.max(outMin, defBreak.start);
-                                  const overlapEnd = Math.min(inMin, defBreak.end);
-                                  const overlap = Math.max(0, overlapEnd - overlapStart);
-                                  if (overlap > 0) allowed += defBreak.allowed;
-                                }
-
-                                excess = Math.max(0, calcDuration - allowed);
                               }
                             }
 
