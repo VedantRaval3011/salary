@@ -69,12 +69,12 @@ export const calculateLateMinutes = (
             }
           }
         } else {
-          // Non-Saturday P/A and adj-P/A: Half day starts at 12:30 PM
-          const HALF_DAY_START_MINUTES = 12 * 60 + 30; // 12:30 PM
+          // Non-Saturday P/A and adj-P/A: Half day starts at 1:15 PM
+          const HALF_DAY_START_MINUTES = 13 * 60 + 15; // 1:15 PM
           if (inMinutes > HALF_DAY_START_MINUTES) {
             dailyLateMins = inMinutes - HALF_DAY_START_MINUTES;
           }
-          // If at or before 12:30 PM, late is 0
+          // If at or before 1:15 PM, late is 0
         }
       } else if (status === "P" || ((status === "M/WO-I" || status === "ADJ-M/WO-I") && (day.day?.toLowerCase() === "sa" || day.day?.toLowerCase() === "sat" || day.day?.toLowerCase() === "saturday"))) {
         // Full day present

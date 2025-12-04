@@ -515,13 +515,13 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
               }
             }
           } else {
-            // Non-Saturday P/A: Half day starts at 12:30 PM
+            // Non-Saturday P/A: Half day starts at 1:15 PM (second shift)
             // This applies regardless of custom timing!
-            const HALF_DAY_START_MINUTES = 12 * 60 + 30; // 12:30 PM
+            const HALF_DAY_START_MINUTES = 13 * 60 + 15; // 1:15 PM
             if (inMinutes > HALF_DAY_START_MINUTES) {
               dailyLateMins = inMinutes - HALF_DAY_START_MINUTES;
             }
-            // If at or before 12:30 PM, late is 0 (no late for P/A arriving on time)
+            // If at or before 1:15 PM, late is 0 (no late for P/A arriving on time)
           }
         } else if (customTiming) {
           // Use custom timing for regular P/ADJ-P status
