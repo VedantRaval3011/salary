@@ -782,12 +782,36 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
     hasDetails,
     isTotal,
     isDifference, // Add this prop
+    isBreakExcess, // NEW: Flag for break excess
   }: any) => {
     const absValue = Math.abs(value);
+    const sign = isDifference && value !== 0 ? (value > 0 ? "+" : "-") : "";
+    
+    // For Break Excess, display as total minutes, not as time
+    if (isBreakExcess) {
+      const displayMins = `${absValue} mins`;
+      const displayDecimalHours = `${(absValue / 60).toFixed(1)} hrs`;
+      
+      return (
+        <div
+          className={`relative text-center p-2 w-[130px] ${bgColor} rounded-md border ${textColor} transition-all hover:shadow`}
+        >
+          <div className="text-[10px] text-gray-600">{label}</div>
+          <div className="text-xl font-bold mt-1">
+            {displayMins}
+          </div>
+
+          <div className="text-[10px] text-gray-500">
+            {displayDecimalHours}
+          </div>
+        </div>
+      );
+    }
+    
+    // For other stats, display as HH:MM time format
     const displayHours = minutesToHHMM(absValue);
     const displayMins = `${absValue} mins`;
     const displayDecimalHours = `${(absValue / 60).toFixed(1)} hrs`;
-    const sign = isDifference && value !== 0 ? (value > 0 ? "+" : "-") : "";
 
     return (
       <div
@@ -896,6 +920,7 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
               bgColor="bg-blue-50"
               textColor="text-blue-700"
               hasDetails={true}
+              isBreakExcess={true}
             />
             <StatBox
               label="Less Than 4 Hr (P/A)"
