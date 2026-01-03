@@ -266,16 +266,21 @@ function useCustomTimingLookup() {
 
       const timeStr = found.customTime || "9:00 TO 6:00";
       const match = timeStr.match(
-        /(\d{1,2}):(\d{2})\s*TO\s*(\d{1,2}):(\d{2})/i
+        /(\d{1,2})(?::(\d{2}))?\s*TO\s*(\d{1,2})(?::(\d{2}))?/i
       );
 
       if (match) {
         const startHour = parseInt(match[1]);
         const startMin = parseInt(match[2] || "0");
-        const expectedStartMinutes = startHour * 60 + startMin;
-
-        const endHour = parseInt(match[3]);
+        
+        let endHour = parseInt(match[3]);
         const endMin = parseInt(match[4] || "0");
+
+        // PM Adjustment Logic
+        if (endHour < startHour) endHour += 12;
+        if (endHour <= 12 && startHour < 8) endHour += 12;
+        
+        const expectedStartMinutes = startHour * 60 + startMin;
         const expectedEndMinutes = endHour * 60 + endMin;
 
         return {

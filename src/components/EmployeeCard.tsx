@@ -412,8 +412,8 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
           let deduction = 0;
           if (staticDiff < 0) {
             const absDiff = Math.abs(staticDiff);
-            // Unified logic (Staff Rules for Everyone): 30-minute buffer
-            const bufferMinutes = 30;
+            // Unified logic (Staff Rules for Everyone): No buffer
+            const bufferMinutes = 0;
             const exceeds4Hours = absDiff > 240;
             const bufferedDiff = Math.max(0, absDiff - bufferMinutes);
 

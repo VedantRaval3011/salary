@@ -310,8 +310,9 @@ export const calculateBreakExcessMinutes = (
           
           const EVENING_CUTOFF = 17 * 60 + 30; // 5:30 PM
 
-          // If !Maintenance AND break starts after 5:30 PM -> Skip
-          if (!isMaintenance && outMin >= EVENING_CUTOFF) {
+          // If !Maintenance AND !Worker (i.e. is Staff) AND break starts after 5:30 PM -> Skip
+          const isWorker = !getIsStaff(employee);
+          if (!isMaintenance && !isWorker && outMin >= EVENING_CUTOFF) {
              continue; 
           }
           

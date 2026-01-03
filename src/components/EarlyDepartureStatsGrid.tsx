@@ -336,16 +336,21 @@ function useCustomTimingLookup() {
 
       const timeStr = found.customTime || "9:00 TO 6:00";
       const match = timeStr.match(
-        /(\d{1,2}):(\d{2})\s*TO\s*(\d{1,2}):(\d{2})/i
+        /(\d{1,2})(?::(\d{2}))?\s*TO\s*(\d{1,2})(?::(\d{2}))?/i
       );
 
       if (match) {
         const startHour = parseInt(match[1]);
         const startMin = parseInt(match[2] || "0");
-        const expectedStartMinutes = startHour * 60 + startMin;
-
-        const endHour = parseInt(match[3]);
+        
+        let endHour = parseInt(match[3]);
         const endMin = parseInt(match[4] || "0");
+
+        // PM Adjustment Logic
+        if (endHour < startHour) endHour += 12;
+        if (endHour <= 12 && startHour < 8) endHour += 12;
+
+        const expectedStartMinutes = startHour * 60 + startMin;
         const expectedEndMinutes = endHour * 60 + endMin;
 
         return {
@@ -498,10 +503,43 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
 
     let earlyDepartureTotalMinutes = 0;
 
+    const punchData = getPunchDataWithFallback(employee.empCode);
+
     employee.days?.forEach((day) => {
       const status = (day.attendance.status || "").toUpperCase();
-      const inTime = day.attendance.inTime;
-      const outTime = day.attendance.outTime;
+      
+      // Resolve In/Out from Punch Data if available
+      let inTime = day.attendance.inTime;
+      let outTime = day.attendance.outTime;
+
+      if (punchData && punchData.attendance) {
+        const dateKey = String(day.date);
+        let dayPunches = punchData.attendance[dateKey];
+        
+        // Try variants if exact key not found
+        if (!dayPunches) {
+           dayPunches = punchData.attendance[dateKey.padStart(2, "0")];
+        }
+        if (!dayPunches) {
+           dayPunches = punchData.attendance[dateKey.replace(/^0+/, "")];
+        }
+
+        if (dayPunches) {
+          const ins = dayPunches.in || [];
+          const outs = dayPunches.out || [];
+          
+          if (ins.length > 0) {
+            // Find earliest In
+            const sortedIns = [...ins].sort((a, b) => timeToMinutes(a) - timeToMinutes(b));
+            inTime = sortedIns[0];
+          }
+          if (outs.length > 0) {
+            // Find latest Out
+            const sortedOuts = [...outs].sort((a, b) => timeToMinutes(b) - timeToMinutes(a));
+            outTime = sortedOuts[0];
+          }
+        }
+      }
 
       // Calculate workMins for half-day check
       const workHours = day.attendance.workHrs || 0;
