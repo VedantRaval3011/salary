@@ -405,40 +405,49 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
         onStaticFinalDifferenceCalculated={(staticDiff) => {
           setStaticFinalDifference((prev) => (prev === staticDiff ? prev : staticDiff));
 
-          // Calculate Late Deduction Days with different buffers for Staff vs Worker
-          // Staff: 30-minute buffer, always applies
-          // Non-Staff: If final difference ≤ 2 hours, no deduction. If > 2 hours, deduct only excess beyond 2 hours (min 0.5)
-          // IMPORTANT: Use staticFinalDifference (not finalDifference) for late deduction
+          // Calculate Late Deduction Days with 15-minute buffer
+          // RULE: Only apply deduction if Static Final Difference > 15 minutes
+          // Example 1: -4 mins → No deduction (within 15-min buffer)
+          // Example 2: -30 mins → Deduction applies (exceeds 15-min buffer)
           let deduction = 0;
           if (staticDiff < 0) {
             const absDiff = Math.abs(staticDiff);
-            // Unified logic (Staff Rules for Everyone): No buffer
-            const bufferMinutes = 0;
-            const exceeds4Hours = absDiff > 240;
-            const bufferedDiff = Math.max(0, absDiff - bufferMinutes);
+            
+            // 15-minute buffer - only consider deduction if exceeds this
+            const bufferMinutes = 15;
+            
+            // Check if the difference exceeds the buffer
+            if (absDiff <= bufferMinutes) {
+              // Within buffer - no deduction
+              deduction = 0;
+            } else {
+              // Exceeds buffer - calculate deduction on the excess
+              const bufferedDiff = absDiff - bufferMinutes;
+              const exceeds4Hours = absDiff > 240;
 
-            // Calculate deduction: every 240 minutes (4 hours) after buffer = 0.5 days
-            if (bufferedDiff >= 240) {
-              deduction = Math.floor(bufferedDiff / 240) * 0.5;
-              // If there's a remainder, add 0.5 days
-              if (bufferedDiff % 240 > 0) {
-                deduction += 0.5;
+              // Calculate deduction: every 240 minutes (4 hours) after buffer = 0.5 days
+              if (bufferedDiff >= 240) {
+                deduction = Math.floor(bufferedDiff / 240) * 0.5;
+                // If there's a remainder, add 0.5 days
+                if (bufferedDiff % 240 > 0) {
+                  deduction += 0.5;
+                }
+              } else if (bufferedDiff > 0) {
+                // Less than 240 minutes but more than 0
+                deduction = 0.5;
               }
-            } else if (bufferedDiff > 0) {
-              // Less than 240 minutes but more than 0
-              deduction = 0.5;
-            }
 
-            // If the original difference exceeds 4 hours, ensure minimum 1.0 days deduction
-            if (exceeds4Hours && deduction < 1.0) {
-              deduction = 1.0;
+              // If the original difference exceeds 4 hours, ensure minimum 1.0 days deduction
+              if (exceeds4Hours && deduction < 1.0) {
+                deduction = 1.0;
+              }
             }
 
             console.log(
               `🔍 ${employee.empName} - ` +
               `Static Final Diff: ${staticDiff} mins, Abs: ${absDiff} mins, ` +
-              `Exceeds 4hrs: ${exceeds4Hours}, Buffer: ${bufferMinutes} mins, ` +
-              `Buffered: ${bufferedDiff} mins, Deduction: ${deduction} days`
+              `Buffer: ${bufferMinutes} mins, Within Buffer: ${absDiff <= bufferMinutes}, ` +
+              `Buffered Diff: ${Math.max(0, absDiff - bufferMinutes)} mins, Deduction: ${deduction} days`
             );
           }
           setLateDeductionDays(deduction);
