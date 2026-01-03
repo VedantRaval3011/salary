@@ -512,6 +512,41 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
       }
     }
 
+    // ⭐ Recalculate Early Departure for Custom Timing employees (P status)
+    if (customTimingParsed && (status === "P" || status === "ADJ-P")) {
+      const outTime = day.attendance.outTime;
+      if (outTime && outTime !== "-") {
+        const outMinutes = timeToMinutes(outTime);
+        const expectedEndMinutes = customTimingParsed.endHour * 60 + customTimingParsed.endMin;
+
+        if (outMinutes < expectedEndMinutes) {
+          const newEarlyDep = expectedEndMinutes - outMinutes;
+          if (String(newEarlyDep) !== String(originalEarlyDep || "0")) {
+            hasEarlyDepCalculation = true;
+            day = {
+              ...day,
+              attendance: {
+                ...day.attendance,
+                earlyDep: newEarlyDep.toString()
+              }
+            };
+          }
+        } else {
+          // Left on time or late - set early dep to 0
+          if (String(originalEarlyDep || "0") !== "0") {
+            hasEarlyDepCalculation = true;
+            day = {
+              ...day,
+              attendance: {
+                ...day.attendance,
+                earlyDep: "0"
+              }
+            };
+          }
+        }
+      }
+    }
+
     let hasOTCalculation = false;
     let originalOTValue = "";
     let calculatedOTMinutes = 0;
