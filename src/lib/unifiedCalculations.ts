@@ -302,17 +302,17 @@ export const calculateBreakExcessMinutes = (
         const duration = inMin - outMin;
         
         if (duration > 0) {
-          // ⭐ REFINED LOGIC (Final v5):
+          // ⭐ REFINED LOGIC (Final v6):
           // 1. Maintenance Employees: ALWAYS calculate excess (including evening breaks)
           // 2. OT Granted Employees: ALWAYS calculate excess (including evening breaks)
-          // 3. Regular Employees (not maintenance, not OT granted): 
-          //    - Before 5:30 PM: Calculate Excess
-          //    - After 5:30 PM: NO break excess
+          // 3. Worker Employees: ALWAYS calculate excess (including evening breaks)
+          // 4. Staff Employees (not maintenance, not OT granted): Skip evening breaks
           
           const EVENING_CUTOFF = 17 * 60 + 30; // 5:30 PM
+          const isStaff = getIsStaff(employee);
 
-          // If NOT (Maintenance OR OT Granted) AND break starts after 5:30 PM -> Skip
-          if (!isMaintenance && !isGrantedOT && outMin >= EVENING_CUTOFF) {
+          // If Staff AND NOT (Maintenance OR OT Granted) AND break starts after 5:30 PM -> Skip
+          if (isStaff && !isMaintenance && !isGrantedOT && outMin >= EVENING_CUTOFF) {
              continue; 
           }
           

@@ -810,16 +810,17 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
                 // ⭐ Always add to raw excess (for display purposes)
                 rawBreakExcess += excess;
 
-                // ⭐ REFINED LOGIC (Final v5):
+                // ⭐ REFINED LOGIC (Final v6):
                 // 1. Maintenance: ALWAYS calculate excess
                 // 2. OT Granted: ALWAYS calculate excess
-                // 3. Regular employees: Skip after 5:30 PM
+                // 3. Workers: ALWAYS calculate excess
+                // 4. Staff (not maintenance, not OT granted): Skip after 5:30 PM
 
                 const EVENING_CUTOFF = 17 * 60 + 30; // 5:30 PM
                 const isGrantedOT = !!grant;
 
-                // If NOT (Maintenance OR OT Granted) AND break starts after 5:30 PM -> Skip
-                if (!isMaintenance && !isGrantedOT && outMin >= EVENING_CUTOFF) {
+                // If Staff AND NOT (Maintenance OR OT Granted) AND break starts after 5:30 PM -> Skip
+                if (isStaff && !isMaintenance && !isGrantedOT && outMin >= EVENING_CUTOFF) {
                   // Skip evening break excess (but rawBreakExcess still tracks it)
                 } else {
                   totalBreakExcess += excess;
@@ -1089,10 +1090,11 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
                               const outMin = punch.minutes;
                               let inMin = next.minutes;
 
-                              // ⭐ REFINED LOGIC (Final v5):
+                              // ⭐ REFINED LOGIC (Final v6):
                               // 1. Maintenance: ALWAYS calculate excess
                               // 2. OT Granted: ALWAYS calculate excess
-                              // 3. Regular employees: Skip after 5:30 PM
+                              // 3. Workers: ALWAYS calculate excess
+                              // 4. Staff (not maintenance, not OT granted): Skip after 5:30 PM
 
                               const EVENING_CUTOFF = 17 * 60 + 30; // 5:30 PM
 
@@ -1114,9 +1116,9 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
 
                               excess = Math.max(0, calcDuration - allowed);
 
-                              // Apply the specific rule for Regular employees (not Maintenance, not OT Granted)
+                              // Apply the specific rule for Staff employees (not Maintenance, not OT Granted)
                               const isGrantedOT = !!grant;
-                              if (!isMaintenance && !isGrantedOT && outMin >= EVENING_CUTOFF) {
+                              if (isStaff && !isMaintenance && !isGrantedOT && outMin >= EVENING_CUTOFF) {
                                 excess = 0;
                               }
                             }
