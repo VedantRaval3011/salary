@@ -123,43 +123,6 @@ export function calculateEmployeeStats(
           `🚫 ${employee.empName} - Skipping ADJ-P on ${day.date} (no In/Out time)`
         );
       }
-    } else if (
-      status === "M/WO-I" ||
-      status === "ADJ-M/WO-I" ||
-      status === "WO-I"
-    ) {
-      const inTime = day.attendance.inTime;
-      const outTime = day.attendance.outTime;
-
-      if (inTime && inTime !== "-" && outTime && outTime !== "-") {
-        // Calculate work hours to determine if half day or full day
-        const inMinutes = timeToMinutes(inTime);
-        const outMinutes = timeToMinutes(outTime);
-        const workMinutes =
-          outMinutes > inMinutes ? outMinutes - inMinutes : 0;
-
-        if (workMinutes > 0 && workMinutes <= 240) {
-          // Half day (up to 4 hours)
-          paCount++;
-          console.log(
-            `✅ ${employee.empName} - Day ${day.date} (${status}) counted as 0.5 day (worked ${(
-              workMinutes / 60
-            ).toFixed(2)}h)`
-          );
-        } else if (workMinutes > 240) {
-          // Full day (more than 4 hours)
-          fullPresentDays++;
-          console.log(
-            `✅ ${employee.empName} - Day ${day.date} (${status}) counted as 1.0 day (worked ${(
-              workMinutes / 60
-            ).toFixed(2)}h)`
-          );
-        }
-      } else {
-        console.log(
-          `🚫 ${employee.empName} - Skipping ${status} on ${day.date} (no In/Out time)`
-        );
-      }
     }
   });
 
@@ -300,7 +263,54 @@ export function calculateEmployeeStats(
   const employeeNormalStartMinutes =
     customTiming?.expectedStartMinutes ?? STANDARD_START_MINUTES;
 
-  // Loop for double counting removed. Logic moved to main loop.
+employee.days?.forEach((day) => {
+  const status = (day.attendance.status || "").toUpperCase();
+  
+  // Handle M/WO-I or ADJ-M/WO-I (count if employee attended)
+  if (status === "M/WO-I" || status === "ADJ-M/WO-I" || status === "WO-I") {
+    const inTime = day.attendance.inTime;
+    const outTime = day.attendance.outTime;
+    
+    if (inTime && inTime !== "-" && outTime && outTime !== "-") {
+      // Calculate work hours to determine if half day or full day
+      const inMinutes = timeToMinutes(inTime);
+      const outMinutes = timeToMinutes(outTime);
+      const workMinutes = outMinutes > inMinutes ? outMinutes - inMinutes : 0;
+      
+      if (workMinutes > 0 && workMinutes <= 240) {
+        // Half day (up to 4 hours)
+        paCount++;
+        console.log(
+          `✅ ${employee.empName} - Day ${day.date} (${status}) counted as 0.5 day (worked ${(workMinutes / 60).toFixed(2)}h)`
+        );
+      } else if (workMinutes > 240) {
+        // Full day (more than 4 hours)
+        fullPresentDays++;
+        console.log(
+          `✅ ${employee.empName} - Day ${day.date} (${status}) counted as 1.0 day (worked ${(workMinutes / 60).toFixed(2)}h)`
+        );
+      }
+    } else {
+      console.log(
+        `🚫 ${employee.empName} - Skipping ${status} on ${day.date} (no In/Out time)`
+      );
+    }
+  } else if (status === "P") {
+    fullPresentDays++;
+  } else if (status === "P/A" || status === "PA") {
+    paCount++;
+  } else if (status === "ADJ-P") {
+    const inTime = day.attendance.inTime;
+    const outTime = day.attendance.outTime;
+    if (inTime && inTime !== "-" && outTime && outTime !== "-") {
+      adjPresentDays++;
+    } else {
+      console.log(
+        `🚫 ${employee.empName} - Skipping ADJ-P on ${day.date} (no In/Out time)`
+      );
+    }
+  }
+});
 
   const Late_hours = Number((lateMinsTotal / 60).toFixed(2));
 
