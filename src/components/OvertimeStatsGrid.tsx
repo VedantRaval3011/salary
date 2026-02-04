@@ -681,11 +681,25 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
           let dayOTMinutes = 0;
 
           // ✅ FIXED: Exclude Adjusted Days from Worker OT logic (ONLY ADJ variants per user request)
-          if (
-            status === "ADJ-M/WO-I" ||
-            status === "ADJ-M"
-          ) {
+          if (status === "ADJ-M") {
              workerGrantedOTMinutes += 0;
+             return;
+          }
+
+          if (status === "ADJ-M/WO-I") {
+             // For ADJ-M/WO-I, if duration > 9 hours (8h work + 1h break), excess is OT.
+             // Example: 9h59m duration (599m) -> 599 - 540 = 59 mins OT.
+             if (day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
+                 const inMin = timeToMinutes(day.attendance.inTime);
+                 const outMin = timeToMinutes(day.attendance.outTime);
+                 if (outMin > inMin) {
+                     const duration = outMin - inMin;
+                     // Threshold: 9 hours (540 mins)
+                     if (duration > 540) {
+                         workerGrantedOTMinutes += (duration - 540);
+                     }
+                 }
+             }
              return;
           }
 
