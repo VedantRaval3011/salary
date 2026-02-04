@@ -530,11 +530,13 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
           const workMinutes =
             outMinutes > inMinutes ? outMinutes - inMinutes : 0;
 
-          if (workMinutes > 0 && workMinutes <= 240) {
-            // Half day (up to 4 hours)
+          // Half day threshold: up to 265 minutes (~4h 25m) to account for ~4 hour work with buffer
+          // This ensures days with ~4 hours work (e.g., 4h 16m) are counted as half day (0.5)
+          if (workMinutes > 0 && workMinutes <= 265) {
+            // Half day (up to ~4h 25m)
             paCount++;
-          } else if (workMinutes > 240) {
-            // Full day (more than 4 hours)
+          } else if (workMinutes > 265) {
+            // Full day (more than ~4h 25m)
             fullPresentDays++;
           }
         }
