@@ -324,7 +324,8 @@ const calculateFinalSoftwareMinutes = (
               dailyLateMins = inMinutes - EVENING_SHIFT_START_MINUTES;
             }
           }
-        } else if (status === "P") {
+        } else if (status === "P" || status === "ADJ-M/WO-I") {
+          // P and ADJ-M/WO-I: Count late arrival
           if (inMinutes > employeeNormalStartMinutes) {
             dailyLateMins = inMinutes - employeeNormalStartMinutes;
           }

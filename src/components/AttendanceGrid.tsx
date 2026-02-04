@@ -802,6 +802,13 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
             }
           ];
 
+          // ⭐ NEW: Track which break windows have been consumed for this day
+          // Each break window's allowance can only be used ONCE per day
+          const consumedBreakAllowances = new Map<string, number>();
+          for (const b of breaks) {
+            consumedBreakAllowances.set(b.name, 0);
+          }
+
           for (let i = 0; i < punches.length - 1; i++) {
             const current = punches[i];
             const next = punches[i + 1];
@@ -815,11 +822,23 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
                 const outMin = current.minutes;
                 const inMin = next.minutes;
 
+                // ⭐ Calculate allowed time, but subtract any already-consumed allowance
                 for (const defBreak of breaks) {
                   const overlapStart = Math.max(outMin, defBreak.start);
                   const overlapEnd = Math.min(inMin, defBreak.end);
                   const overlap = Math.max(0, overlapEnd - overlapStart);
-                  if (overlap > 0) allowed += defBreak.allowed;
+                  if (overlap > 0) {
+                    // How much of this break's allowance is still available?
+                    const alreadyConsumed = consumedBreakAllowances.get(defBreak.name) || 0;
+                    const remainingAllowance = Math.max(0, defBreak.allowed - alreadyConsumed);
+                    
+                    // Grant only the remaining allowance
+                    const toConsume = Math.min(remainingAllowance, duration);
+                    allowed += toConsume;
+                    
+                    // Mark as consumed
+                    consumedBreakAllowances.set(defBreak.name, alreadyConsumed + toConsume);
+                  }
                 }
 
                 const excess = Math.max(0, duration - allowed);
@@ -1094,7 +1113,64 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
               )}
 
               {/* --- MINI TRAIN VIEW --- */}
-              {punches && punches.length > 0 && (
+              {punches && punches.length > 0 && (() => {
+                // ⭐ Pre-calculate break excess for each gap, tracking consumed allowances
+                const allBreaks = [
+                  ...BREAKS,
+                  { name: "Evening Break", start: 17 * 60 + 30, end: 18 * 60 + 30, allowed: 15 }
+                ];
+                
+                const consumedBreakAllowances = new Map<string, number>();
+                for (const b of allBreaks) {
+                  consumedBreakAllowances.set(b.name, 0);
+                }
+                
+                // Pre-calculate excess for each gap
+                const gapExcessMap = new Map<number, number>();
+                
+                for (let i = 0; i < punches.length - 1; i++) {
+                  const current = punches[i];
+                  const next = punches[i + 1];
+                  const isBreak = current.type === "Out" && next.type === "In" && current.minutes < next.minutes;
+                  
+                  if (isBreak) {
+                    const outMin = current.minutes;
+                    const inMin = next.minutes;
+                    const duration = inMin - outMin;
+                    let allowed = 0;
+                    
+                    for (const defBreak of allBreaks) {
+                      const overlapStart = Math.max(outMin, defBreak.start);
+                      const overlapEnd = Math.min(inMin, defBreak.end);
+                      const overlap = Math.max(0, overlapEnd - overlapStart);
+                      if (overlap > 0) {
+                        // How much of this break's allowance is still available?
+                        const alreadyConsumed = consumedBreakAllowances.get(defBreak.name) || 0;
+                        const remainingAllowance = Math.max(0, defBreak.allowed - alreadyConsumed);
+                        
+                        // Grant only the remaining allowance
+                        const toConsume = Math.min(remainingAllowance, duration);
+                        allowed += toConsume;
+                        
+                        // Mark as consumed
+                        consumedBreakAllowances.set(defBreak.name, alreadyConsumed + toConsume);
+                      }
+                    }
+                    
+                    let excess = Math.max(0, duration - allowed);
+                    
+                    // Apply the specific rule for Staff employees (not Maintenance, not OT Granted)
+                    const EVENING_CUTOFF = 17 * 60 + 30; // 5:30 PM
+                    const isGrantedOT = !!grant;
+                    if (isStaff && !isMaintenance && !isGrantedOT && outMin >= EVENING_CUTOFF) {
+                      excess = 0;
+                    }
+                    
+                    gapExcessMap.set(i, excess);
+                  }
+                }
+                
+                return (
                 <div className="mt-3 pt-2 border-t border-current border-opacity-30">
                   <div className="text-[10px] font-bold opacity-70 mb-1">Punch Timeline:</div>
                   <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-gray-300">
@@ -1121,49 +1197,8 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
                             const duration = next.minutes - punch.minutes;
                             if (duration < 0) return null;
 
-                            // ⭐ FIX: Only calculate break excess for valid Out-In pairs
                             const isBreak = punch.type === "Out" && next.type === "In" && punch.minutes < next.minutes;
-
-                            // Calculate excess
-                            let allowed = 0;
-                            let excess = 0;
-
-                            if (isBreak) {
-                              const outMin = punch.minutes;
-                              let inMin = next.minutes;
-
-                              // ⭐ REFINED LOGIC (Final v6):
-                              // 1. Maintenance: ALWAYS calculate excess
-                              // 2. OT Granted: ALWAYS calculate excess
-                              // 3. Workers: ALWAYS calculate excess
-                              // 4. Staff (not maintenance, not OT granted): Skip after 5:30 PM
-
-                              const EVENING_CUTOFF = 17 * 60 + 30; // 5:30 PM
-
-                              // Calculate potential excess first
-                              const calcDuration = inMin - outMin;
-
-                              // Include Evening Break in the calculation
-                              const allBreaks = [
-                                ...BREAKS,
-                                { name: "Evening Break", start: 17 * 60 + 30, end: 18 * 60 + 30, allowed: 15 }
-                              ];
-
-                              for (const defBreak of allBreaks) {
-                                const overlapStart = Math.max(outMin, defBreak.start);
-                                const overlapEnd = Math.min(inMin, defBreak.end);
-                                const overlap = Math.max(0, overlapEnd - overlapStart);
-                                if (overlap > 0) allowed += defBreak.allowed;
-                              }
-
-                              excess = Math.max(0, calcDuration - allowed);
-
-                              // Apply the specific rule for Staff employees (not Maintenance, not OT Granted)
-                              const isGrantedOT = !!grant;
-                              if (isStaff && !isMaintenance && !isGrantedOT && outMin >= EVENING_CUTOFF) {
-                                excess = 0;
-                              }
-                            }
+                            const excess = gapExcessMap.get(pIdx) || 0;
 
                             return (
                               <div className="flex flex-col items-center justify-center mx-0.5 flex-shrink-0">
@@ -1181,7 +1216,8 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
                     })}
                   </div>
                 </div>
-              )}
+                );
+              })()}
 
               {/* Verification Details */}
               {punches && punches.length > 0 && (

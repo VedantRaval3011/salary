@@ -84,7 +84,11 @@ export const calculateLateMinutes = (
               dailyLateMins = inMinutes - EVENING_SHIFT_START_MINUTES;
             }
           }
-        } else if (status === "P" || ((status === "M/WO-I" || status === "ADJ-M/WO-I") && (day.day?.toLowerCase() === "sa" || day.day?.toLowerCase() === "sat" || day.day?.toLowerCase() === "saturday"))) {
+        } else if (status === "P" || status === "ADJ-M/WO-I" || 
+                   ((status === "M/WO-I") && (day.day?.toLowerCase() === "sa" || day.day?.toLowerCase() === "sat" || day.day?.toLowerCase() === "saturday"))) {
+          // P: Full day present - always count late
+          // ADJ-M/WO-I: Count late arrival (even though early departure is skipped)
+          // M/WO-I: Only count late on Saturdays
           if (inMinutes > employeeNormalStartMinutes) {
             dailyLateMins = inMinutes - employeeNormalStartMinutes;
           }
@@ -289,6 +293,13 @@ export const calculateBreakExcessMinutes = (
 
     if (cleanedPunches.length < 2) continue;
 
+    // ⭐ NEW: Track which break windows have been consumed for THIS DAY
+    // Each break window's allowance can only be used ONCE per day
+    const consumedBreakAllowances = new Map<string, number>();
+    for (const b of BREAKS) {
+      consumedBreakAllowances.set(b.name, 0);
+    }
+
     // ⭐ Calculate break excess for valid Out-In pairs
     for (let i = 0; i < cleanedPunches.length - 1; i++) {
       const current = cleanedPunches[i];
@@ -319,11 +330,23 @@ export const calculateBreakExcessMinutes = (
           let allowed = 0;
           
           // Calculate allowed time based on break window overlaps
+          // ⭐ But subtract any already-consumed allowance
           for (const defBreak of BREAKS) {
             const overlapStart = Math.max(outMin, defBreak.start);
             const overlapEnd = Math.min(inMin, defBreak.end);
             const overlap = Math.max(0, overlapEnd - overlapStart);
-            if (overlap > 0) allowed += defBreak.allowed;
+            if (overlap > 0) {
+              // How much of this break's allowance is still available?
+              const alreadyConsumed = consumedBreakAllowances.get(defBreak.name) || 0;
+              const remainingAllowance = Math.max(0, defBreak.allowed - alreadyConsumed);
+              
+              // Grant only the remaining allowance
+              const toConsume = Math.min(remainingAllowance, duration);
+              allowed += toConsume;
+              
+              // Mark as consumed
+              consumedBreakAllowances.set(defBreak.name, alreadyConsumed + toConsume);
+            }
           }
           
           const excess = Math.max(0, duration - allowed);

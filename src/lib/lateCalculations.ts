@@ -67,8 +67,11 @@ export const calculateLateMinutes = (
           }
           // If between 10:00 AM and 1:15 PM, late is 0 (arrived on time for afternoon shift)
         }
-      } else if (status === "P" || ((status === "M/WO-I" || status === "ADJ-M/WO-I") && (day.day?.toLowerCase() === "sa" || day.day?.toLowerCase() === "sat" || day.day?.toLowerCase() === "saturday"))) {
-        // Full day present
+      } else if (status === "P" || status === "ADJ-M/WO-I" || 
+                 ((status === "M/WO-I") && (day.day?.toLowerCase() === "sa" || day.day?.toLowerCase() === "sat" || day.day?.toLowerCase() === "saturday"))) {
+        // P: Full day present - always count late
+        // ADJ-M/WO-I: Count late arrival (even though early departure is skipped)
+        // M/WO-I: Only count late on Saturdays
         if (inMinutes > employeeNormalStartMinutes) {
           dailyLateMins = inMinutes - employeeNormalStartMinutes;
         }

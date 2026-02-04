@@ -598,8 +598,9 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
           if (inMinutes > employeeNormalStartMinutes) {
             dailyLateMins = inMinutes - employeeNormalStartMinutes;
           }
-        } else if (status === "P" || status === "ADJ-P") {
-          // Standard timing for P/ADJ-P
+        } else if (status === "P" || status === "ADJ-P" || status === "ADJ-M/WO-I") {
+          // Standard timing for P/ADJ-P and ADJ-M/WO-I
+          // ADJ-M/WO-I: Count late arrival even though early departure is skipped
           if (inMinutes > employeeNormalStartMinutes) {
             dailyLateMins = inMinutes - employeeNormalStartMinutes;
           }
