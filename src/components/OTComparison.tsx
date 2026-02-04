@@ -614,7 +614,8 @@ function calculateFinalOT(
             dayName === "sa" ||
             status === "ADJ-P" ||
             status === "WO-I" ||
-            status === "ADJ-M"
+            status === "ADJ-M" ||
+            status === "H"
           ) {
             let dayOTMinutes = 0;
 
@@ -629,8 +630,6 @@ function calculateFinalOT(
                     : 0;
               }
             } else if (
-              status === "WO-I" ||
-              status === "M/WO-I" ||
               status === "ADJ-M/WO-I" ||
               status === "ADJ-M"
             ) {
@@ -641,6 +640,12 @@ function calculateFinalOT(
               // ✅ FIXED: For regular Saturday/Holiday OT (if not adjusted), use the sheet value.
               // This matches the fix in OvertimeStatsGrid.tsx
               dayOTMinutes = getOtFieldMinutes(day.attendance);
+
+              // ✅ FIXED: For Holidays ('H'), if OT is 0 but WorkHrs exists, use WorkHrs
+              if (status === "H" && dayOTMinutes === 0) {
+                 const wHrs = day.attendance.workHrs || "0:00";
+                 dayOTMinutes = parseMinutes(wHrs);
+              }
             }
 
             staffGrantedOTMinutes += dayOTMinutes;
@@ -684,6 +689,21 @@ function calculateFinalOT(
         ) {
            workerGrantedOTMinutes += 0;
            return;
+        }
+
+        // ✅ NEW: Holiday ('H') handling for Workers
+        // When a worker works on a holiday, their entire work duration counts as OT
+        if (status === "H") {
+          dayOTMinutes = getOtFieldMinutes(day.attendance);
+          
+          // If OT field is 0 but workHrs exists, use workHrs as OT
+          if (dayOTMinutes === 0) {
+            const wHrs = day.attendance.workHrs || "0:00";
+            dayOTMinutes = parseMinutes(wHrs);
+          }
+          
+          workerGrantedOTMinutes += dayOTMinutes;
+          return;
         }
 
         if (customTiming) {

@@ -623,8 +623,8 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
             return; // Staff gets 0 OT for ADJ-P
           }
 
-          // Other holiday statuses (match variants like "M/WO-I", "ADJ-M/WO-I")
-          if (status.includes("WO-I") || status.includes("ADJ-M") || status.includes("WO")) {
+          // Other holiday statuses (match variants like "M/WO-I", "ADJ-M/WO-I", "H")
+          if (status.includes("WO-I") || status.includes("ADJ-M") || status.includes("WO") || status === "H") {
             // ✅ FIXED: Same here — use sheet value for holidays, BUT exclude Adjusted Days
              if (
               status === "ADJ-M/WO-I" ||
@@ -632,7 +632,14 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
             ) {
                // Treated as working day -> 0 OT
             } else {
-                const dayOTMinutes = getOtFieldMinutes(day.attendance);
+                let dayOTMinutes = getOtFieldMinutes(day.attendance);
+
+                // ✅ FIXED: For Holidays ('H'), if OT is 0 but WorkHrs exists, use WorkHrs
+                if (status === "H" && dayOTMinutes === 0) {
+                  const wHrs = day.attendance.workHrs || "0:00";
+                  dayOTMinutes = parseMinutes(wHrs);
+                }
+
                 staffGrantedOTMinutes += dayOTMinutes;
             }
             return;
@@ -684,6 +691,21 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
             // Custom timing logic (Out - End) is for regular days and would incorrectly return ~0 here.
             dayOTMinutes = getOtFieldMinutes(day.attendance);
 
+            workerGrantedOTMinutes += dayOTMinutes;
+            return;
+          }
+
+          // ✅ NEW: Holiday ('H') handling for Workers
+          // When a worker works on a holiday, their entire work duration counts as OT
+          if (status === "H") {
+            dayOTMinutes = getOtFieldMinutes(day.attendance);
+            
+            // If OT field is 0 but workHrs exists, use workHrs as OT
+            if (dayOTMinutes === 0) {
+              const wHrs = day.attendance.workHrs || "0:00";
+              dayOTMinutes = parseMinutes(wHrs);
+            }
+            
             workerGrantedOTMinutes += dayOTMinutes;
             return;
           }

@@ -553,7 +553,7 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
 
     // Check if we should calculate OT for this day
     const shouldCalculateOT =
-      (status === "P" || status === "ADJ-P" || status === "WO-I" || status === "ADJ-M" || status === "ADJ-P/A" || status === "ADJP/A") &&
+      (status === "P" || status === "ADJ-P" || status === "WO-I" || status === "ADJ-M" || status === "ADJ-P/A" || status === "ADJP/A" || status === "H") &&
       day.attendance.outTime &&
       day.attendance.outTime !== "-";
 
