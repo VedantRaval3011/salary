@@ -153,18 +153,18 @@ export const ExcelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       const num = numericOnly(raw);
       const no0 = dropLeadingZeros(num);
       const pads = [4, 5, 6].map(w => num.padStart(w, "0"));
-      const k = new Set<string>([
+      const keySet = new Set<string>([
         raw, s1, num, no0,
         ...pads,
         `S:${raw}`, `S:${s1}`, `N:${num}`, `Z:${no0}`,
       ]);
-      return { ...pl, _keys: Array.from(k), _nameKey: stripNonAlnum(pl.empName) };
+      return { ...pl, _keys: Array.from(keySet), _nameKey: stripNonAlnum(pl.empName) };
     });
 
     const plIndex = new Map<string, PLRec>();
     plWithKeys.forEach(pl => {
-      pl._keys.forEach(k => {
-        if (!plIndex.has(k)) plIndex.set(k, pl);
+      pl._keys.forEach(key => {
+        if (!plIndex.has(key)) plIndex.set(key, pl);
       });
     });
 

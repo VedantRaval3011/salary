@@ -74,8 +74,8 @@ function usePaidLeaveLookup() {
       const no0 = dropLeadingZeros(num);
       const pads = [4, 5, 6].map((w) => num.padStart(w, "0"));
       const candidates = [raw, s1, num, no0, ...pads];
-      for (const k of candidates) {
-        const hit = byKey.get(k);
+      for (const candidateKey of candidates) {
+        const hit = byKey.get(candidateKey);
         if (hit) return {
           paidDays: hit.paidDays ?? 0,
           adjDays: hit.adjDays ?? 0,
