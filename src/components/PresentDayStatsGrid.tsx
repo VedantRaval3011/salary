@@ -510,8 +510,13 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
         }
       }
 
-      // Handle WO-I (count if employee attended)
-      if (status === "WO-I") {
+      // Handle WO-I and Adjusted Day variants (count if employee attended)
+      if (
+        status === "WO-I" ||
+        status === "M/WO-I" ||
+        status === "ADJ-M/WO-I" ||
+        status === "ADJ-M"
+      ) {
         const inTime = day.attendance.inTime;
         const outTime = day.attendance.outTime;
 
@@ -519,7 +524,8 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
           // Calculate work hours to determine if half day or full day
           const inMinutes = timeToMinutes(inTime);
           const outMinutes = timeToMinutes(outTime);
-          const workMinutes = outMinutes > inMinutes ? outMinutes - inMinutes : 0;
+          const workMinutes =
+            outMinutes > inMinutes ? outMinutes - inMinutes : 0;
 
           if (workMinutes > 0 && workMinutes <= 240) {
             // Half day (up to 4 hours)
