@@ -677,11 +677,9 @@ function calculateFinalOT(
         const dayName = (day.day || "").toLowerCase();
         let dayOTMinutes = 0;
 
-        // ✅ FIXED: Exclude Adjusted Days from Worker OT logic as well (per user request)
+        // ✅ FIXED: Exclude Adjusted Days from Worker OT logic (ONLY ADJ variants per user request)
         if (
           status === "ADJ-M/WO-I" ||
-          status === "M/WO-I" ||
-          status === "WO-I" ||
           status === "ADJ-M"
         ) {
            workerGrantedOTMinutes += 0;
