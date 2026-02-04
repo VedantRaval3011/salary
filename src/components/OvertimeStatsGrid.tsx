@@ -520,6 +520,8 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
     const ADJ_P_SHIFT_END_MINUTES = 17 * 60 + 30;
     const ADJ_P_CUTOFF_MINUTES = ADJ_P_SHIFT_END_MINUTES + ADJ_P_BUFFER_MINUTES;
 
+    const isMaintenance = isMaintenanceEmployee(employee);
+
     // Use custom timing if available
     const employeeNormalEndMinutes =
       customTiming?.expectedEndMinutes ?? (17 * 60 + 30);
@@ -567,9 +569,33 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
 
         // ✅ NEW: Exclude Adjusted Days (ADJ-M/WO-I, ADJ-M) from OT even for granted employees
         // These are treated as normal working days -> 0 OT
+        // UNLESS the employee is Maintenance, then calculate extra hours
         if (status === "ADJ-M/WO-I" || status === "ADJ-M") {
-          grantedFromSheetStaffMinutes += 0;
+          if (isMaintenance) {
+             // For Maintenance: OT is time worked beyond normal shift
+             dayOTMinutes = calculateCustomTimingOT(outTime, employeeNormalEndMinutes);
+             grantedFromSheetStaffMinutes += dayOTMinutes;
+          } else {
+             grantedFromSheetStaffMinutes += 0;
+          }
           return;
+        }
+
+        // ✅ NEW: Holiday (H) for Maintenance
+        if (status === "H" && isMaintenance) {
+          // Entire worked duration is OT
+           let wMin = 0;
+           if (day.attendance.workHrs) {
+             wMin = parseMinutes(day.attendance.workHrs);
+           }
+           // Fallback to In/Out
+           if (wMin === 0 && day.attendance.inTime && day.attendance.outTime) {
+              const i = timeToMinutes(day.attendance.inTime);
+              const o = timeToMinutes(day.attendance.outTime);
+              if (o > i) wMin = o - i;
+           }
+           grantedFromSheetStaffMinutes += wMin;
+           return;
         }
 
         // ⭐ FIXED: Calculate custom timing OT FIRST, use it for all statuses
