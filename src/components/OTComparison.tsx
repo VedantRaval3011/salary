@@ -610,32 +610,41 @@ function calculateFinalOT(
         const dayName = (day.day || "").toLowerCase();
         const status = (day.attendance.status || "").toUpperCase();
 
-        if (
-          dayName === "sa" ||
-          status === "ADJ-P" ||
-          status === "WO-I" ||
-          status === "ADJ-M"
-        ) {
-          let dayOTMinutes = 0;
+          if (
+            dayName === "sa" ||
+            status === "ADJ-P" ||
+            status === "WO-I" ||
+            status === "ADJ-M"
+          ) {
+            let dayOTMinutes = 0;
 
-          if (status === "ADJ-P") {
-            // ADJ-P uses cutoff + buffer
-            const outTime = day.attendance.outTime;
-            if (outTime && outTime !== "-") {
-              const outMin = timeToMinutes(outTime);
-              dayOTMinutes =
-                outMin > ADJ_P_CUTOFF_MINUTES
-                  ? outMin - ADJ_P_SHIFT_END_MINUTES
-                  : 0;
+            if (status === "ADJ-P") {
+              // ADJ-P uses cutoff + buffer
+              const outTime = day.attendance.outTime;
+              if (outTime && outTime !== "-") {
+                const outMin = timeToMinutes(outTime);
+                dayOTMinutes =
+                  outMin > ADJ_P_CUTOFF_MINUTES
+                    ? outMin - ADJ_P_SHIFT_END_MINUTES
+                    : 0;
+              }
+            } else if (
+              status === "WO-I" ||
+              status === "M/WO-I" ||
+              status === "ADJ-M/WO-I" ||
+              status === "ADJ-M"
+            ) {
+              // ✅ FIXED: Exclude Adjusted Days (swapped with holidays) from OT calculation
+              // These are treated as normal working days for Staff -> 0 OT
+              dayOTMinutes = 0;
+            } else {
+              // ✅ FIXED: For regular Saturday/Holiday OT (if not adjusted), use the sheet value.
+              // This matches the fix in OvertimeStatsGrid.tsx
+              dayOTMinutes = getOtFieldMinutes(day.attendance);
             }
-          } else {
-            // ✅ FIXED: For Saturday/Holiday OT (M/WO-I etc), ALWAYS use the sheet value.
-            // This matches the fix in OvertimeStatsGrid.tsx
-            dayOTMinutes = getOtFieldMinutes(day.attendance);
-          }
 
-          staffGrantedOTMinutes += dayOTMinutes;
-        }
+            staffGrantedOTMinutes += dayOTMinutes;
+          }
       });
 
       // Staff Non-Granted: normal working days (exclude SA/ADJ-P/ADJ-M/WO-I)

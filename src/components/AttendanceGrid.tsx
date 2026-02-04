@@ -975,9 +975,36 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
                         : ""
                   }
                 >
-                  {day.attendance.otHrs || "0:00"}
-                  {day.hasCustomCalculation && " *"}
-                  {day.hasOTCalculation && !day.hasCustomCalculation && " ✓"}
+                  {(() => {
+                    const status = (day.attendance.status || "").toUpperCase();
+                    // Check for Adjusted Days that should not have OT
+                    if (
+                      isStaff &&
+                      (status === "ADJ-M/WO-I" ||
+                        status === "M/WO-I" ||
+                        status === "WO-I" ||
+                        status === "ADJ-M")
+                    ) {
+                      const rawOT = day.attendance.otHrs || "0:00";
+                      if (rawOT !== "0:00" && rawOT !== "0") {
+                         return (
+                          <>
+                            <span className="line-through text-gray-400 mr-2">
+                              {rawOT}
+                            </span>
+                            <span className="font-bold text-orange-600">0:00</span>
+                          </>
+                        );
+                      }
+                    }
+                    return (
+                      <>
+                        {day.attendance.otHrs || "0:00"}
+                        {day.hasCustomCalculation && " *"}
+                        {day.hasOTCalculation && !day.hasCustomCalculation && " ✓"}
+                      </>
+                    );
+                  })()}
                 </span>
               </div>
               {/* Show custom timing OT recalculation */}

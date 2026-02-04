@@ -596,18 +596,26 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
           const status = (day.attendance.status || "").toUpperCase();
           const outTime = day.attendance.outTime;
 
-          // Saturday OT for Staff — include WO, M/WO, ADJ-M variants (e.g. "M/WO-I", "ADJ-M/WO-I")
+            // Saturday OT for Staff — include WO, M/WO, ADJ-M variants (e.g. "M/WO-I", "ADJ-M/WO-I")
           if (
             dayName === "sa" &&
             !status.includes("ADJ-P") && // still exclude ADJ-P
             (status.includes("WO") || status.includes("ADJ-M"))
           ) {
-            // ✅ FIXED: For Saturday/Holiday OT (M/WO-I etc), ALWAYS use the sheet value.
-            // Do NOT use custom timing calculation here, because "9 to 6" logic would result in 0 OT
-            // if they leave early (e.g. 15:30), but the sheet says they have OT.
-            const dayOTMinutes = getOtFieldMinutes(day.attendance);
-
-            staffGrantedOTMinutes += dayOTMinutes;
+            // ✅ FIXED: For Saturday/Holiday OT (M/WO-I etc), usually use the sheet value.
+            // BUT for Adjusted Days (ADJ-M/WO-I, M/WO-I), they are treated as normal working days -> 0 OT.
+            if (
+              status === "ADJ-M/WO-I" ||
+              status === "M/WO-I" ||
+              status === "WO-I" ||
+              status === "ADJ-M"
+            ) {
+               // Treated as normal working day for staff -> 0 OT
+               // Do not add anything
+            } else {
+               const dayOTMinutes = getOtFieldMinutes(day.attendance);
+               staffGrantedOTMinutes += dayOTMinutes;
+            }
             return;
           }
 
@@ -619,10 +627,18 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
 
           // Other holiday statuses (match variants like "M/WO-I", "ADJ-M/WO-I")
           if (status.includes("WO-I") || status.includes("ADJ-M") || status.includes("WO")) {
-            // ✅ FIXED: Same here — use sheet value for holidays
-            const dayOTMinutes = getOtFieldMinutes(day.attendance);
-
-            staffGrantedOTMinutes += dayOTMinutes;
+            // ✅ FIXED: Same here — use sheet value for holidays, BUT exclude Adjusted Days
+             if (
+              status === "ADJ-M/WO-I" ||
+              status === "M/WO-I" ||
+              status === "WO-I" ||
+              status === "ADJ-M"
+            ) {
+               // Treated as working day -> 0 OT
+            } else {
+                const dayOTMinutes = getOtFieldMinutes(day.attendance);
+                staffGrantedOTMinutes += dayOTMinutes;
+            }
             return;
           }
 
