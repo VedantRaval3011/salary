@@ -670,6 +670,17 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
           const outTime = day.attendance.outTime;
           let dayOTMinutes = 0;
 
+          // ✅ FIXED: Exclude Adjusted Days from Worker OT logic as well (per user request)
+          if (
+            status === "ADJ-M/WO-I" ||
+            status === "M/WO-I" ||
+            status === "WO-I" ||
+            status === "ADJ-M"
+          ) {
+             workerGrantedOTMinutes += 0;
+             return;
+          }
+
           // ⭐ NEW — count Saturday WO/M/WO-I as OT for Workers too
           if (
             dayName === "sa" &&
