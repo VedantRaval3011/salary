@@ -479,8 +479,12 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
     let hasEarlyDepCalculation = false;
 
     // ⭐ NEW WAIVER RULE: If worked ~4 hours (half day) on ADJ-M/WO-I or P/A, NO Early Departure
-    const HALF_DAY_THRESHOLD = 4 * 60 - 5; // 235 mins
-    const isWaiverApplicable = (status === "ADJ-M/WO-I" || status.includes("P/A") || status.includes("PA")) && workMins >= HALF_DAY_THRESHOLD;
+    const HALF_DAY_MIN = 4 * 60 - 5;
+    const HALF_DAY_MAX = 5 * 60;
+    const isWaiverApplicable = 
+        (status === "ADJ-M/WO-I" || status.includes("P/A") || status.includes("PA")) && 
+        workMins >= HALF_DAY_MIN &&
+        workMins <= HALF_DAY_MAX;
 
     if (isWaiverApplicable) {
        // Apply Waiver: Set Early Dep to 0
