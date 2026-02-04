@@ -510,10 +510,10 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
         }
       }
 
-      // Handle WO-I and Adjusted Day variants (count if employee attended)
+      // Handle Adjusted Day variants (count as Present)
+      // ✅ STRICT RULE: Only "Adjusted" days count as Present.
+      // Pure OT days (WO-I, M/WO-I) should NOT count as Present.
       if (
-        status === "WO-I" ||
-        status === "M/WO-I" ||
         status === "ADJ-M/WO-I" ||
         status === "ADJ-M"
       ) {
@@ -536,7 +536,17 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
           }
         }
       } else if (status === "P") {
-        fullPresentDays++;
+        // ✅ STRICT RULE: For Staff, Saturday "P" is usually OT, not a "Present Day" for salary.
+        // Unless it's a regular working day for them (which "P" implies), but user request says:
+        // "if the employee was present in saturday , then the OT must be calcualted , but it must not be considered in the Present After adjustment"
+        const dayName = (day.day || "").toLowerCase();
+        const isSaturday = dayName === "sa" || dayName === "sat";
+
+        if (isStaff && isSaturday) {
+             // Do NOT count as Present (it's OT)
+        } else {
+             fullPresentDays++;
+        }
       } else if (status === "P/A" || status === "PA" || status === "ADJ-P/A" || status === "ADJP/A" || isAdjPHalfDay) {
         paCount++;
       } else if (status === "ADJ-P") {
