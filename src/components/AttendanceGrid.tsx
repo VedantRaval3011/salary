@@ -981,8 +981,6 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
                     if (
                       isStaff &&
                       (status === "ADJ-M/WO-I" ||
-                        status === "M/WO-I" ||
-                        status === "WO-I" ||
                         status === "ADJ-M")
                     ) {
                       const rawOT = day.attendance.otHrs || "0:00";

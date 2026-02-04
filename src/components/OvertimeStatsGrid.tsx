@@ -606,8 +606,6 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
             // BUT for Adjusted Days (ADJ-M/WO-I, M/WO-I), they are treated as normal working days -> 0 OT.
             if (
               status === "ADJ-M/WO-I" ||
-              status === "M/WO-I" ||
-              status === "WO-I" ||
               status === "ADJ-M"
             ) {
                // Treated as normal working day for staff -> 0 OT
@@ -630,8 +628,6 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
             // ✅ FIXED: Same here — use sheet value for holidays, BUT exclude Adjusted Days
              if (
               status === "ADJ-M/WO-I" ||
-              status === "M/WO-I" ||
-              status === "WO-I" ||
               status === "ADJ-M"
             ) {
                // Treated as working day -> 0 OT
