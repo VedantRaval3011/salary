@@ -581,9 +581,21 @@ function calculateFinalOT(
       const outTime = day.attendance.outTime;
       let dayOTMinutes = 0;
 
-      // ✅ NEW: Exclude Adjusted Days (ADJ-M/WO-I, ADJ-M) from OT even for granted employees
-      // These are treated as normal working days -> 0 OT
-      if (status === "ADJ-M/WO-I" || status === "ADJ-M") {
+      // ✅ NEW: Exclude Adjusted Days (ADJ-M) from OT.
+      // For ADJ-M/WO-I, check duration > 8 hours (480 mins).
+      if (status === "ADJ-M/WO-I") {
+         if (day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
+           const inMin = timeToMinutes(day.attendance.inTime);
+           const outMin = timeToMinutes(day.attendance.outTime);
+           if (outMin > inMin) {
+             const duration = outMin - inMin;
+             if (duration > 480) {
+               grantedFromSheetStaffMinutes += (duration - 480);
+             }
+           }
+         }
+         return;
+      } else if (status === "ADJ-M") {
         grantedFromSheetStaffMinutes += 0;
         return;
       }
@@ -604,6 +616,11 @@ function calculateFinalOT(
         }
       } else {
         dayOTMinutes = getOtFieldMinutes(day.attendance);
+        // ✅ FIXED: For Holidays ('H'), if OT is 0 but WorkHrs exists, use WorkHrs
+        if (status === "H" && dayOTMinutes === 0) {
+            const wHrs = day.attendance.workHrs || "0:00";
+            dayOTMinutes = parseMinutes(wHrs);
+        }
       }
 
       grantedFromSheetStaffMinutes += dayOTMinutes;
@@ -636,12 +653,21 @@ function calculateFinalOT(
                     ? outMin - ADJ_P_SHIFT_END_MINUTES
                     : 0;
               }
-            } else if (
-              status === "ADJ-M/WO-I" ||
-              status === "ADJ-M"
-            ) {
-              // ✅ FIXED: Exclude Adjusted Days (swapped with holidays) from OT calculation
-              // These are treated as normal working days for Staff -> 0 OT
+            } else if (status === "ADJ-M/WO-I") {
+              // ✅ FIXED: Duration-based OT for ADJ-M/WO-I if > 8 hours
+              if (day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
+                 const inMin = timeToMinutes(day.attendance.inTime);
+                 const outMin = timeToMinutes(day.attendance.outTime);
+                 if (outMin > inMin) {
+                   const duration = outMin - inMin;
+                   // Threshold: 8 hours (480 mins)
+                   if (duration > 480) {
+                     dayOTMinutes = duration - 480;
+                   }
+                 }
+              }
+            } else if (status === "ADJ-M") {
+              // Treated as normal working day for Staff -> 0 OT
               dayOTMinutes = 0;
             } else {
               // ✅ FIXED: For regular Saturday/Holiday OT (if not adjusted), use the sheet value.

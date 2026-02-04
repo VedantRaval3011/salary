@@ -567,7 +567,22 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
 
         // ✅ NEW: Exclude Adjusted Days (ADJ-M/WO-I, ADJ-M) from OT even for granted employees
         // These are treated as normal working days -> 0 OT
-        if (status === "ADJ-M/WO-I" || status === "ADJ-M") {
+        // ✅ NEW: Exclude Adjusted Days (ADJ-M) from OT. 
+        // For ADJ-M/WO-I, check duration > 8 hours (480 mins).
+        if (status === "ADJ-M/WO-I") {
+           // Calculate duration-based OT for ADJ-M/WO-I
+           if (day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
+             const inMin = timeToMinutes(day.attendance.inTime);
+             const outMin = timeToMinutes(day.attendance.outTime);
+             if (outMin > inMin) {
+               const duration = outMin - inMin;
+               if (duration > 480) {
+                 grantedFromSheetStaffMinutes += (duration - 480);
+               }
+             }
+           }
+           return;
+        } else if (status === "ADJ-M") {
           grantedFromSheetStaffMinutes += 0;
           return;
         }
@@ -590,6 +605,12 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
         // Otherwise use OT field
         else {
           dayOTMinutes = getOtFieldMinutes(day.attendance);
+
+          // ✅ FIXED: For Holidays ('H'), if OT is 0 but WorkHrs exists, use WorkHrs (even for Granted staff)
+          if (status === "H" && dayOTMinutes === 0) {
+              const wHrs = day.attendance.workHrs || "0:00";
+              dayOTMinutes = parseMinutes(wHrs);
+          }
         }
 
         grantedFromSheetStaffMinutes += dayOTMinutes;
@@ -609,14 +630,24 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
             !status.includes("ADJ-P") && // still exclude ADJ-P
             (status.includes("WO") || status.includes("ADJ-M"))
           ) {
-            // ✅ FIXED: For Saturday/Holiday OT (M/WO-I etc), usually use the sheet value.
-            // BUT for Adjusted Days (ADJ-M/WO-I, M/WO-I), they are treated as normal working days -> 0 OT.
+            // ✅ FIXED: For ADJ-M/WO-I, it's treated as a working day BUT if duration > 9 hours, excess is OT
             if (
-              status === "ADJ-M/WO-I" ||
-              status === "ADJ-M"
+              status === "ADJ-M/WO-I"
             ) {
-               // Treated as normal working day for staff -> 0 OT
-               // Do not add anything
+               // Calculate duration-based OT for ADJ-M/WO-I
+               if (day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
+                 const inMin = timeToMinutes(day.attendance.inTime);
+                 const outMin = timeToMinutes(day.attendance.outTime);
+                 if (outMin > inMin) {
+                   const duration = outMin - inMin;
+                   // Threshold: 8 hours (480 mins)
+                   if (duration > 480) {
+                     staffGrantedOTMinutes += (duration - 480);
+                   }
+                 }
+               }
+            } else if (status === "ADJ-M") {
+               // ADJ-M: Treated as normal working day -> 0 OT
             } else {
                const dayOTMinutes = getOtFieldMinutes(day.attendance);
                staffGrantedOTMinutes += dayOTMinutes;
@@ -632,12 +663,22 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
 
           // Other holiday statuses (match variants like "M/WO-I", "ADJ-M/WO-I", "H")
           if (status.includes("WO-I") || status.includes("ADJ-M") || status.includes("WO") || status === "H") {
-            // ✅ FIXED: Same here — use sheet value for holidays, BUT exclude Adjusted Days
-             if (
-              status === "ADJ-M/WO-I" ||
-              status === "ADJ-M"
-            ) {
-               // Treated as working day -> 0 OT
+            // ✅ FIXED: ADJ-M/WO-I — duration-based OT if > 9 hours
+             if (status === "ADJ-M/WO-I") {
+               // Calculate duration-based OT for ADJ-M/WO-I
+               if (day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
+                 const inMin = timeToMinutes(day.attendance.inTime);
+                 const outMin = timeToMinutes(day.attendance.outTime);
+                 if (outMin > inMin) {
+                   const duration = outMin - inMin;
+                   // Threshold: 8 hours (480 mins)
+                   if (duration > 480) {
+                     staffGrantedOTMinutes += (duration - 480);
+                   }
+                 }
+               }
+             } else if (status === "ADJ-M") {
+               // ADJ-M: Treated as working day -> 0 OT
             } else {
                 let dayOTMinutes = getOtFieldMinutes(day.attendance);
 
@@ -687,16 +728,16 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
           }
 
           if (status === "ADJ-M/WO-I") {
-             // For ADJ-M/WO-I, if duration > 9 hours (8h work + 1h break), excess is OT.
-             // Example: 9h59m duration (599m) -> 599 - 540 = 59 mins OT.
+             // For ADJ-M/WO-I, if duration > 8 hours (480 mins), excess is OT.
+             // Example: 11h duration (660m) -> 660 - 480 = 180 mins OT.
              if (day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
                  const inMin = timeToMinutes(day.attendance.inTime);
                  const outMin = timeToMinutes(day.attendance.outTime);
                  if (outMin > inMin) {
                      const duration = outMin - inMin;
-                     // Threshold: 9 hours (540 mins)
-                     if (duration > 540) {
-                         workerGrantedOTMinutes += (duration - 540);
+                     // Threshold: 8 hours (480 mins)
+                     if (duration > 480) {
+                         workerGrantedOTMinutes += (duration - 480);
                      }
                  }
              }
