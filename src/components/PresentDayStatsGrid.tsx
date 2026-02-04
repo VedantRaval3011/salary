@@ -478,6 +478,9 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
   const { getHRPresentDays } = useHRDataLookup();
 
   const stats = useMemo(() => {
+    const isStaff = getIsStaff(employee);
+    const isWorker = !isStaff;
+
     let paCount = 0;
     let fullPresentDays = 0;
     let adjPresentDays = 0;
@@ -655,9 +658,6 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
     const customTiming = getCustomTimingForEmployee(employee);
     let lateMinsTotal = 0;
     let wasOTDeducted = false;
-
-    const isStaff = getIsStaff(employee);
-    const isWorker = !isStaff;
 
     const STANDARD_START_MINUTES = 8 * 60 + 30;
     const EVENING_SHIFT_START_MINUTES = 13 * 60 + 15;

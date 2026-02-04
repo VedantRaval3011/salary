@@ -374,10 +374,43 @@ export async function processExcelFile(
       throw new Error("No worksheets found in the Excel file");
     }
 
-    const worksheet = workbook.worksheets[0];
+    // Iterate through worksheets to find one that contains "Emp Code :"
+    let worksheet: ExcelJS.Worksheet | undefined;
 
-    if (!worksheet.actualRowCount || worksheet.actualRowCount === 0) {
-      throw new Error("The worksheet is empty");
+    for (const ws of workbook.worksheets) {
+      if (ws.actualRowCount && ws.actualRowCount > 0) {
+        // Check first 50 rows for "Emp Code :"
+        let hasEmpCode = false;
+        for (let i = 1; i <= Math.min(ws.actualRowCount, 50); i++) {
+          const row = ws.getRow(i);
+          const val = cellValueToString(row.getCell(1).value);
+          if (val.includes("Emp Code :")) {
+            hasEmpCode = true;
+            break;
+          }
+        }
+
+        if (hasEmpCode) {
+          worksheet = ws;
+          break;
+        }
+      }
+    }
+
+    // Fallback: If no sheet with "Emp Code :" is found, try the first non-empty sheet
+    if (!worksheet) {
+      worksheet = workbook.worksheets.find(
+        (ws) => ws.actualRowCount && ws.actualRowCount > 0
+      );
+    }
+
+    if (!worksheet) {
+      console.warn("The Excel file appears to be empty (no data found in any worksheet). Returning empty data.");
+      return {
+        title: "Empty File",
+        period: "",
+        employees: [],
+      };
     }
 
     console.log(
