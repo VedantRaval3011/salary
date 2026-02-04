@@ -561,9 +561,16 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
         const dateNum = Number(day.date) || 0;
         if (dateNum < fromD || dateNum > toD) return;
 
-        const status = (day.attendance.status || "").toUpperCase();
+        const status = (day.attendance.status || "").toString().trim().toUpperCase();
         const outTime = day.attendance.outTime;
         let dayOTMinutes = 0;
+
+        // ✅ NEW: Exclude Adjusted Days (ADJ-M/WO-I, ADJ-M) from OT even for granted employees
+        // These are treated as normal working days -> 0 OT
+        if (status === "ADJ-M/WO-I" || status === "ADJ-M") {
+          grantedFromSheetStaffMinutes += 0;
+          return;
+        }
 
         // ⭐ FIXED: Calculate custom timing OT FIRST, use it for all statuses
         if (customTiming) {
@@ -593,7 +600,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
         // Staff Granted OT (Saturdays/Holidays)
         employee.days?.forEach((day) => {
           const dayName = (day.day || "").toLowerCase();
-          const status = (day.attendance.status || "").toUpperCase();
+          const status = (day.attendance.status || "").toString().trim().toUpperCase();
           const outTime = day.attendance.outTime;
 
             // Saturday OT for Staff — include WO, M/WO, ADJ-M variants (e.g. "M/WO-I", "ADJ-M/WO-I")
@@ -650,7 +657,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
         // Staff Non Granted OT (Working Days)
         employee.days?.forEach((day) => {
           const dayName = (day.day || "").toLowerCase();
-          const status = (day.attendance.status || "").toUpperCase();
+          const status = (day.attendance.status || "").toString().trim().toUpperCase();
 
           if (dayName !== "sa" && status !== "ADJ-P" && status !== "ADJ-M" && status !== "WO-I") {
             let dayOTMinutes = 0;
@@ -669,7 +676,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
         // Worker OT (All days)
         employee.days?.forEach((day) => {
           const dayName = (day.day || "").toLowerCase();
-          const status = (day.attendance.status || "").toUpperCase();
+          const status = (day.attendance.status || "").toString().trim().toUpperCase();
           const outTime = day.attendance.outTime;
           let dayOTMinutes = 0;
 

@@ -577,9 +577,16 @@ function calculateFinalOT(
       const dateNum = Number(day.date) || 0;
       if (dateNum < fromD || dateNum > toD) return;
 
-      const status = (day.attendance.status || "").toUpperCase();
+      const status = (day.attendance.status || "").toString().trim().toUpperCase();
       const outTime = day.attendance.outTime;
       let dayOTMinutes = 0;
+
+      // ✅ NEW: Exclude Adjusted Days (ADJ-M/WO-I, ADJ-M) from OT even for granted employees
+      // These are treated as normal working days -> 0 OT
+      if (status === "ADJ-M/WO-I" || status === "ADJ-M") {
+        grantedFromSheetStaffMinutes += 0;
+        return;
+      }
 
       if (customTiming) {
         dayOTMinutes = calculateCustomTimingOT(
@@ -608,7 +615,7 @@ function calculateFinalOT(
       // Staff: first, Saturdays / Holidays (and ADJ-P / ADJ-M / WO-I types) => staffGrantedOTMinutes
       employee.days?.forEach((day) => {
         const dayName = (day.day || "").toLowerCase();
-        const status = (day.attendance.status || "").toUpperCase();
+        const status = (day.attendance.status || "").toString().trim().toUpperCase();
 
           if (
             dayName === "sa" ||
@@ -655,7 +662,7 @@ function calculateFinalOT(
       // Staff Non-Granted: normal working days (exclude SA/ADJ-P/ADJ-M/WO-I)
       employee.days?.forEach((day) => {
         const dayName = (day.day || "").toLowerCase();
-        const status = (day.attendance.status || "").toUpperCase();
+        const status = (day.attendance.status || "").toString().trim().toUpperCase();
 
         if (
           dayName !== "sa" &&
@@ -678,7 +685,7 @@ function calculateFinalOT(
     } else {
       // Worker (not in granted sheet) -> sum OT for all days with ADJ-P special handling
       employee.days?.forEach((day) => {
-        const status = (day.attendance.status || "").toUpperCase();
+        const status = (day.attendance.status || "").toString().trim().toUpperCase();
         const dayName = (day.day || "").toLowerCase();
         let dayOTMinutes = 0;
 

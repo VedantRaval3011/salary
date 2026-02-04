@@ -616,6 +616,16 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
         return;
       }
 
+      // ✅ NEW RULE: If worked ~4 hours (half day) on ADJ-M/WO-I or P/A, NO Early Departure
+      // Buffer of 5 mins -> 3h 55m (235 mins)
+      const HALF_DAY_THRESHOLD = 4 * 60 - 5;
+      if (
+        (status === "ADJ-M/WO-I" || status.includes("P/A") || status.includes("PA")) &&
+        workMins >= HALF_DAY_THRESHOLD
+      ) {
+        return;
+      }
+
       // Handle P/A special case (before 12:45 exit)
       if (status === "P/A" || status === "PA" ||
         status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA") {

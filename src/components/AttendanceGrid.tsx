@@ -441,26 +441,26 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
 
     let status = (day.attendance.status || "").toUpperCase();
 
+    // ⭐ HOISTED: Calculate workMins for half-day checks
+    const workHours = day.attendance.workHrs || 0;
+    let workMins = 0;
+    if (typeof workHours === "string" && workHours.includes(":")) {
+      const [h, m] = workHours.split(":").map(Number);
+      workMins = h * 60 + (m || 0);
+    } else if (!isNaN(Number(workHours))) {
+      workMins = Number(workHours) * 60;
+    }
+    // Fallback: Calculate from In/Out if workMins is 0
+    if (workMins === 0 && day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
+      const inM = timeToMinutes(day.attendance.inTime);
+      const outM = timeToMinutes(day.attendance.outTime);
+      if (outM > inM) {
+        workMins = outM - inM;
+      }
+    }
+
     // Check for ADJ-P half day -> change to ADJ-P/A
     if (status === "ADJ-P" || status === "ADJP") {
-      const workHours = day.attendance.workHrs || 0;
-      let workMins = 0;
-      if (typeof workHours === "string" && workHours.includes(":")) {
-        const [h, m] = workHours.split(":").map(Number);
-        workMins = h * 60 + (m || 0);
-      } else if (!isNaN(Number(workHours))) {
-        workMins = Number(workHours) * 60;
-      }
-
-      // Fallback: Calculate from In/Out if workMins is 0
-      if (workMins === 0 && day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
-        const inM = timeToMinutes(day.attendance.inTime);
-        const outM = timeToMinutes(day.attendance.outTime);
-        if (outM > inM) {
-          workMins = outM - inM;
-        }
-      }
-
       if (workMins > 0 && workMins <= 320) {
         status = "ADJ-P/A";
         // Update day object immediately so subsequent logic uses new status
@@ -478,7 +478,20 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
     let originalEarlyDep = day.attendance.earlyDep;
     let hasEarlyDepCalculation = false;
 
-    if (status === "P/A" || status === "PA" || status === "ADJ-P/A" || status === "ADJP/A") {
+    // ⭐ NEW WAIVER RULE: If worked ~4 hours (half day) on ADJ-M/WO-I or P/A, NO Early Departure
+    const HALF_DAY_THRESHOLD = 4 * 60 - 5; // 235 mins
+    const isWaiverApplicable = (status === "ADJ-M/WO-I" || status.includes("P/A") || status.includes("PA")) && workMins >= HALF_DAY_THRESHOLD;
+
+    if (isWaiverApplicable) {
+       // Apply Waiver: Set Early Dep to 0
+       if (String(originalEarlyDep || "0") !== "0") {
+          hasEarlyDepCalculation = true;
+          day = {
+             ...day,
+             attendance: { ...day.attendance, earlyDep: "0" }
+          };
+       }
+    } else if (status === "P/A" || status === "PA" || status === "ADJ-P/A" || status === "ADJP/A") {
       const outTime = day.attendance.outTime;
       if (outTime && outTime !== "-") {
         const outMinutes = timeToMinutes(outTime);
