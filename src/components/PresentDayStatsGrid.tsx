@@ -5,6 +5,8 @@ import { EmployeeData } from "@/lib/types";
 import { useExcel } from "../context/ExcelContext";
 import { useFinalDifference } from "@/context/FinalDifferenceContext";
 import { useHRDataLookup } from "@/hooks/useHRDataLookup";
+import { getSmartPresentDayExplanation } from "@/lib/differenceExplanation";
+import { DifferenceExplanationModal } from "./DifferenceExplanationModal";
 
 // Utility helpers
 const canon = (s: string) => (s ?? "").toUpperCase().trim();
@@ -468,6 +470,7 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
   lateDeductionDays = 0,
   onTotalCalculated,
 }) => {
+  const [isDifferenceModalOpen, setIsDifferenceModalOpen] = useState(false);
   const { getPL } = usePaidLeaveLookup();
   const { lateDeductionOverride } = useFinalDifference();
 
@@ -930,6 +933,12 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
 
   // Calculate Difference (HR Total - Grand Total)
   const difference = hrPresentDays !== null ? hrPresentDays - stats.GrandTotal : null;
+  const explanation = hrPresentDays !== null ? getSmartPresentDayExplanation(hrPresentDays, {
+     lateDeduction: stats.lateDeductionDays,
+     paidLeave: stats.PL_days,
+     holidaysBase: stats.H_base,
+     grandTotal: stats.GrandTotal
+  }) : null;
 
   const tooltipTexts: any = {
     PD_excel: "Present days counted directly from attendance sheet.",
@@ -974,16 +983,17 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
             </div>
           </div>
 
-          {/* Difference Box */}
-          {difference !== null && (
-            <div
-              className={`px-4 py-2 border-2 rounded-lg ${Math.abs(difference) > 0.02
+          {/* Difference Button */}
+          {difference !== null && explanation && (
+            <button
+              onClick={() => setIsDifferenceModalOpen(true)}
+              className={`px-4 py-2 border-2 rounded-lg flex flex-col justify-center min-w-[120px] transition-all hover:bg-opacity-80 active:scale-95 cursor-pointer ${Math.abs(difference) > 0.02
                 ? "bg-red-100 border-red-400"
                 : "bg-green-100 border-green-400"
                 }`}
             >
               <div
-                className={`text-xs font-semibold ${Math.abs(difference) > 0.02
+                className={`text-xs font-semibold text-left w-full ${Math.abs(difference) > 0.02
                   ? "text-red-700"
                   : "text-green-700"
                   }`}
@@ -991,7 +1001,7 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
                 Difference
               </div>
               <div
-                className={`text-lg font-bold ${Math.abs(difference) > 0.02
+                className={`text-lg font-bold text-left w-full ${Math.abs(difference) > 0.02
                   ? "text-red-900"
                   : "text-green-900"
                   }`}
@@ -999,7 +1009,12 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
                 {difference > 0 ? "+" : ""}
                 {Number(difference.toFixed(2))}
               </div>
-            </div>
+              {Math.abs(difference) > 0.02 && (
+                <div className={`mt-1 text-[10px] w-full text-left font-bold underline ${explanation.textColor}`}>
+                  View Proof
+                </div>
+              )}
+            </button>
           )}
         </div>
       </div>
@@ -1079,6 +1094,28 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
           tooltipKey="GrandTotal"
         />
       </div>
+
+      {/* Difference Explanation Modal */}
+      {difference !== null && explanation && hrPresentDays !== null && (
+        <DifferenceExplanationModal
+          isOpen={isDifferenceModalOpen}
+          onClose={() => setIsDifferenceModalOpen(false)}
+          title="Present Day"
+          difference={difference}
+          explanation={explanation}
+          hrValue={hrPresentDays}
+          softwareValue={stats.GrandTotal}
+          softwareBreakdown={[
+            { label: "Present After Adjustment (PAA)", value: stats.PAA },
+            { label: "Holidays (Base)", value: stats.H_base },
+            { label: "Paid Leave (PL)", value: stats.PL_days },
+            { label: "Paid Leave Adjusted", value: stats.ADJ_days },
+            { label: "Leave", value: stats.Leave_days },
+            { label: "Late Deduction", value: stats.lateDeductionDays, isSubtraction: true },
+          ]}
+          valueUnit="Days"
+        />
+      )}
     </div>
   );
 };

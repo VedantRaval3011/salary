@@ -6,6 +6,8 @@ import { useExcel } from "@/context/ExcelContext";
 import { useFinalDifference } from "@/context/FinalDifferenceContext";
 import { useGrandOT } from "@/context/GrandOTContext";
 import { useHROTLookup } from "@/hooks/useHROTLookup";
+import { getSmartOTExplanation } from "@/lib/differenceExplanation";
+import { DifferenceExplanationModal } from "./DifferenceExplanationModal";
 
 interface Props {
   employee: EmployeeData;
@@ -473,6 +475,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
   onStaticFinalDifferenceCalculated,
   lateDeductionDays = 0,
 }) => {
+  const [isDifferenceModalOpen, setIsDifferenceModalOpen] = useState(false);
   const { setGrandOT } = useGrandOT();
   const lastGrandTotalRef = useRef<number | null>(null);
   const { getGrantForEmployee } = useStaffOTGrantedLookup();
@@ -935,6 +938,14 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
   const hrOTValue = getHROTValue(employee);
   const grandTotalHours = stats.grandTotalMinutes / 60;
   const difference = hrOTValue != null ? hrOTValue - grandTotalHours : null;
+  const explanation = hrOTValue != null ? getSmartOTExplanation(hrOTValue, {
+     fullNightOTInMinutes: stats.fullNightOTInMinutes,
+     worker9to6OTMinutes: stats.worker9to6OTMinutes,
+     staffGrantedOTMinutes: stats.staffGrantedOTMinutes,
+     workerGrantedOTMinutes: stats.workerGrantedOTMinutes,
+     grantedFromSheetStaffMinutes: stats.grantedFromSheetStaffMinutes,
+     grandTotalMinutes: stats.grandTotalMinutes
+  }) : null;
 
   return (
     <div className="mt-6 pt-4 border-t-2 border-gray-300">
@@ -955,15 +966,16 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
           </div>
 
           {/* Difference Box */}
-          {difference !== null && (
-            <div
-              className={`px-4 py-2 border-2 rounded-lg ${Math.abs(difference) > 0.02
+          {difference !== null && explanation && (
+            <button
+              onClick={() => setIsDifferenceModalOpen(true)}
+              className={`px-4 py-2 border-2 rounded-lg flex flex-col justify-center min-w-[120px] transition-all hover:bg-opacity-80 active:scale-95 cursor-pointer ${Math.abs(difference) > 0.02
                 ? "bg-red-100 border-red-400"
                 : "bg-green-100 border-green-400"
                 }`}
             >
               <div
-                className={`text-xs font-semibold ${Math.abs(difference) > 0.02
+                className={`text-xs font-semibold text-left w-full ${Math.abs(difference) > 0.02
                   ? "text-red-700"
                   : "text-green-700"
                   }`}
@@ -971,18 +983,23 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
                 Difference
               </div>
               <div
-                className={`text-lg font-bold ${Math.abs(difference) > 0.02
+                className={`text-lg font-bold text-left w-full ${Math.abs(difference) > 0.02
                   ? "text-red-900"
                   : "text-green-900"
                   }`}
               >
                 {difference > 0 ? "+" : ""}
                 {difference.toFixed(2)} hrs
+                <div className="text-[10px] text-gray-500 font-normal leading-none mt-0.5 text-left">
+                  {Math.round(difference * 60)} mins
+                </div>
               </div>
-              <div className="text-[10px] text-gray-500 mt-0.5">
-                {Math.round(difference * 60)} mins
-              </div>
-            </div>
+              {Math.abs(difference) > 0.02 && (
+                <div className={`mt-1 text-[10px] w-full text-left font-bold underline ${explanation.textColor}`}>
+                  View Proof
+                </div>
+              )}
+            </button>
           )}
         </div>
       </div>
@@ -1106,6 +1123,30 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
           </div>
         )}
       </div>
+
+      {/* Difference Explanation Modal */}
+      {difference !== null && explanation && hrOTValue !== null && (
+        <DifferenceExplanationModal
+          isOpen={isDifferenceModalOpen}
+          onClose={() => setIsDifferenceModalOpen(false)}
+          title="Overtime (OT)"
+          difference={difference}
+          explanation={explanation}
+          hrValue={Number(hrOTValue).toFixed(2)}
+          softwareValue={(stats.grandTotalMinutes / 60).toFixed(2)}
+          softwareBreakdown={[
+            { label: "Base OT", value: String(stats.baseOTValue) },
+            { label: "Staff Granted OT", value: (stats.staffGrantedOTMinutes / 60).toFixed(2) },
+            { label: "Staff Non Granted OT", value: (stats.staffNonGrantedOTMinutes / 60).toFixed(2) },
+            { label: "Worker Granted OT", value: (((Number(stats.workerGrantedOTMinutes) || 0) - (Number(stats.worker9to6OTMinutes) || 0)) / 60).toFixed(2) },
+            { label: "Worker 9 to 6 OT", value: (stats.worker9to6OTMinutes / 60).toFixed(2) },
+            { label: "Granted Sheet (Staff)", value: (stats.grantedFromSheetStaffMinutes / 60).toFixed(2) },
+            { label: "Full Night OT", value: (stats.fullNightOTInMinutes / 60).toFixed(2) },
+            { label: "Late Deduction", value: Number(stats.lateDeductionHours).toFixed(2), isSubtraction: true },
+          ]}
+          valueUnit="hrs"
+        />
+      )}
     </div>
   );
 };

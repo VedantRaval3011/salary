@@ -5,6 +5,8 @@ import { EmployeeData } from "@/lib/types";
 import { useExcel } from "../context/ExcelContext";
 import { useFinalDifference } from "@/context/FinalDifferenceContext";
 import { calculateBreakExcessMinutes } from "@/lib/unifiedCalculations";
+import { getSmartLateExplanation } from "@/lib/differenceExplanation";
+import { DifferenceExplanationModal } from "./DifferenceExplanationModal";
 import { EyeIcon } from "lucide-react";
 import { useHRLateLookup } from "@/hooks/useHRLateLookup";
 import { usePunchData } from "@/context/PunchDataContext";
@@ -408,6 +410,7 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
   onStaticFinalDifferenceCalculated,
   onTotalMinus4Calculated,
 }) => {
+  const [isDifferenceModalOpen, setIsDifferenceModalOpen] = useState(false);
   const {
     updateFinalDifference,
     updateTotalMinus4,
@@ -855,6 +858,9 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
   const systemLateHours = stats.totalCombinedMinutes / 60;
   const difference =
     hrLateValue != null ? hrLateValue - systemLateHours : null;
+  const explanation = hrLateValue != null ? getSmartLateExplanation(hrLateValue, {
+     totalMinus4: stats.totalCombinedMinutes
+  }) : null;
 
   return (
     <div className="mt-6 pt-4 border-t border-gray-200">
@@ -876,15 +882,16 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
           </div>
 
           {/* Difference Box */}
-          {difference !== null && (
-            <div
-              className={`px-4 py-2 border-2 rounded-lg ${Math.abs(difference) > 0.02
+          {difference !== null && explanation && (
+            <button
+              onClick={() => setIsDifferenceModalOpen(true)}
+              className={`px-4 py-2 border-2 rounded-lg flex flex-col justify-center min-w-[120px] transition-all hover:bg-opacity-80 active:scale-95 cursor-pointer ${Math.abs(difference) > 0.02
                 ? "bg-red-100 border-red-400"
                 : "bg-green-100 border-green-400"
                 }`}
             >
               <div
-                className={`text-xs font-semibold ${Math.abs(difference) > 0.02
+                className={`text-xs font-semibold text-left w-full ${Math.abs(difference) > 0.02
                   ? "text-red-700"
                   : "text-green-700"
                   }`}
@@ -892,7 +899,7 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
                 Difference
               </div>
               <div
-                className={`text-lg font-bold ${Math.abs(difference) > 0.02
+                className={`text-lg font-bold text-left w-full ${Math.abs(difference) > 0.02
                   ? "text-red-900"
                   : "text-green-900"
                   }`}
@@ -900,14 +907,36 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
                 {difference > 0 ? "+" : ""}
                 {difference.toFixed(2)} hrs
               </div>
-              <div className="text-[10px] text-gray-500 mt-0.5">
-                {Math.round(difference * 60)} mins
-              </div>
-            </div>
+              {Math.abs(difference) > 0.02 && (
+                <div className={`mt-1 text-[10px] w-full text-left font-bold underline ${explanation.textColor}`}>
+                  View Proof
+                </div>
+              )}
+            </button>
           )}
         </div>
       </div>
 
+      {/* Difference Explanation Modal */}
+      {difference !== null && explanation && hrLateValue !== null && (
+        <DifferenceExplanationModal
+          isOpen={isDifferenceModalOpen}
+          onClose={() => setIsDifferenceModalOpen(false)}
+          title="Late & Early Departure"
+          difference={difference}
+          explanation={explanation}
+          hrValue={Number(hrLateValue).toFixed(2)}
+          softwareValue={(stats.totalCombinedMinutes / 60).toFixed(2)}
+          softwareBreakdown={[
+            { label: "Late Arrival", value: (stats.Late_hours_in_minutes / 60).toFixed(2) },
+            { label: "Early Departure", value: (stats.earlyDepartureTotalMinutes / 60).toFixed(2) },
+            { label: "Break Excess", value: (stats.breakExcessMinutes / 60).toFixed(2) },
+            { label: "Less Than 4 Hr (P/A)", value: (stats.lessThan4HrMins / 60).toFixed(2) },
+            { label: "Staff Relaxation", value: (stats.staffRelaxationApplied / 60).toFixed(2), isSubtraction: true },
+          ]}
+          valueUnit="hrs"
+        />
+      )}
       {/* Stats Section */}
       <div className="mb-3 text-xs text-gray-700  rounded">
         {/* Main layout with two sections */}
