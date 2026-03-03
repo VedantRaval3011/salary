@@ -906,6 +906,9 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
               >
                 {difference > 0 ? "+" : ""}
                 {difference.toFixed(2)} hrs
+                <div className="text-[10px] font-normal leading-none mt-0.5 text-left opacity-80">
+                  {Math.round(difference * 60)} mins
+                </div>
               </div>
               {Math.abs(difference) > 0.02 && (
                 <div className={`mt-1 text-[10px] w-full text-left font-bold underline ${explanation.textColor}`}>
