@@ -766,7 +766,7 @@ function calculateFinalOT(
     grantedFromSheetStaffMinutes + staffGrantedOTMinutes;
   let finalOTForDeduction = isStaff
     ? totalFromStaffGrantLogic
-    : workerGrantedOTMinutes;
+    : (workerGrantedOTMinutes + grantedFromSheetStaffMinutes);
 
   // Add staffNonGrantedOTMinutes only if needed in your rules; previous stats grid used:
   // totalMinutes = grantedFromSheetStaffMinutes + staffGrantedOTMinutes

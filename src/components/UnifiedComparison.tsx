@@ -439,7 +439,7 @@ function calculateFinalOT(
   }
 
   const totalFromStaffGrantLogic = grantedFromSheetStaffMinutes + staffGrantedOTMinutes;
-  let finalOTForDeduction = isStaff ? totalFromStaffGrantLogic : workerGrantedOTMinutes;
+  let finalOTForDeduction = isStaff ? totalFromStaffGrantLogic : (workerGrantedOTMinutes + grantedFromSheetStaffMinutes);
 
   if (isMaintenanceEmployee(employee)) {
     finalOTForDeduction = finalOTForDeduction * 0.95;

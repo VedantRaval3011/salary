@@ -799,7 +799,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
     if (isStaff) {
       grossTotalMinutes = staffGrantedOTMinutes + grantedFromSheetStaffMinutes;
     } else {
-      grossTotalMinutes = workerGrantedOTMinutes;
+      grossTotalMinutes = workerGrantedOTMinutes + grantedFromSheetStaffMinutes;
     }
 
     // Grand total BEFORE 5% maintenance deduction
