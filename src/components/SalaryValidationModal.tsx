@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useRef } from "react";
-import { validateSalary, ValidationResult, PageResult } from "@/lib/salaryValidation";
+import { validateSalary, ValidationResult, PageResult, MonthWiseValidationResult } from "@/lib/salaryValidation";
 
 interface Props {
   onClose: () => void;
@@ -16,10 +16,11 @@ export default function SalaryValidationModal({ onClose }: Props) {
   const [error, setError]               = useState<string | null>(null);
   const [result, setResult]             = useState<ValidationResult | null>(null);
   const [expandedPages, setExpandedPages] = useState<Set<number>>(new Set());
+  const [expandedMonthWise, setExpandedMonthWise] = useState(true);
 
-  const workerRef = useRef<HTMLInputElement>(null);
-  const staffRef  = useRef<HTMLInputElement>(null);
-  const monthRef  = useRef<HTMLInputElement>(null);
+  const workerRef = useRef<HTMLInputElement | null>(null);
+  const staffRef  = useRef<HTMLInputElement | null>(null);
+  const monthRef  = useRef<HTMLInputElement | null>(null);
 
   const handleWorkerFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     setWorkerFile(e.target.files?.[0] ?? null); setResult(null); setError(null);
@@ -145,6 +146,15 @@ export default function SalaryValidationModal({ onClose }: Props) {
           )}
 
           {/* ── Results ───────────────────────────────────── */}
+          {result && result.monthWiseValidation && (
+            <MonthWiseSection
+              data={result.monthWiseValidation}
+              expanded={expandedMonthWise}
+              onToggle={() => setExpandedMonthWise(p => !p)}
+              formatVal={formatVal}
+            />
+          )}
+
           {result && result.pages.length === 0 && (
             <div className="p-6 text-center text-gray-500 bg-gray-50 rounded-xl border border-dashed border-gray-300">
               No salary pages detected. Ensure the files contain "SALARY FOR THE MONTH OF…" headers.
@@ -180,7 +190,7 @@ function FileCard({
   label, hint, icon, color, file, inputRef, onChange, onClear,
 }: {
   label: string; hint: string; icon: string; color: CardColor;
-  file: File | null; inputRef: React.RefObject<HTMLInputElement>;
+  file: File | null; inputRef: React.RefObject<HTMLInputElement | null>;
   onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onClear: () => void;
 }) {
@@ -291,6 +301,88 @@ function PageSection({
           </table>
           {page.columns.length === 0 && (
             <p className="text-center text-gray-400 text-sm py-4">No columns matched. Check header names in both sheets.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Month Wise Section ───────────────────────────────────────────────────────
+
+function MonthWiseSection({
+  data, expanded, onToggle, formatVal,
+}: {
+  data: MonthWiseValidationResult; expanded: boolean;
+  onToggle: () => void;
+  formatVal: (v: number | string | null, cellFound: boolean) => string;
+}) {
+  const mismatchCount = data.columns.filter((c) => !c.match).length;
+
+  return (
+    <div className={`mb-4 rounded-xl border-2 overflow-hidden ${data.allMatch ? "border-green-300" : "border-red-300"}`}>
+      <div
+        className={`flex items-center justify-between px-5 py-3 cursor-pointer ${data.allMatch ? "bg-green-50" : "bg-red-50"}`}
+        onClick={onToggle}
+      >
+        <div className="flex items-center gap-3">
+          <span className="text-lg">{data.allMatch ? "✅" : "❌"}</span>
+          <div>
+            <p className="font-bold text-gray-800 text-sm">Month Wise Sheet Totals Validation</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Validates that physical sums of Month Wise columns match their Grand Total row (found at row {data.columns[0]?.grandTotalRow ?? "?"})
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          {!data.allMatch && (
+            <span className="text-xs font-semibold text-red-600 bg-red-100 px-2 py-1 rounded-full">
+              {mismatchCount} mismatch{mismatchCount !== 1 ? "es" : ""}
+            </span>
+          )}
+          {data.allMatch && (
+            <span className="text-xs font-semibold text-green-700 bg-green-100 px-2 py-1 rounded-full">All matched</span>
+          )}
+          <span className="text-gray-400 text-lg">{expanded ? "▲" : "▼"}</span>
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-100 text-gray-600 text-xs uppercase tracking-wide">
+                <th className="text-left px-4 py-2.5 font-semibold">Column</th>
+                <th className="text-right px-4 py-2.5 font-semibold">Physical Sum</th>
+                <th className="text-right px-4 py-2.5 font-semibold">Grand Total Row</th>
+                <th className="text-center px-3 py-2.5 font-semibold text-gray-400">Cell</th>
+                <th className="text-center px-4 py-2.5 font-semibold">Result</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.columns.map((col, ci) => (
+                <tr key={ci} className={`border-t ${col.match ? "bg-white hover:bg-green-50" : "bg-red-50 hover:bg-red-100"} transition-colors`}>
+                  <td className="px-4 py-2.5 font-semibold text-gray-700">{col.field}</td>
+                  <td className="px-4 py-2.5 text-right font-mono text-gray-800">{formatVal(col.physicalSum, true)}</td>
+                  <td className="px-4 py-2.5 text-right font-mono text-gray-800">{formatVal(col.grandTotalValue, !!col.grandTotalCell)}</td>
+                  <td className="px-3 py-2.5 text-center">
+                    {col.grandTotalCell
+                      ? <span className="text-xs font-mono bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{col.grandTotalCell}</span>
+                      : "—"}
+                  </td>
+                  <td className="px-4 py-2.5 text-center">
+                    {!col.grandTotalCell
+                      ? <span className="text-yellow-600 text-xs font-semibold bg-yellow-100 px-2 py-0.5 rounded-full">⚠ Col Not Found</span>
+                      : col.match
+                        ? <span className="text-green-700 text-base">✅</span>
+                        : <span className="text-red-600 text-base">❌</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {data.columns.length === 0 && (
+            <p className="text-center text-gray-400 text-sm py-4">No columns matched. Check header names.</p>
           )}
         </div>
       )}

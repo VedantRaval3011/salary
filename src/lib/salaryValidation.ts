@@ -32,9 +32,25 @@ export interface PageResult {
   allMatch: boolean;
 }
 
+export interface MonthWiseColumnResult {
+  field: string;
+  colIndex: number;
+  physicalSum: number;
+  grandTotalRow: number | null; // 1-based
+  grandTotalValue: number | string | null;
+  grandTotalCell: string | null;
+  match: boolean;
+}
+
+export interface MonthWiseValidationResult {
+  columns: MonthWiseColumnResult[];
+  allMatch: boolean;
+}
+
 export interface ValidationResult {
   sheetName: string;
   pages: PageResult[];
+  monthWiseValidation?: MonthWiseValidationResult;
   error?: string;
 }
 
@@ -128,7 +144,7 @@ function parseWorkerSheet(ws: XLSX.WorkSheet): RawPage[] {
   const pageHeaderIndices: number[] = [];
   for (let r = 0; r < data.length; r++) {
     const row = data[r] as unknown[];
-    if (row.length > 0 && isSalaryHeader(String(row[0] ?? ""))) {
+    if (row.length > 0 && row.some(cell => isSalaryHeader(String(cell ?? "")))) {
       pageHeaderIndices.push(r);
     }
   }
@@ -146,15 +162,15 @@ function parseWorkerSheet(ws: XLSX.WorkSheet): RawPage[] {
 
     // Worker group name: scan the header row for a non-empty cell after col 10
     const headerRow = data[headerRowIdx] as unknown[];
-    let workerGroup = "";
+    let baseWorkerGroup = "";
     for (let c = 10; c < headerRow.length; c++) {
       const v = String(headerRow[c] ?? "").trim();
       if (v && !isSalaryHeader(v)) {
-        workerGroup = v;
+        baseWorkerGroup = v;
         break;
       }
     }
-    if (!workerGroup) workerGroup = `Page ${p + 1}`;
+    if (!baseWorkerGroup) baseWorkerGroup = `Page ${p + 1}`;
 
     // Column header row: first row after header that has >= 5 non-empty cells
     let columnHeaderRowIdx = headerRowIdx + 1;
@@ -168,10 +184,9 @@ function parseWorkerSheet(ws: XLSX.WorkSheet): RawPage[] {
     }
     const headers = data[columnHeaderRowIdx] as unknown[];
 
-    // Grand total row detection (two passes):
-    // Pass 1 — look for explicit "TOTAL" / "GRAND TOTAL" text row
-    let grandTotalRowIdx: number | null = null;
-    for (let r = nextHeaderIdx - 1; r > columnHeaderRowIdx; r--) {
+    // Find all "TOTAL" rows within this page section
+    const totalRowIndices: number[] = [];
+    for (let r = columnHeaderRowIdx + 1; r < nextHeaderIdx; r++) {
       const row = data[r] as unknown[];
       const rowStr = JSON.stringify(row).toUpperCase();
       if (
@@ -181,32 +196,61 @@ function parseWorkerSheet(ws: XLSX.WorkSheet): RawPage[] {
         rowStr.includes("TOTAL :") ||
         rowStr.includes("\"TOTAL\"")
       ) {
-        grandTotalRowIdx = r;
-        break;
-      }
-    }
-    // Pass 2 fallback — the Grand Total is always the LAST non-empty row
-    // just above the next "SALARY FOR THE MONTH" header (user-confirmed rule).
-    if (grandTotalRowIdx === null) {
-      for (let r = nextHeaderIdx - 1; r > columnHeaderRowIdx; r--) {
-        const row = data[r] as unknown[];
-        const nonEmpty = row.filter((c) => String(c ?? "").trim() !== "").length;
-        if (nonEmpty >= 2) {
-          grandTotalRowIdx = r;
-          break;
-        }
+        totalRowIndices.push(r);
       }
     }
 
-    pages.push({
-      headerRow: headerRowIdx,
-      workerGroup,
-      columnHeaderRow: columnHeaderRowIdx,
-      headers,
-      grandTotalRowIndex: grandTotalRowIdx,
-      endRowIndex: nextHeaderIdx - 1,
-      rawData: data,
-    });
+    if (totalRowIndices.length > 1) {
+      // The Staff file format: A single page header, but multiple sub-groups
+      // separated by TOTAL rows. We split this into multiple logical pages.
+      let subPageStart = columnHeaderRowIdx + 1;
+      for (let i = 0; i < totalRowIndices.length; i++) {
+        const totalIdx = totalRowIndices[i];
+        // Only generate "Office Staff - 0X" if the base group is "Office Staff"
+        // or if we couldn't find a base name. Otherwise use "Base Name - 0X"
+        const prefix = baseWorkerGroup.toLowerCase().includes("page") 
+          ? "Office Staff" 
+          : baseWorkerGroup;
+        const subGroupName = `${prefix} - ${String(i + 1).padStart(2, "0")}`;
+
+        pages.push({
+          headerRow: headerRowIdx, // Use original header so it still knows it's a page
+          workerGroup: subGroupName,
+          columnHeaderRow: columnHeaderRowIdx,
+          headers,
+          grandTotalRowIndex: totalIdx,
+          endRowIndex: totalIdx,
+          rawData: data,
+        });
+        subPageStart = totalIdx + 1;
+      }
+    } else {
+      // Standard Worker file format: one Grand Total at the end of the page
+      let grandTotalRowIdx = totalRowIndices.length === 1 ? totalRowIndices[0] : null;
+
+      // Fallback — the Grand Total is always the LAST non-empty row
+      // just above the next "SALARY FOR THE MONTH" header
+      if (grandTotalRowIdx === null) {
+        for (let r = nextHeaderIdx - 1; r > columnHeaderRowIdx; r--) {
+          const row = data[r] as unknown[];
+          const nonEmpty = row.filter((c) => String(c ?? "").trim() !== "").length;
+          if (nonEmpty >= 2) {
+            grandTotalRowIdx = r;
+            break;
+          }
+        }
+      }
+
+      pages.push({
+        headerRow: headerRowIdx,
+        workerGroup: baseWorkerGroup,
+        columnHeaderRow: columnHeaderRowIdx,
+        headers,
+        grandTotalRowIndex: grandTotalRowIdx,
+        endRowIndex: nextHeaderIdx - 1,
+        rawData: data,
+      });
+    }
   }
 
   return pages;
@@ -224,6 +268,8 @@ function parseMonthWiseSheet(ws: XLSX.WorkSheet): {
   headerRowIndex: number;
   headers: unknown[];
   rows: MonthWiseRow[];
+  grandTotalRowIndex: number | null;
+  rawData: unknown[][];
 } {
   const data: unknown[][] = XLSX.utils.sheet_to_json(ws, {
     header: 1,
@@ -254,8 +300,28 @@ function parseMonthWiseSheet(ws: XLSX.WorkSheet): {
     }
   }
 
+  // Find Grand Total row in Month Wise sheet (look from bottom up)
+  let grandTotalRowIndex: number | null = null;
+  for (let r = data.length - 1; r > headerRowIndex; r--) {
+    const row = data[r] as unknown[];
+    const rowStr = JSON.stringify(row).toUpperCase();
+    if (
+      rowStr.includes("GRAND TOTAL") ||
+      rowStr.includes("TOTAL :-") ||
+      rowStr.includes("TOTAL:-") ||
+      rowStr.includes("TOTAL :") ||
+      rowStr.includes("\"TOTAL\"")
+    ) {
+      grandTotalRowIndex = r;
+      break;
+    }
+  }
+  // If not found explicitly, there might not be one. We'll leave it as null.
+
+  const endRowForData = grandTotalRowIndex !== null ? grandTotalRowIndex : data.length;
+
   const rows: MonthWiseRow[] = [];
-  for (let r = headerRowIndex + 1; r < data.length; r++) {
+  for (let r = headerRowIndex + 1; r < endRowForData; r++) {
     const row = data[r] as unknown[];
     const groupName = String(row[nameColIndex] ?? "").trim();
     if (!groupName) continue;
@@ -275,7 +341,7 @@ function parseMonthWiseSheet(ws: XLSX.WorkSheet): {
     rows.push({ rowIndex: r, workerGroup: groupName, colMap });
   }
 
-  return { headerRowIndex, headers, rows };
+  return { headerRowIndex, headers, rows, grandTotalRowIndex, rawData: data };
 }
 
 // ─── Fuzzy group name matching ────────────────────────────────────────────────
@@ -339,25 +405,6 @@ async function processWorkerFile(
   for (const page of rawPages) {
     const { workerGroup, headerRow, endRowIndex, grandTotalRowIndex, headers, rawData } = page;
 
-    // Build column-result list
-    const columns: ColumnResult[] = [];
-    const usedLabels = new Set<string>();
-    const colAssignments: Array<{ label: string; colIndex: number }> = [];
-    const assignedCols = new Set<number>();
-
-    for (const { label, keywords } of COLUMNS_TO_VALIDATE) {
-      if (usedLabels.has(label)) continue;
-      const ci = findColIndex(headers, keywords);
-      if (ci >= 0 && !assignedCols.has(ci)) {
-        colAssignments.push({ label, colIndex: ci });
-        assignedCols.add(ci);
-        usedLabels.add(label);
-      } else if (ci >= 0) {
-        colAssignments.push({ label, colIndex: ci });
-        usedLabels.add(label);
-      }
-    }
-
     // Find matching Month Wise row — skip rows already claimed by earlier pages
     let mwRow = matchWorkerGroup(workerGroup, monthWiseParsed.rows, usedMwRowIndices);
 
@@ -382,6 +429,39 @@ async function processWorkerFile(
     }
 
     if (mwRow) usedMwRowIndices.add(mwRow.rowIndex);
+
+    // Build column-result list
+    const columns: ColumnResult[] = [];
+    const usedLabels = new Set<string>();
+    const colAssignments: Array<{ label: string; colIndex: number }> = [];
+    const assignedCols = new Set<number>();
+
+    // ── OFFICE STAFF SPECIFIC OVERRIDES ──
+    // The user requested that for Office Staff, Gross Salary should use Column R (index 17)
+    // and Final Paid OT should use Column AD (index 29).
+    const isOfficeStaff = workerGroup.toUpperCase().includes("OFFICE STAFF");
+    if (isOfficeStaff) {
+      colAssignments.push({ label: "Gross Salary", colIndex: 17 }); // R
+      assignedCols.add(17);
+      usedLabels.add("Gross Salary");
+
+      colAssignments.push({ label: "Final Paid OT", colIndex: 29 }); // AD
+      assignedCols.add(29);
+      usedLabels.add("Final Paid OT");
+    }
+
+    for (const { label, keywords } of COLUMNS_TO_VALIDATE) {
+      if (usedLabels.has(label)) continue;
+      const ci = findColIndex(headers, keywords);
+      if (ci >= 0 && !assignedCols.has(ci)) {
+        colAssignments.push({ label, colIndex: ci });
+        assignedCols.add(ci);
+        usedLabels.add(label);
+      } else if (ci >= 0) {
+        colAssignments.push({ label, colIndex: ci });
+        usedLabels.add(label);
+      }
+    }
 
     for (const { label, colIndex } of colAssignments) {
       let workerVal: number | string | null = null;
@@ -460,8 +540,80 @@ export async function validateSalary(
     await processWorkerFile(file, monthWiseParsed, pages, usedMwRowIndices);
   }
 
+  // ── Month Wise Physical Sums Validation ──
+  const mwCols: MonthWiseColumnResult[] = [];
+  const mwData = monthWiseParsed.rawData;
+  const gtRowIdx = monthWiseParsed.grandTotalRowIndex;
+  
+  const usedLabels = new Set<string>();
+  const mwAssignedCols = new Set<number>();
+  const mwColAssignments: Array<{ label: string; colIndex: number }> = [];
+  for (const { label, keywords } of COLUMNS_TO_VALIDATE) {
+    if (usedLabels.has(label)) continue;
+    const ci = findColIndex(monthWiseParsed.headers, keywords);
+    if (ci >= 0 && !mwAssignedCols.has(ci)) {
+      mwColAssignments.push({ label, colIndex: ci });
+      mwAssignedCols.add(ci);
+      usedLabels.add(label);
+    } else if (ci >= 0) {
+      mwColAssignments.push({ label, colIndex: ci });
+      usedLabels.add(label);
+    }
+  }
+
+  let mwAllMatch = true;
+  for (const { label, colIndex } of mwColAssignments) {
+    let sum = 0;
+    // Tally up the physical sum from all recognized group rows
+    for (const row of monthWiseParsed.rows) {
+      const v = row.colMap[label]?.value;
+      if (typeof v === "number") {
+        sum += v;
+      } else if (typeof v === "string") {
+        const num = toNum(v);
+        if (num !== null) sum += num;
+      }
+    }
+    const physicalSum = Math.round(sum * 100) / 100;
+
+    let gtVal: number | string | null = null;
+    let gtCell: string | null = null;
+    if (gtRowIdx !== null && colIndex >= 0) {
+      const gtRow = mwData[gtRowIdx] as unknown[];
+      gtVal = (toNum(gtRow[colIndex]) ?? String(gtRow[colIndex] ?? "").trim()) || null;
+      gtCell = encodeCell(gtRowIdx, colIndex);
+    }
+
+    const coerce = (v: number | string | null): number => {
+      if (v === null || v === undefined || v === "") return 0;
+      if (typeof v === "string") {
+        const n = toNum(v);
+        return n !== null ? n : 0;
+      }
+      return v;
+    };
+
+    const roundedGt = Math.round(coerce(gtVal) * 100) / 100;
+    const match = physicalSum === roundedGt;
+    if (!match) mwAllMatch = false;
+
+    mwCols.push({
+      field: label,
+      colIndex,
+      physicalSum,
+      grandTotalRow: gtRowIdx !== null ? gtRowIdx + 1 : null,
+      grandTotalValue: gtVal,
+      grandTotalCell: gtCell,
+      match,
+    });
+  }
+
   return {
     sheetName: workerFiles.map((f) => f.name).join(" + "),
     pages,
+    monthWiseValidation: {
+      columns: mwCols,
+      allMatch: mwCols.length > 0 && mwAllMatch,
+    },
   };
 }
