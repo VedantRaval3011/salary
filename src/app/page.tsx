@@ -9,6 +9,7 @@ import { EmployeeData } from "@/lib/types";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import Punches from "@/components/Punches";
 import { usePunchVerification } from "@/context/PunchVerificationContext";
+import SalaryValidationModal from "@/components/SalaryValidationModal";
 
 interface MonthConfig {
   month: string;
@@ -22,6 +23,7 @@ export default function Home() {
   const excelCtx = useExcel() as any;
   const { excelData, applyAdjustment, applyHolidays } = excelCtx ?? {};
   const { isVerified } = usePunchVerification();
+  const [showValidationModal, setShowValidationModal] = useState(false);
 
   // COMPANY FILTER
   const [selectedCompany, setSelectedCompany] = useState(
@@ -676,6 +678,7 @@ export default function Home() {
 
   // Main application after setup
   return (
+    <>
     <main className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 py-8 px-4">
       <div className="max-w-7xl mx-auto">
           {/* Configuration Badge */}
@@ -686,6 +689,12 @@ export default function Home() {
               </p>
             </div>
             <div className="flex gap-2 items-center">
+              <button
+                onClick={() => setShowValidationModal(true)}
+                className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-md hover:from-indigo-700 hover:to-purple-700 transition-all text-sm font-semibold shadow-sm"
+              >
+                💰 Salary Validation
+              </button>
               <button
                 onClick={() => triggerCalculations()}
                 className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-all text-sm font-semibold"
@@ -826,5 +835,11 @@ export default function Home() {
           )}
         </div>
       </main>
+
+      {/* Salary Validation Modal */}
+      {showValidationModal && (
+        <SalaryValidationModal onClose={() => setShowValidationModal(false)} />
+      )}
+    </>
   );
 }
