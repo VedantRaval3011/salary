@@ -573,6 +573,12 @@ function calculateFinalOT(
     return parseMinutes(otField);
   };
 
+  /** OT column only — no workHrs fallback (used for Granted-sheet staff totals). */
+  const getSheetOtMinutes = (attendanceObj: any) =>
+    parseMinutes(
+      attendanceObj.otHours ?? attendanceObj.otHrs ?? attendanceObj.ot ?? null
+    );
+
   if (grant) {
     // If in granted sheet, OT counted only for days within grant.fromDate..grant.toDate
     const fromD = Number(grant.fromDate) || 1;
@@ -612,25 +618,14 @@ function calculateFinalOT(
            return;
       }
 
-      if (customTiming) {
-        dayOTMinutes = Math.max(
-          getOtFieldMinutes(day.attendance),
-          calculateCustomTimingOT(
-            outTime,
-            customTiming.expectedEndMinutes
-          )
-        );
-      } else if (status === "ADJ-P") {
-        // OT Granted + ADJ-P: OT from punch-out after normal end (17:30 or custom), matches OvertimeStatsGrid
-        dayOTMinutes = calculateCustomTimingOT(
-          outTime,
-          employeeNormalEndMinutes
-        );
+      const sheetOt = getSheetOtMinutes(day.attendance);
+      if (status === "ADJ-P") {
+        dayOTMinutes =
+          sheetOt > 0
+            ? sheetOt
+            : calculateCustomTimingOT(outTime, employeeNormalEndMinutes);
       } else {
-        dayOTMinutes = Math.max(
-          getOtFieldMinutes(day.attendance),
-          calculateCustomTimingOT(outTime, employeeNormalEndMinutes)
-        );
+        dayOTMinutes = sheetOt;
       }
 
       grantedFromSheetStaffMinutes += dayOTMinutes;

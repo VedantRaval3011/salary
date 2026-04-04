@@ -601,24 +601,17 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
            return;
         }
 
-        // ⭐ OT Granted: must credit OT when out time is after normal shift end (17:30 or custom end).
-        // Combine with sheet OT so explicit holiday/Saturday values are not lost.
-        if (customTiming) {
-          dayOTMinutes = Math.max(
-            getOtFieldMinutes(day.attendance),
-            calculateCustomTimingOT(outTime, customTiming.expectedEndMinutes)
-          );
-        } else if (status === "ADJ-P") {
-          // ADJ-P: use punch-out vs shift end (same rule for staff and worker on grant sheet)
-          dayOTMinutes = calculateCustomTimingOT(
-            outTime,
-            employeeNormalEndMinutes
-          );
+        // Granted-sheet staff: use validated OT Hours from the attendance row only.
+        // Do not Math.max with punch-out OT — WO-I/holiday punch spans exceed approved OT
+        // (e.g. 6:47 worked vs 6:30 in the OT column).
+        const sheetOt = getOtFieldMinutes(day.attendance);
+        if (status === "ADJ-P") {
+          dayOTMinutes =
+            sheetOt > 0
+              ? sheetOt
+              : calculateCustomTimingOT(outTime, employeeNormalEndMinutes);
         } else {
-          dayOTMinutes = Math.max(
-            getOtFieldMinutes(day.attendance),
-            calculateCustomTimingOT(outTime, employeeNormalEndMinutes)
-          );
+          dayOTMinutes = sheetOt;
         }
 
         grantedFromSheetStaffMinutes += dayOTMinutes;
@@ -885,7 +878,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
     worker9to6OT:
       "Portion of OT calculated from custom timing (e.g., 9:00 to 6:00) for Workers in the 9 to 6 sheet.",
     grantedFromSheet:
-      "OT calculated for all days within the specified 'From Date' to 'To Date' period for Staff employees *found in the Granted OT sheet*.",
+      "OT for staff on the Granted sheet: sum of the OT Hours column for each day in the grant From–To range (validated values). Punch-out is not used to inflate OT; ADJ-P uses OT Hours when present, otherwise shift-end rules.",
     total:
       "Total = Granted From Sheet (Staff) + Staff Granted OT. This is the final OT *before* Full Night OT and Deduction.",
     fullNightOT: "Total OT hours from 'Full Night Stay' sheet (in minutes).",

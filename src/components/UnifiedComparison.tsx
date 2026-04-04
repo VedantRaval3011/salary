@@ -376,21 +376,28 @@ function calculateFinalOT(
   if (grant) {
     const fromD = Number(grant.fromDate) || 1;
     const toD = Number(grant.toDate) || 31;
+    const employeeNormalEndMinutes =
+      customTiming?.expectedEndMinutes ?? ADJ_P_SHIFT_END_MINUTES;
+
     employee.days?.forEach((day) => {
       const dateNum = Number(day.date) || 0;
       if (dateNum < fromD || dateNum > toD) return;
       const status = (day.attendance.status || "").toUpperCase();
       const outTime = day.attendance.outTime;
+      const sheetOt = parseMinutes(
+        day.attendance.otHours ??
+          day.attendance.otHrs ??
+          day.attendance.ot ??
+          null
+      );
       let dayOTMinutes = 0;
-      if (customTiming) {
-        dayOTMinutes = calculateCustomTimingOT(outTime, customTiming.expectedEndMinutes);
-      } else if (status === "ADJ-P") {
-        if (outTime && outTime !== "-") {
-          const outMin = timeToMinutes(outTime);
-          dayOTMinutes = outMin > ADJ_P_CUTOFF_MINUTES ? outMin - ADJ_P_SHIFT_END_MINUTES : 0;
-        }
+      if (status === "ADJ-P") {
+        dayOTMinutes =
+          sheetOt > 0
+            ? sheetOt
+            : calculateCustomTimingOT(outTime, employeeNormalEndMinutes);
       } else {
-        dayOTMinutes = getOtFieldMinutes(day.attendance);
+        dayOTMinutes = sheetOt;
       }
       grantedFromSheetStaffMinutes += dayOTMinutes;
     });
