@@ -2,7 +2,13 @@
 
 import React, { useMemo, useState, useCallback } from "react";
 import { useExcel } from "@/context/ExcelContext";
-import { EmployeeData } from "@/lib/types";
+import type { AttendanceData, EmployeeData } from "@/lib/types";
+
+/** Excel / pipeline may expose OT under several keys; `AttendanceData` only types `otHrs`. */
+type AttendanceOTFields = AttendanceData & {
+  otHours?: string;
+  ot?: string | number | null;
+};
 import { useFinalDifference } from "@/context/FinalDifferenceContext";
 import { useHRDataLookup } from "@/hooks/useHRDataLookup";
 import { useHRLateLookup } from "@/hooks/useHRLateLookup";
@@ -384,12 +390,8 @@ function calculateFinalOT(
       if (dateNum < fromD || dateNum > toD) return;
       const status = (day.attendance.status || "").toUpperCase();
       const outTime = day.attendance.outTime;
-      const sheetOt = parseMinutes(
-        day.attendance.otHours ??
-          day.attendance.otHrs ??
-          day.attendance.ot ??
-          null
-      );
+      const att = day.attendance as AttendanceOTFields;
+      const sheetOt = parseMinutes(att.otHours ?? att.otHrs ?? att.ot ?? null);
       let dayOTMinutes = 0;
       if (status === "ADJ-P") {
         dayOTMinutes =
