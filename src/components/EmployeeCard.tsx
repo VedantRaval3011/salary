@@ -410,6 +410,14 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
           // Example 1: -4 mins → No deduction (within 15-min buffer)
           // Example 2: -30 mins → Deduction applies (exceeds 15-min buffer)
           let deduction = 0;
+
+          // NRTM employees: no late deduction
+          const isNRTMEmp = (employee.companyName ?? "").toUpperCase().includes("NRTM");
+          if (isNRTMEmp) {
+            setLateDeductionDays(0);
+            return;
+          }
+
           if (staticDiff < 0) {
             const absDiff = Math.abs(staticDiff);
             

@@ -266,6 +266,18 @@ const calculateFinalSoftwareMinutes = (
   } | null,
   isMaintenance: boolean = false
 ) => {
+  // NRTM employees: no late deduction
+  if ((employee.companyName ?? "").toUpperCase().includes("NRTM")) {
+    return {
+      Late_hours_in_minutes: 0,
+      earlyDepartureTotalMinutes: 0,
+      breakExcessMinutes: 0,
+      lessThan4HrMins: 0,
+      totalBeforeRelaxation: 0,
+      totalCombinedMinutes: 0,
+    };
+  }
+
   // Standard timing rules
   const STANDARD_START_MINUTES = 8 * 60 + 30;
   const EVENING_SHIFT_START_MINUTES = 13 * 60 + 15;

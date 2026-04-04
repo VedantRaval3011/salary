@@ -55,6 +55,15 @@ export async function processHRFile(
     defval: null,
   });
 
+  // If the sheet is completely empty (e.g. Worker Tulsi for NRTM), return early
+  const nonEmptyRows = data.filter(
+    (row) => row && row.some((v: any) => v !== null && v !== undefined && v !== "")
+  );
+  if (nonEmptyRows.length === 0) {
+    console.log(`ℹ️ HR file "${file.name}" is empty — returning no records.`);
+    return [];
+  }
+
   const searchTerms = [
     "Emp. Code",
     "EMP CODE",

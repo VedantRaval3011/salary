@@ -346,10 +346,6 @@ function calculateFinalOT(
   getCustomTimingForEmployee: any,
   isMaintenanceEmployee: any
 ): number {
-  const isStaff = getIsStaff(employee);
-  const grant = getGrantForEmployee(employee);
-  const customTiming = getCustomTimingForEmployee(employee);
-
   const parseMinutes = (val?: string | number | null): number => {
     if (!val) return 0;
     const str = String(val).trim();
@@ -357,6 +353,58 @@ function calculateFinalOT(
     const dec = parseFloat(str);
     return isNaN(dec) ? 0 : Math.round(dec * 60);
   };
+
+  // ===== NRTM SPECIAL LOGIC =====
+  const isNRTM = (employee.companyName ?? "").toUpperCase().includes("NRTM");
+  if (isNRTM) {
+    let nrtmTotalOTMinutes = 0;
+
+    const getOtFieldMins = (attendanceObj: any) => {
+      const otField =
+        attendanceObj.otHours ?? attendanceObj.otHrs ?? attendanceObj.ot ??
+        attendanceObj.workHrs ?? attendanceObj.workHours ?? null;
+      return parseMinutes(otField);
+    };
+
+    employee.days?.forEach((day) => {
+      const dayName = (day.day || "").toLowerCase();
+      const status = (day.attendance.status || "").toString().trim().toUpperCase();
+
+      if (dayName !== "sa") return;
+
+      if (
+        status.includes("ADJ-M") ||
+        status.includes("ADJ-P") ||
+        status === "ADJ-M/WO-I"
+      ) return;
+
+      let dayOTMinutes = getOtFieldMins(day.attendance);
+      if (dayOTMinutes === 0 && day.attendance.workHrs) {
+        dayOTMinutes = parseMinutes(day.attendance.workHrs);
+      }
+      if (dayOTMinutes <= 0) return;
+
+      const dayOTHours = dayOTMinutes / 60;
+      if (dayOTHours <= 4) {
+        dayOTMinutes = 4 * 60;
+      } else if (dayOTHours >= 6) {
+        dayOTMinutes = 8 * 60;
+      }
+
+      nrtmTotalOTMinutes += dayOTMinutes;
+    });
+
+    // Include Full Night OT for NRTM
+    const nrtmFullNightOTDecimal = getFullNightOTForEmployee(employee) || 0;
+    const nrtmFullNightOTInMinutes = Math.round(nrtmFullNightOTDecimal * 60);
+
+    return Math.max(0, Math.round(nrtmTotalOTMinutes) + nrtmFullNightOTInMinutes);
+  }
+  // ===== END NRTM SPECIAL LOGIC =====
+
+  const isStaff = getIsStaff(employee);
+  const grant = getGrantForEmployee(employee);
+  const customTiming = getCustomTimingForEmployee(employee);
 
   const calculateCustomTimingOT = (outTime: string, expectedEndMinutes: number): number => {
     if (!outTime || outTime === "-") return 0;
@@ -522,8 +570,9 @@ export const UnifiedComparison: React.FC = () => {
       const presentDaysDiff = hrPresentDays === null ? "N/A" : Number((softwarePresentDays - hrPresentDays).toFixed(2));
       const presentDaysCategory = getPresentDayCategory(presentDaysDiff);
 
-      // 2. Late (Hours)
-      let softwareLateMinutes = totalMinus4.get(employee.empCode);
+      // 2. Late (Hours) — NRTM employees get 0 late
+      const isNRTMEmp = (employee.companyName ?? "").toUpperCase().includes("NRTM");
+      let softwareLateMinutes = isNRTMEmp ? 0 : totalMinus4.get(employee.empCode);
       if (softwareLateMinutes === undefined) {
         const lunchData = getLunchDataForEmployee(employee);
         const customTiming = getCustomTimingForEmployee(employee);

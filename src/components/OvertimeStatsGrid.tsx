@@ -530,12 +530,6 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
     const employeeNormalEndMinutes =
       customTiming?.expectedEndMinutes ?? (17 * 60 + 30);
 
-    let grantedFromSheetStaffMinutes = 0;
-    let staffGrantedOTMinutes = 0;
-    let staffNonGrantedOTMinutes = 0;
-    let workerGrantedOTMinutes = 0;
-    let worker9to6OTMinutes = 0;
-
     const parseMinutes = (val?: string | number | null): number => {
       if (!val) return 0;
       const str = String(val).trim();
@@ -543,6 +537,89 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
       const dec = parseFloat(str);
       return isNaN(dec) ? 0 : Math.round(dec * 60);
     };
+
+    const getOtFieldMinutesLocal = (attendanceObj: any) => {
+      const otField =
+        attendanceObj.otHours ??
+        attendanceObj.otHrs ??
+        attendanceObj.ot ??
+        attendanceObj.workHrs ??
+        attendanceObj.workHours ??
+        null;
+      return parseMinutes(otField);
+    };
+
+    // ===== NRTM SPECIAL LOGIC =====
+    // For NRTM employees: only Saturday OT counts, adjusted days are excluded,
+    // and OT is rounded: ≤4h→4h, ≥6h→8h
+    const isNRTM = (employee.companyName ?? "").toUpperCase().includes("NRTM");
+    if (isNRTM) {
+      let nrtmTotalOTMinutes = 0;
+
+      employee.days?.forEach((day) => {
+        const dayName = (day.day || "").toLowerCase();
+        const status = (day.attendance.status || "").toString().trim().toUpperCase();
+
+        // Only consider Saturdays
+        if (dayName !== "sa") return;
+
+        // Skip adjusted days
+        if (
+          status.includes("ADJ-M") ||
+          status.includes("ADJ-P") ||
+          status === "ADJ-M/WO-I"
+        ) return;
+
+        let dayOTMinutes = getOtFieldMinutesLocal(day.attendance);
+
+        // If OT is 0 but workHrs exists, use workHrs
+        if (dayOTMinutes === 0 && day.attendance.workHrs) {
+          dayOTMinutes = parseMinutes(day.attendance.workHrs);
+        }
+
+        if (dayOTMinutes <= 0) return;
+
+        // Apply NRTM rounding: ≤4h→4h, ≥6h→8h
+        const dayOTHours = dayOTMinutes / 60;
+        if (dayOTHours <= 4) {
+          dayOTMinutes = 4 * 60; // 240 minutes
+        } else if (dayOTHours >= 6) {
+          dayOTMinutes = 8 * 60; // 480 minutes
+        }
+        // Between 4 and 6: keep as-is
+
+        nrtmTotalOTMinutes += dayOTMinutes;
+      });
+
+      // Include Full Night OT for NRTM
+      const nrtmFullNightOTDecimalHours = getFullNightOTForEmployee(employee);
+      const nrtmFullNightOTInMinutes = Math.round(nrtmFullNightOTDecimalHours * 60);
+      const nrtmGrandTotal = Math.round(nrtmTotalOTMinutes) + nrtmFullNightOTInMinutes;
+
+      return {
+        baseOTValue: employee.totalOTHours || "0:00",
+        staffGrantedOTMinutes: 0,
+        staffNonGrantedOTMinutes: 0,
+        workerGrantedOTMinutes: Math.round(nrtmTotalOTMinutes),
+        worker9to6OTMinutes: 0,
+        grantedFromSheetStaffMinutes: 0,
+        totalMinutes: Math.round(nrtmTotalOTMinutes),
+        fullNightOTInMinutes: nrtmFullNightOTInMinutes,
+        lateDeductionHours: 0,
+        grandTotalMinutes: nrtmGrandTotal,
+        lateMinsTotal: 0,
+        wasOTDeducted: false,
+        isStaff,
+        isWorker,
+      };
+    }
+    // ===== END NRTM SPECIAL LOGIC =====
+
+    let grantedFromSheetStaffMinutes = 0;
+    let staffGrantedOTMinutes = 0;
+    let staffNonGrantedOTMinutes = 0;
+    let workerGrantedOTMinutes = 0;
+    let worker9to6OTMinutes = 0;
 
     const calculateCustomTimingOT = (outTime: string, expectedEndMinutes: number): number => {
       if (!outTime || outTime === "-") return 0;

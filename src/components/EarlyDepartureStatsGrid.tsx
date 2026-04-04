@@ -488,6 +488,22 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
       };
     }
 
+    // NRTM employees: no late deduction
+    if ((employee.companyName ?? "").toUpperCase().includes("NRTM")) {
+      return {
+        Late_hours_in_minutes: 0,
+        earlyDepartureTotalMinutes: 0,
+        breakExcessMinutes: 0,
+        lessThan4HrMins: 0,
+        totalBeforeRelaxation: 0,
+        totalCombinedMinutes: 0,
+        isStaff: getIsStaff(employee),
+        staffRelaxationApplied: 0,
+        otGrandTotal: Math.round(otGrandTotal),
+        finalDifference: Math.round(staticFinalDifference),
+      };
+    }
+
     const customTiming = getCustomTimingForEmployee(employee);
     const isMaintenance = isMaintenanceEmployee(employee);
     let lateMinsTotal = 0;

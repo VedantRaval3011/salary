@@ -35,6 +35,7 @@ export default function Home() {
     "NUTRACEUTICO",
     "SCI PREC",
     "SCI PREC LIFESCIENCES",
+    "NRTM",
   ];
 
   // Setup wizard state
@@ -812,7 +813,12 @@ export default function Home() {
               {/* Employee Cards */}
               <div className="space-y-4">
                 {excelData.employees
-                  .filter((emp: any) => emp.companyName === selectedCompany)
+                  .filter((emp: any) => {
+                    const empComp = (emp.companyName ?? "").toUpperCase().trim();
+                    const selComp = selectedCompany.toUpperCase().trim();
+                    // Exact match first, then contains match for short names like NRTM
+                    return empComp === selComp || empComp.includes(selComp) || selComp.includes(empComp);
+                  })
                   .map((employee: EmployeeData, index: number) => (
                     <EmployeeCard
                       key={employee.empCode}

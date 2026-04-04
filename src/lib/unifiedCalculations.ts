@@ -403,6 +403,20 @@ export const calculateTotalCombinedMinutes = (
     };
   }
 
+  // NRTM employees: no late deduction
+  if ((employee.companyName ?? "").toUpperCase().includes("NRTM")) {
+    return {
+      lateMinutes: 0,
+      earlyDepartureMinutes: 0,
+      breakExcessMinutes: 0,
+      lessThan4HoursMinutes: 0,
+      totalBeforeRelaxation: 0,
+      staffRelaxationApplied: 0,
+      totalAfterRelaxation: 0,
+      isStaff: getIsStaff(employee),
+    };
+  }
+
   const isStaff = getIsStaff(employee);
 
   // Calculate all components
