@@ -8,6 +8,7 @@ import { usePunchData } from "@/context/PunchDataContext";
 import { useMaintenanceDeductLookup } from "@/hooks/useMaintenanceDeductLookup";
 import { useStaffOTGrantedLookup } from "@/hooks/useStaffOTGrantedLookup";
 import { getPermissibleLateMinutes } from "@/lib/unifiedCalculations";
+import { ADJ_P_FULL_DAY_MIN_MINS } from "@/lib/adjPresentMinutes";
 
 interface AttendanceGridProps {
   days: DayAttendance[];
@@ -462,9 +463,9 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
       }
     }
 
-    // Check for ADJ-P half day -> change to ADJ-P/A
+    // ADJ-P on adjusted date: partial day (< ~8h) -> ADJ-P/A for grid / downstream rules
     if (status === "ADJ-P" || status === "ADJP") {
-      if (workMins > 0 && workMins <= 320) {
+      if (workMins > 0 && workMins < ADJ_P_FULL_DAY_MIN_MINS) {
         status = "ADJ-P/A";
         // Update day object immediately so subsequent logic uses new status
         day = {

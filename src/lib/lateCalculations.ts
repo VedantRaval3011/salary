@@ -4,6 +4,11 @@
 
 import { EmployeeData } from "@/lib/types";
 import { getPermissibleLateMinutes } from "@/lib/unifiedCalculations";
+import {
+  getAdjPWorkMinutes,
+  isAdjPFullDayPresent,
+  isAdjPHalfDayPresent,
+} from "@/lib/adjPresentMinutes";
 
 const timeToMinutes = (timeStr: string): number => {
   if (!timeStr || timeStr === "-") return 0;
@@ -50,8 +55,15 @@ export const calculateLateMinutes = (
       const inMinutes = timeToMinutes(inTime);
       let dailyLateMins = 0;
 
-      if (status === "P/A" || status === "PA" || 
-          status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA") {
+      if (
+        status === "P/A" ||
+        status === "PA" ||
+        status === "ADJ-P/A" ||
+        status === "ADJP/A" ||
+        status === "ADJ-PA" ||
+        ((status === "ADJ-P" || status === "ADJP") &&
+          isAdjPHalfDayPresent(getAdjPWorkMinutes(day)))
+      ) {
         // P/A: Use morning/evening cutoff logic for ALL days (not just Saturday)
         // Morning shift: before 10:00 AM cutoff → late from 8:30 AM
         // Afternoon shift: after 10:00 AM cutoff → late from 1:15 PM
@@ -76,8 +88,11 @@ export const calculateLateMinutes = (
         if (inMinutes > employeeNormalStartMinutes) {
           dailyLateMins = inMinutes - employeeNormalStartMinutes;
         }
-      } else if (isStaff && status === "ADJ-P") {
-        // ADJ-P: Only count for Staff
+      } else if (
+        isStaff &&
+        (status === "ADJ-P" || status === "ADJP") &&
+        isAdjPFullDayPresent(getAdjPWorkMinutes(day))
+      ) {
         if (inMinutes > employeeNormalStartMinutes) {
           dailyLateMins = inMinutes - employeeNormalStartMinutes;
         }
@@ -97,7 +112,7 @@ export const calculateLateMinutes = (
  * Calculate early departure minutes
  * Rules:
  * - P/A, adj-P/A: Always skip early departure
- * - adj-P: Check work hours. If <= 4 hours (240 mins), treat as adj-P/A (skip). Else count.
+ * - adj-P: Skip early departure unless worked a full day (~8h+ on adjusted date).
  * - Others (P, etc): Count early departure
  */
 export const calculateEarlyDepartureMinutes = (
@@ -110,26 +125,7 @@ export const calculateEarlyDepartureMinutes = (
     const status = (day.attendance.status || "").toUpperCase();
     const earlyDepMins = Number(day.attendance.earlyDep) || 0;
     
-    // Calculate work minutes to check for half day
-    const workHours = day.attendance.workHrs || 0;
-    let workMins = 0;
-    if (typeof workHours === "string" && workHours.includes(":")) {
-      const [h, m] = workHours.split(":").map(Number);
-      workMins = h * 60 + (m || 0);
-    } else if (!isNaN(Number(workHours))) {
-      workMins = Number(workHours) * 60;
-    }
-
-    // Fallback: Calculate from In/Out if workMins is 0
-    if (workMins === 0 && day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
-       const inM = timeToMinutes(day.attendance.inTime);
-       const outM = timeToMinutes(day.attendance.outTime);
-       if (outM > inM) {
-           workMins = outM - inM;
-       }
-    }
-
-    const isHalfDay = workMins > 0 && workMins <= 240;
+    const workMins = getAdjPWorkMinutes(day);
 
     // 1. Skip early departure for explicit P/A and adj-P/A statuses
     if (status === "P/A" || status === "PA" || 
@@ -137,13 +133,11 @@ export const calculateEarlyDepartureMinutes = (
       return; // Skip
     }
 
-    // 2. Handle adj-P
+    // 2. Handle adj-P — only full-day (~8h+) incurs early-departure rules
     if (status === "ADJ-P" || status === "ADJP") {
-      if (isHalfDay) {
-        // Treat as adj-P/A -> Skip early departure
+      if (!isAdjPFullDayPresent(workMins)) {
         return;
       }
-      // Else (Full Day adj-P) -> Count early departure
     }
     
     // 3. Handle M/WO-I and ADJ-M/WO-I - skip unless Saturday and arrived

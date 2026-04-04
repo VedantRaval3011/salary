@@ -13,6 +13,11 @@ import {
   LateComparisonExportData,
 } from "@/lib/exportComparisonUtils";
 import { getPermissibleLateMinutes } from "@/lib/unifiedCalculations";
+import {
+  getAdjPWorkMinutes,
+  isAdjPFullDayPresent,
+  isAdjPHalfDayPresent,
+} from "@/lib/adjPresentMinutes";
 
 // --- Import new hook (HR lookup) ---
 import { useHRLateLookup } from "@/hooks/useHRLateLookup";
@@ -293,15 +298,7 @@ const calculateFinalSoftwareMinutes = (
     const status = (day.attendance.status || "").toUpperCase();
     const inTime = day.attendance.inTime;
 
-    // Less than 4hr check
-    const workHours = day.attendance.workHrs || 0;
-    let workMins = 0;
-    if (typeof workHours === "string" && workHours.includes(":")) {
-      const [h, m] = workHours.split(":").map(Number);
-      workMins = h * 60 + (m || 0);
-    } else if (!isNaN(Number(workHours))) {
-      workMins = Number(workHours) * 60;
-    }
+    const workMins = getAdjPWorkMinutes(day);
 
     // Late calculation
     if (inTime && inTime !== "-") {
@@ -310,12 +307,23 @@ const calculateFinalSoftwareMinutes = (
 
       // ⭐ STRICT CUSTOM TIMING RULE:
       if (customTiming) {
-        if (inMinutes > employeeNormalStartMinutes) {
+        const skipAdjPPartial =
+          (status === "ADJ-P" || status === "ADJP") &&
+          isAdjPHalfDayPresent(workMins);
+        if (
+          !skipAdjPPartial &&
+          inMinutes > employeeNormalStartMinutes
+        ) {
           dailyLateMins = inMinutes - employeeNormalStartMinutes;
         }
       } else {
         // Standard Logic
-        if (status === "P/A" || status === "PA") {
+        if (
+          status === "P/A" ||
+          status === "PA" ||
+          ((status === "ADJ-P" || status === "ADJP") &&
+            isAdjPHalfDayPresent(workMins))
+        ) {
           if (inMinutes < MORNING_EVENING_CUTOFF_MINUTES) {
             if (inMinutes > employeeNormalStartMinutes) {
               dailyLateMins = inMinutes - employeeNormalStartMinutes;
@@ -330,7 +338,11 @@ const calculateFinalSoftwareMinutes = (
           if (inMinutes > employeeNormalStartMinutes) {
             dailyLateMins = inMinutes - employeeNormalStartMinutes;
           }
-        } else if (isStaff && status === "ADJ-P") {
+        } else if (
+          isStaff &&
+          (status === "ADJ-P" || status === "ADJP") &&
+          isAdjPFullDayPresent(workMins)
+        ) {
           if (inMinutes > employeeNormalStartMinutes) {
             dailyLateMins = inMinutes - employeeNormalStartMinutes;
           }
@@ -350,22 +362,17 @@ const calculateFinalSoftwareMinutes = (
       return; // skip this day
     }
 
-    // Check for half day (<= 240 mins)
-    const isHalfDay = workMins > 0 && workMins <= 240;
-
     // 1. Skip early departure for explicit P/A and adj-P/A statuses
     if (status === "P/A" || status === "PA" ||
       status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA") {
       return; // Skip
     }
 
-    // 2. Handle adj-P
+    // 2. adj-P: early departure only when ~full day worked
     if (status === "ADJ-P" || status === "ADJP") {
-      if (isHalfDay) {
-        // Treat as adj-P/A -> Skip early departure
+      if (!isAdjPFullDayPresent(workMins)) {
         return;
       }
-      // Else (Full Day adj-P) -> Count early departure
     }
 
     // 3. Count for others (P, Full Day adj-P, etc.)

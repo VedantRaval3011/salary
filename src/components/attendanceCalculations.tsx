@@ -1,5 +1,10 @@
 import { EmployeeData } from "@/lib/types";
 import { getPermissibleLateMinutes } from "@/lib/unifiedCalculations";
+import {
+  getAdjPWorkMinutes,
+  isAdjPFullDayPresent,
+  isAdjPHalfDayPresent,
+} from "@/lib/adjPresentMinutes";
 
 // --------------------
 // Utility helpers
@@ -46,14 +51,18 @@ export function calculateTotalDeductionMinutes(
   employee.days?.forEach((day) => {
     const status = (day.attendance.status || "").toUpperCase();
     const inTime = day.attendance.inTime;
-    const workHours = day.attendance.workHrs || 0;
 
     // ---- LATE ARRIVAL ----
     if (inTime && inTime !== "-") {
       const inMinutes = timeToMinutes(inTime);
       let dailyLateMins = 0;
 
-      if (status === "P/A" || status === "PA") {
+      if (
+        status === "P/A" ||
+        status === "PA" ||
+        ((status === "ADJ-P" || status === "ADJP") &&
+          isAdjPHalfDayPresent(getAdjPWorkMinutes(day)))
+      ) {
         if (inMinutes < MORNING_EVENING_CUTOFF_MINUTES) {
           if (inMinutes > STANDARD_START_MINUTES)
             dailyLateMins = inMinutes - STANDARD_START_MINUTES;
@@ -63,7 +72,11 @@ export function calculateTotalDeductionMinutes(
       } else if (status === "P") {
         if (inMinutes > STANDARD_START_MINUTES)
           dailyLateMins = inMinutes - STANDARD_START_MINUTES;
-      } else if (isStaff && status === "ADJ-P") {
+      } else if (
+        isStaff &&
+        (status === "ADJ-P" || status === "ADJP") &&
+        isAdjPFullDayPresent(getAdjPWorkMinutes(day))
+      ) {
         if (inMinutes > STANDARD_START_MINUTES)
           dailyLateMins = inMinutes - STANDARD_START_MINUTES;
       }
@@ -72,27 +85,10 @@ export function calculateTotalDeductionMinutes(
         lateMinsTotal += dailyLateMins;
     }
 
-    // ---- WORK MINUTES CALCULATION ----
-    let workMins = 0;
-    if (typeof workHours === "string" && workHours.includes(":")) {
-      const [h, m] = workHours.split(":").map(Number);
-      workMins = h * 60 + (m || 0);
-    } else if (!isNaN(Number(workHours))) {
-      workMins = Number(workHours) * 60;
-    }
-
-    // Fallback: Calculate from In/Out if workMins is 0
-    if (workMins === 0 && day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
-      const inM = timeToMinutes(day.attendance.inTime);
-      const outM = timeToMinutes(day.attendance.outTime);
-      if (outM > inM) {
-        workMins = outM - inM;
-      }
-    }
+    const workMins = getAdjPWorkMinutes(day);
 
     // ---- EARLY DEPARTURE ----
     const earlyDepMins = Number(day.attendance.earlyDep) || 0;
-    const isHalfDay = workMins > 0 && workMins <= 240;
 
     // 1. Skip early departure for explicit P/A and adj-P/A statuses
     if (status === "P/A" || status === "PA" ||
@@ -101,11 +97,8 @@ export function calculateTotalDeductionMinutes(
     }
     // 2. Handle adj-P
     else if (status === "ADJ-P" || status === "ADJP") {
-      if (isHalfDay) {
-        // Treat as adj-P/A -> Skip early departure
-      } else {
-        // Full Day adj-P -> Count early departure
-        if (earlyDepMins > 0) earlyDepartureTotalMinutes += earlyDepMins;
+      if (isAdjPFullDayPresent(workMins) && earlyDepMins > 0) {
+        earlyDepartureTotalMinutes += earlyDepMins;
       }
     }
     // 3. Count for others

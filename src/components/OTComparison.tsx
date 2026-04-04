@@ -613,21 +613,24 @@ function calculateFinalOT(
       }
 
       if (customTiming) {
-        dayOTMinutes = calculateCustomTimingOT(
-          outTime,
-          customTiming.expectedEndMinutes
+        dayOTMinutes = Math.max(
+          getOtFieldMinutes(day.attendance),
+          calculateCustomTimingOT(
+            outTime,
+            customTiming.expectedEndMinutes
+          )
         );
       } else if (status === "ADJ-P") {
-        // ADJ-P → ignore raw OT field; count OT only after ADJ_P_CUTOFF_MINUTES
-        if (outTime && outTime !== "-") {
-          const outMin = timeToMinutes(outTime);
-          dayOTMinutes =
-            outMin > ADJ_P_CUTOFF_MINUTES
-              ? outMin - ADJ_P_SHIFT_END_MINUTES
-              : 0;
-        }
+        // OT Granted + ADJ-P: OT from punch-out after normal end (17:30 or custom), matches OvertimeStatsGrid
+        dayOTMinutes = calculateCustomTimingOT(
+          outTime,
+          employeeNormalEndMinutes
+        );
       } else {
-        dayOTMinutes = getOtFieldMinutes(day.attendance);
+        dayOTMinutes = Math.max(
+          getOtFieldMinutes(day.attendance),
+          calculateCustomTimingOT(outTime, employeeNormalEndMinutes)
+        );
       }
 
       grantedFromSheetStaffMinutes += dayOTMinutes;

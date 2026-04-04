@@ -601,24 +601,24 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
            return;
         }
 
-        // ⭐ FIXED: Calculate custom timing OT FIRST, use it for all statuses
+        // ⭐ OT Granted: must credit OT when out time is after normal shift end (17:30 or custom end).
+        // Combine with sheet OT so explicit holiday/Saturday values are not lost.
         if (customTiming) {
-          dayOTMinutes = calculateCustomTimingOT(outTime, customTiming.expectedEndMinutes);
-        }
-        // Only recalculate for ADJ-P if custom timing didn't apply
-        else if (status === "ADJ-P") {
-          if (isStaff) {
-            dayOTMinutes = 0;
-          } else {
-            if (outTime && outTime !== "-") {
-              const outMin = timeToMinutes(outTime);
-              dayOTMinutes = outMin > employeeNormalEndMinutes ? outMin - employeeNormalEndMinutes : 0;
-            }
-          }
-        }
-        // Otherwise use OT field
-        else {
-          dayOTMinutes = getOtFieldMinutes(day.attendance);
+          dayOTMinutes = Math.max(
+            getOtFieldMinutes(day.attendance),
+            calculateCustomTimingOT(outTime, customTiming.expectedEndMinutes)
+          );
+        } else if (status === "ADJ-P") {
+          // ADJ-P: use punch-out vs shift end (same rule for staff and worker on grant sheet)
+          dayOTMinutes = calculateCustomTimingOT(
+            outTime,
+            employeeNormalEndMinutes
+          );
+        } else {
+          dayOTMinutes = Math.max(
+            getOtFieldMinutes(day.attendance),
+            calculateCustomTimingOT(outTime, employeeNormalEndMinutes)
+          );
         }
 
         grantedFromSheetStaffMinutes += dayOTMinutes;
