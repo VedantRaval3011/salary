@@ -463,7 +463,7 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
       }
     }
 
-    // ADJ-P: worked but under ~8h -> ADJ-P/A (matches PAA partial vs full)
+    // ADJ-P: under 5h30 -> ADJ-P/A; 5h30+ stays ADJ-P (matches PAA)
     if (status === "ADJ-P" || status === "ADJP") {
       if (workMins > 0 && workMins < ADJUSTMENT_DAY_FULL_PRESENT_MIN_MINS) {
         status = "ADJ-P/A";

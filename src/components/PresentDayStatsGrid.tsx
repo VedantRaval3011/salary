@@ -902,7 +902,7 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
   const tooltipTexts: any = {
     PD_excel: "Present days counted directly from attendance sheet.",
     PAA:
-      "PAA = full P days + full ADJ-P (work ~8h+) + full ADJ-M/WO-I when ~8h+ + 0.5×(P/A, ADJ-P/A, partial ADJ-P/ADJ-M under ~8h).",
+      "PAA = full P days + full ADJ-P/ADJ-M when worked ≥ 5h30 + 0.5×(P/A, ADJ-P/A, partial adjustment days under 5h30).",
     H_base: "Holidays selected from Holiday Management.",
     Total: "Present After Adj + Holidays (Base)",
     AdditionalOT:

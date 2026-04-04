@@ -264,12 +264,12 @@ function processEmployeeBlock(
         } else if (!isNaN(Number(workHours))) {
           workMins = Number(workHours) * 60;
         }
-        
+
         // Fallback to In/Out
         if (workMins === 0 && day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
-           const inM = timeToMinutes(day.attendance.inTime);
-           const outM = timeToMinutes(day.attendance.outTime);
-           if (outM > inM) workMins = outM - inM;
+          const inM = timeToMinutes(day.attendance.inTime);
+          const outM = timeToMinutes(day.attendance.outTime);
+          if (outM > inM) workMins = outM - inM;
         }
 
         const adjPPartial =
@@ -277,18 +277,18 @@ function processEmployeeBlock(
 
         // Skip early departure logic
         let skipEarlyDep = false;
-        
+
         // 1. Always skip for P/A and adj-P/A
-        if (status === "P/A" || status === "PA" || 
-            status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA") {
-            skipEarlyDep = true;
-        } 
-        // 2. For adj-P, skip early dep when not a full ~8h day; normalize to ADJ-P/A
+        if (status === "P/A" || status === "PA" ||
+          status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA") {
+          skipEarlyDep = true;
+        }
+        // 2. For adj-P, skip early dep when under 5h30; normalize to ADJ-P/A
         else if (status === "ADJ-P" || status === "ADJP") {
-            if (adjPPartial) {
-                skipEarlyDep = true;
-                day.attendance.status = "ADJ-P/A";
-            }
+          if (adjPPartial) {
+            skipEarlyDep = true;
+            day.attendance.status = "ADJ-P/A";
+          }
         }
 
         // Only count if:
@@ -297,7 +297,7 @@ function processEmployeeBlock(
         if (status !== "PA" && status !== "P/A" && dayOfWeek !== "sa") {
           totalLateMins += parseInt(String(day.attendance.lateMins)) || 0;
         }
-        
+
         if (!skipEarlyDep && dayOfWeek !== "sa") {
           totalEarlyDep += parseInt(String(day.attendance.earlyDep)) || 0;
         }

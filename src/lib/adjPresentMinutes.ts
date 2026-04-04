@@ -1,7 +1,7 @@
 import type { DayAttendance } from "./types";
 
-/** Full present on adjustment days only when worked ~8h+ (25 min buffer). */
-export const ADJUSTMENT_DAY_FULL_PRESENT_MIN_MINS = 8 * 60 - 25;
+/** 5h 30m (330 min). Full day when worked time is this or more. */
+export const ADJUSTMENT_DAY_FULL_PRESENT_MIN_MINS = 5 * 60 + 30;
 
 const timeToMinutes = (timeStr: string): number => {
   if (!timeStr || timeStr === "-") return 0;
