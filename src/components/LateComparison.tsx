@@ -12,6 +12,7 @@ import {
   exportLateComparisonToExcel,
   LateComparisonExportData,
 } from "@/lib/exportComparisonUtils";
+import { getPermissibleLateMinutes } from "@/lib/unifiedCalculations";
 
 // --- Import new hook (HR lookup) ---
 import { useHRLateLookup } from "@/hooks/useHRLateLookup";
@@ -269,7 +270,7 @@ const calculateFinalSoftwareMinutes = (
   const STANDARD_START_MINUTES = 8 * 60 + 30;
   const EVENING_SHIFT_START_MINUTES = 13 * 60 + 15;
   const MORNING_EVENING_CUTOFF_MINUTES = 10 * 60;
-  const PERMISSIBLE_LATE_MINS = 5;
+  const permissibleLateMins = getPermissibleLateMinutes(employee.companyName);
 
   const employeeNormalStartMinutes =
     customTiming?.expectedStartMinutes ?? STANDARD_START_MINUTES;
@@ -336,7 +337,7 @@ const calculateFinalSoftwareMinutes = (
         }
       }
 
-      if (dailyLateMins > PERMISSIBLE_LATE_MINS) {
+      if (dailyLateMins > permissibleLateMins) {
         lateMinsTotal += dailyLateMins;
       }
     }

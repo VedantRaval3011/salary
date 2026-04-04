@@ -11,6 +11,7 @@ import { useHROTLookup } from "@/hooks/useHROTLookup";
 import { ArrowDown, ArrowUp, ChevronDown, ChevronUp } from "lucide-react"; // Import icons
 import { useGrandOT } from "@/context/GrandOTContext";
 import { useFinalDifference } from "@/context/FinalDifferenceContext";
+import { getPermissibleLateMinutes } from "@/lib/unifiedCalculations";
 
 // Define the type for the sorting state
 type SortColumn = keyof OTComparisonData | "difference" | "category";
@@ -509,7 +510,7 @@ function calculateFinalOT(
   const STANDARD_START_MINUTES = 8 * 60 + 30;
   const EVENING_SHIFT_START_MINUTES = 13 * 60 + 15;
   const MORNING_EVENING_CUTOFF_MINUTES = 10 * 60;
-  const PERMISSIBLE_LATE_MINS = 5;
+  const permissibleLateMins = getPermissibleLateMinutes(employee.companyName);
 
   // ADJ-P cutoff: shift end (17:30) + 30 mins buffer -> 18:00 (1080)
   const ADJ_P_BUFFER_MINUTES = 30;
@@ -548,7 +549,7 @@ function calculateFinalOT(
       }
     }
 
-    if (dailyLateMins > PERMISSIBLE_LATE_MINS) {
+    if (dailyLateMins > permissibleLateMins) {
       lateMinsTotal += dailyLateMins;
     }
   });

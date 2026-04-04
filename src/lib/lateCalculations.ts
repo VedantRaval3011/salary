@@ -3,6 +3,7 @@
 // SINGLE SOURCE OF TRUTH for all late/early departure calculations
 
 import { EmployeeData } from "@/lib/types";
+import { getPermissibleLateMinutes } from "@/lib/unifiedCalculations";
 
 const timeToMinutes = (timeStr: string): number => {
   if (!timeStr || timeStr === "-") return 0;
@@ -36,7 +37,7 @@ export const calculateLateMinutes = (
 
   const EVENING_SHIFT_START_MINUTES = 13 * 60 + 15;
   const MORNING_EVENING_CUTOFF_MINUTES = 10 * 60;
-  const PERMISSIBLE_LATE_MINS = 5;
+  const permissibleLateMins = getPermissibleLateMinutes(employee.companyName);
 
   const isStaff = getIsStaff(employee);
   let lateMinsTotal = 0;
@@ -83,7 +84,7 @@ export const calculateLateMinutes = (
       }
 
       // Only count if exceeds permissible grace period
-      if (dailyLateMins > PERMISSIBLE_LATE_MINS) {
+      if (dailyLateMins > permissibleLateMins) {
         lateMinsTotal += dailyLateMins;
       }
     }

@@ -5,6 +5,7 @@ import { EmployeeData } from "@/lib/types";
 import { useExcel } from "../context/ExcelContext";
 import { useFinalDifference } from "@/context/FinalDifferenceContext";
 import { useHRDataLookup } from "@/hooks/useHRDataLookup";
+import { getPermissibleLateMinutes } from "@/lib/unifiedCalculations";
 import { getSmartPresentDayExplanation } from "@/lib/differenceExplanation";
 import { DifferenceExplanationModal } from "./DifferenceExplanationModal";
 
@@ -667,7 +668,7 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
     const STANDARD_START_MINUTES = 8 * 60 + 30;
     const EVENING_SHIFT_START_MINUTES = 13 * 60 + 15;
     const MORNING_EVENING_CUTOFF_MINUTES = 10 * 60;
-    const PERMISSIBLE_LATE_MINS = 5;
+    const permissibleLateMins = getPermissibleLateMinutes(employee.companyName);
 
     const employeeNormalStartMinutes =
       customTiming?.expectedStartMinutes ?? STANDARD_START_MINUTES;
@@ -727,7 +728,7 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
         }
       }
 
-      if (dailyLateMins > PERMISSIBLE_LATE_MINS) {
+      if (dailyLateMins > permissibleLateMins) {
         lateMinsTotal += dailyLateMins;
       }
     });

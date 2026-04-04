@@ -34,7 +34,15 @@ export const getIsStaff = (emp: EmployeeData): boolean => {
 const STANDARD_START_MINUTES = 8 * 60 + 30; // 8:30 AM
 const EVENING_SHIFT_START_MINUTES = 13 * 60 + 15; // 1:15 PM
 const MORNING_EVENING_CUTOFF_MINUTES = 10 * 60; // 10:00 AM
-const PERMISSIBLE_LATE_MINS = 5;
+const DEFAULT_PERMISSIBLE_LATE_MINS = 5;
+const SCI_PREC_LATE_GRACE_MINS = 10;
+
+/** Late arrival grace before minutes count toward deductions. SCI PREC only (exact name, not SCI PREC LIFESCIENCES): 10 min; all others: 5 min. */
+export function getPermissibleLateMinutes(companyName?: string | null): number {
+  const c = (companyName ?? "").trim().toUpperCase();
+  return c === "SCI PREC" ? SCI_PREC_LATE_GRACE_MINS : DEFAULT_PERMISSIBLE_LATE_MINS;
+}
+
 const STAFF_RELAXATION_MINUTES = 4 * 60; // 4 hours
 
 // ===== CORE CALCULATION FUNCTIONS =====
@@ -53,6 +61,7 @@ export const calculateLateMinutes = (
 
   const isStaff = getIsStaff(employee);
   const employeeNormalStartMinutes = customStartMinutes ?? STANDARD_START_MINUTES;
+  const permissibleLateMins = getPermissibleLateMinutes(employee.companyName);
   let lateMinsTotal = 0;
 
   employee.days?.forEach((day) => {
@@ -100,7 +109,7 @@ export const calculateLateMinutes = (
       }
 
       // Only count if exceeds grace period
-      if (dailyLateMins > PERMISSIBLE_LATE_MINS) {
+      if (dailyLateMins > permissibleLateMins) {
         lateMinsTotal += dailyLateMins;
       }
     }

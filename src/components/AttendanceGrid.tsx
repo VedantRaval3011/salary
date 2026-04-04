@@ -7,6 +7,7 @@ import { useExcel } from "@/context/ExcelContext";
 import { usePunchData } from "@/context/PunchDataContext";
 import { useMaintenanceDeductLookup } from "@/hooks/useMaintenanceDeductLookup";
 import { useStaffOTGrantedLookup } from "@/hooks/useStaffOTGrantedLookup";
+import { getPermissibleLateMinutes } from "@/lib/unifiedCalculations";
 
 interface AttendanceGridProps {
   days: DayAttendance[];
@@ -435,6 +436,8 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
     return 0;
   };
 
+  const permissibleLateMins = getPermissibleLateMinutes(employee.companyName);
+
   const processedDays = days.map((day) => {
     // SPECIAL RULE: Kaplesh Raloliya (143) always has 0 Late
     const isKaplesh = employee.empCode === "143" || employee.empName?.toLowerCase().includes("kaplesh");
@@ -644,11 +647,7 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
           // If between 10:00 AM and 1:15 PM, late is 0 (arrived on time for afternoon shift)
         }
 
-        // Apply 5-minute grace period
-        const PERMISSIBLE_LATE_MINS = 5;
-        if (calculatedLateMins > PERMISSIBLE_LATE_MINS) {
-          calculatedLateMins = calculatedLateMins;
-        } else {
+        if (calculatedLateMins <= permissibleLateMins) {
           calculatedLateMins = 0;
         }
 
@@ -701,10 +700,11 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
 
     const originalLateMins = String(day.attendance.lateMins ?? "");
     const originalOTHrs = String(day.attendance.otHrs ?? "");
-    const recalculatedLateMins = isKaplesh ? 0 : recalculateLateMinutes(
-      day.attendance.inTime,
-      customTimingParsed
-    );
+    const rawCustomLate = isKaplesh
+      ? 0
+      : recalculateLateMinutes(day.attendance.inTime, customTimingParsed);
+    const recalculatedLateMins =
+      rawCustomLate > permissibleLateMins ? rawCustomLate : 0;
     const recalculatedOTHrs = isKaplesh ? "0:00" : recalculateOTHours(
       day.attendance.inTime,
       day.attendance.outTime,

@@ -4,7 +4,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import { EmployeeData } from "@/lib/types";
 import { useExcel } from "../context/ExcelContext";
 import { useFinalDifference } from "@/context/FinalDifferenceContext";
-import { calculateBreakExcessMinutes } from "@/lib/unifiedCalculations";
+import {
+  calculateBreakExcessMinutes,
+  getPermissibleLateMinutes,
+} from "@/lib/unifiedCalculations";
 import { getSmartLateExplanation } from "@/lib/differenceExplanation";
 import { DifferenceExplanationModal } from "./DifferenceExplanationModal";
 import { EyeIcon } from "lucide-react";
@@ -496,7 +499,7 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
     const STANDARD_START_MINUTES = 8 * 60 + 30;
     const EVENING_SHIFT_START_MINUTES = 13 * 60 + 15;
     const MORNING_EVENING_CUTOFF_MINUTES = 10 * 60;
-    const PERMISSIBLE_LATE_MINS = 5;
+    const permissibleLateMins = getPermissibleLateMinutes(employee.companyName);
 
     // Use custom timing if available, otherwise use standard
     const employeeNormalStartMinutes =
@@ -609,7 +612,7 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
           }
         }
 
-        if (dailyLateMins > PERMISSIBLE_LATE_MINS) {
+        if (dailyLateMins > permissibleLateMins) {
           lateMinsTotal += dailyLateMins;
         }
       }
