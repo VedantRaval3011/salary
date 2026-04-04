@@ -18,6 +18,7 @@ import { calculateTotalCombinedMinutes } from "@/lib/unifiedCalculations";
 import { exportUnifiedComparisonToExcel, exportMajorMediumDifferences } from "@/lib/exportUnifiedComparison";
 import { ArrowDown, ArrowUp, ChevronDown, ChevronUp } from "lucide-react";
 import { useStaffOTGrantedLookup } from "@/hooks/useStaffOTGrantedLookup";
+import { isGrantedStaffSheetOtAuthoritative } from "@/lib/grantedStaffOtDay";
 
 // --- Types ---
 
@@ -389,17 +390,21 @@ function calculateFinalOT(
       const dateNum = Number(day.date) || 0;
       if (dateNum < fromD || dateNum > toD) return;
       const status = (day.attendance.status || "").toUpperCase();
+      const dayName = (day.day || "").toString().trim().toLowerCase();
       const outTime = day.attendance.outTime;
       const att = day.attendance as AttendanceOTFields;
       const sheetOt = parseMinutes(att.otHours ?? att.otHrs ?? att.ot ?? null);
+      const punchOt = calculateCustomTimingOT(
+        outTime,
+        employeeNormalEndMinutes
+      );
       let dayOTMinutes = 0;
       if (status === "ADJ-P") {
-        dayOTMinutes =
-          sheetOt > 0
-            ? sheetOt
-            : calculateCustomTimingOT(outTime, employeeNormalEndMinutes);
-      } else {
+        dayOTMinutes = Math.max(sheetOt, punchOt);
+      } else if (isGrantedStaffSheetOtAuthoritative(status, dayName)) {
         dayOTMinutes = sheetOt;
+      } else {
+        dayOTMinutes = Math.max(sheetOt, punchOt);
       }
       grantedFromSheetStaffMinutes += dayOTMinutes;
     });

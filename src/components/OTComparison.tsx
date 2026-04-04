@@ -12,6 +12,7 @@ import { ArrowDown, ArrowUp, ChevronDown, ChevronUp } from "lucide-react"; // Im
 import { useGrandOT } from "@/context/GrandOTContext";
 import { useFinalDifference } from "@/context/FinalDifferenceContext";
 import { getPermissibleLateMinutes } from "@/lib/unifiedCalculations";
+import { isGrantedStaffSheetOtAuthoritative } from "@/lib/grantedStaffOtDay";
 
 // Define the type for the sorting state
 type SortColumn = keyof OTComparisonData | "difference" | "category";
@@ -588,6 +589,7 @@ function calculateFinalOT(
       if (dateNum < fromD || dateNum > toD) return;
 
       const status = (day.attendance.status || "").toString().trim().toUpperCase();
+      const dayName = (day.day || "").toString().trim().toLowerCase();
       const outTime = day.attendance.outTime;
       let dayOTMinutes = 0;
 
@@ -619,13 +621,16 @@ function calculateFinalOT(
       }
 
       const sheetOt = getSheetOtMinutes(day.attendance);
+      const punchOt = calculateCustomTimingOT(
+        outTime,
+        employeeNormalEndMinutes
+      );
       if (status === "ADJ-P") {
-        dayOTMinutes =
-          sheetOt > 0
-            ? sheetOt
-            : calculateCustomTimingOT(outTime, employeeNormalEndMinutes);
-      } else {
+        dayOTMinutes = Math.max(sheetOt, punchOt);
+      } else if (isGrantedStaffSheetOtAuthoritative(status, dayName)) {
         dayOTMinutes = sheetOt;
+      } else {
+        dayOTMinutes = Math.max(sheetOt, punchOt);
       }
 
       grantedFromSheetStaffMinutes += dayOTMinutes;

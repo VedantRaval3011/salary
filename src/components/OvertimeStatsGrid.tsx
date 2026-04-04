@@ -7,6 +7,7 @@ import { useFinalDifference } from "@/context/FinalDifferenceContext";
 import { useGrandOT } from "@/context/GrandOTContext";
 import { useHROTLookup } from "@/hooks/useHROTLookup";
 import { getSmartOTExplanation } from "@/lib/differenceExplanation";
+import { isGrantedStaffSheetOtAuthoritative } from "@/lib/grantedStaffOtDay";
 import { DifferenceExplanationModal } from "./DifferenceExplanationModal";
 
 interface Props {
@@ -567,6 +568,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
         if (dateNum < fromD || dateNum > toD) return;
 
         const status = (day.attendance.status || "").toString().trim().toUpperCase();
+        const dayName = (day.day || "").toString().trim().toLowerCase();
         const outTime = day.attendance.outTime;
         let dayOTMinutes = 0;
 
@@ -601,17 +603,20 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
            return;
         }
 
-        // Granted-sheet staff: use validated OT Hours from the attendance row only.
-        // Do not Math.max with punch-out OT — WO-I/holiday punch spans exceed approved OT
-        // (e.g. 6:47 worked vs 6:30 in the OT column).
         const sheetOt = getOtFieldMinutes(day.attendance);
+        const punchOt = calculateCustomTimingOT(
+          outTime,
+          employeeNormalEndMinutes
+        );
+
+        // Holiday / WO-I / Sat week-off: OT column is authoritative (approved OT).
+        // Regular workdays + ADJ-P: also count work after shift end (17:30 or custom).
         if (status === "ADJ-P") {
-          dayOTMinutes =
-            sheetOt > 0
-              ? sheetOt
-              : calculateCustomTimingOT(outTime, employeeNormalEndMinutes);
-        } else {
+          dayOTMinutes = Math.max(sheetOt, punchOt);
+        } else if (isGrantedStaffSheetOtAuthoritative(status, dayName)) {
           dayOTMinutes = sheetOt;
+        } else {
+          dayOTMinutes = Math.max(sheetOt, punchOt);
         }
 
         grantedFromSheetStaffMinutes += dayOTMinutes;
@@ -878,7 +883,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
     worker9to6OT:
       "Portion of OT calculated from custom timing (e.g., 9:00 to 6:00) for Workers in the 9 to 6 sheet.",
     grantedFromSheet:
-      "OT for staff on the Granted sheet: sum of the OT Hours column for each day in the grant From–To range (validated values). Punch-out is not used to inflate OT; ADJ-P uses OT Hours when present, otherwise shift-end rules.",
+      "Granted-sheet staff OT: For normal working days and ADJ-P, OT = max(OT Hours column, time after shift end 17:30 or custom end). For holidays / WO-I / Saturday week-off markers, only the OT Hours column is used (approved OT).",
     total:
       "Total = Granted From Sheet (Staff) + Staff Granted OT. This is the final OT *before* Full Night OT and Deduction.",
     fullNightOT: "Total OT hours from 'Full Night Stay' sheet (in minutes).",
