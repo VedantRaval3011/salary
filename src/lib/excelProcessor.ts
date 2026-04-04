@@ -6,7 +6,6 @@ import {
   DayAttendance,
   AttendanceData,
 } from "@/lib/types";
-import { ADJ_P_FULL_DAY_MIN_MINS } from "@/lib/adjPresentMinutes";
 
 // Helper function to safely convert cell values to string
 function cellValueToString(value: ExcelJS.CellValue): string {
@@ -272,8 +271,7 @@ function processEmployeeBlock(
            if (outM > inM) workMins = outM - inM;
         }
 
-        const adjPNotFullDay =
-          workMins > 0 && workMins < ADJ_P_FULL_DAY_MIN_MINS;
+        const isHalfDay = workMins > 0 && workMins <= 240;
 
         // Skip early departure logic
         let skipEarlyDep = false;
@@ -283,10 +281,11 @@ function processEmployeeBlock(
             status === "ADJ-P/A" || status === "ADJP/A" || status === "ADJ-PA") {
             skipEarlyDep = true;
         } 
-        // 2. For adj-P, skip early dep unless ~full day; normalize partial to ADJ-P/A
+        // 2. For adj-P, skip ONLY if half day
         else if (status === "ADJ-P" || status === "ADJP") {
-            if (adjPNotFullDay) {
+            if (isHalfDay) {
                 skipEarlyDep = true;
+                // Permanently change status to ADJ-P/A so it's reflected everywhere
                 day.attendance.status = "ADJ-P/A";
             }
         }

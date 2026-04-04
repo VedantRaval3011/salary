@@ -7,11 +7,6 @@ import { useFinalDifference } from "@/context/FinalDifferenceContext";
 import { useHRDataLookup } from "@/hooks/useHRDataLookup";
 import { getPermissibleLateMinutes } from "@/lib/unifiedCalculations";
 import { getSmartPresentDayExplanation } from "@/lib/differenceExplanation";
-import {
-  getAdjPWorkMinutes,
-  isAdjPFullDayPresent,
-  isAdjPHalfDayPresent,
-} from "@/lib/adjPresentMinutes";
 import { DifferenceExplanationModal } from "./DifferenceExplanationModal";
 
 // Utility helpers
@@ -497,6 +492,31 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
     employee.days?.forEach((day) => {
       const status = (day.attendance.status || "").toUpperCase();
 
+      // Check for ADJ-P half day (treat as P/A)
+      let isAdjPHalfDay = false;
+      if (status === "ADJ-P") {
+        const workHours = day.attendance.workHrs || 0;
+        let workMins = 0;
+        if (typeof workHours === "string" && workHours.includes(":")) {
+          const [h, m] = workHours.split(":").map(Number);
+          workMins = h * 60 + (m || 0);
+        } else if (!isNaN(Number(workHours))) {
+          workMins = Number(workHours) * 60;
+        }
+        if (workMins === 0 && day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
+          const inM = timeToMinutes(day.attendance.inTime);
+          const outM = timeToMinutes(day.attendance.outTime);
+          if (outM > inM) {
+            workMins = outM - inM;
+          }
+        }
+
+        // Updated threshold to 320 minutes (5h 20m) to match AttendanceGrid logic
+        if (workMins > 0 && workMins <= 320) {
+          isAdjPHalfDay = true;
+        }
+      }
+
       // Handle Adjusted Day variants (count as Present)
       // ✅ STRICT RULE: Only "Adjusted" days count as Present.
       // Pure OT days (WO-I, M/WO-I) should NOT count as Present.
@@ -536,16 +556,14 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
         } else {
              fullPresentDays++;
         }
-      } else if (
-        status === "P/A" ||
-        status === "PA" ||
-        status === "ADJ-P/A" ||
-        status === "ADJP/A" ||
-        (status === "ADJ-P" && isAdjPHalfDayPresent(getAdjPWorkMinutes(day)))
-      ) {
+      } else if (status === "P/A" || status === "PA" || status === "ADJ-P/A" || status === "ADJP/A" || isAdjPHalfDay) {
         paCount++;
-      } else if (status === "ADJ-P" && isAdjPFullDayPresent(getAdjPWorkMinutes(day))) {
-        adjPresentDays++;
+      } else if (status === "ADJ-P") {
+        const inTime = day.attendance.inTime;
+        const outTime = day.attendance.outTime;
+        if (inTime && inTime !== "-" && outTime && outTime !== "-") {
+          adjPresentDays++;
+        }
       }
     });
 
@@ -663,14 +681,34 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
         return;
       }
 
-      const adjPWorkMins = status === "ADJ-P" ? getAdjPWorkMinutes(day) : 0;
-      const isAdjPNotFullDay =
-        status === "ADJ-P" && isAdjPHalfDayPresent(adjPWorkMins);
+      // Check for ADJ-P half day (treat as P/A)
+      let isAdjPHalfDay = false;
+      if (status === "ADJ-P") {
+        const workHours = day.attendance.workHrs || 0;
+        let workMins = 0;
+        if (typeof workHours === "string" && workHours.includes(":")) {
+          const [h, m] = workHours.split(":").map(Number);
+          workMins = h * 60 + (m || 0);
+        } else if (!isNaN(Number(workHours))) {
+          workMins = Number(workHours) * 60;
+        }
+        if (workMins === 0 && day.attendance.inTime && day.attendance.outTime && day.attendance.inTime !== "-" && day.attendance.outTime !== "-") {
+          const inM = timeToMinutes(day.attendance.inTime);
+          const outM = timeToMinutes(day.attendance.outTime);
+          if (outM > inM) {
+            workMins = outM - inM;
+          }
+        }
+
+        if (workMins > 0 && workMins <= 240) {
+          isAdjPHalfDay = true;
+        }
+      }
 
       const inMinutes = timeToMinutes(inTime);
       let dailyLateMins = 0;
 
-      if (status === "P/A" || status === "PA" || isAdjPNotFullDay) {
+      if (status === "P/A" || status === "PA" || isAdjPHalfDay) {
         if (inMinutes < MORNING_EVENING_CUTOFF_MINUTES) {
           if (inMinutes > employeeNormalStartMinutes) {
             dailyLateMins = inMinutes - employeeNormalStartMinutes;
@@ -905,8 +943,7 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
 
   const tooltipTexts: any = {
     PD_excel: "Present days counted directly from attendance sheet.",
-    PAA:
-      "Present after adjustment: full P days + ADJ-P counted as 1.0 only when worked ~8h+ (from work hours / in–out), otherwise ADJ-P counts 0.5 + (P/A × 0.5).",
+    PAA: "Present days after adjustment: Full Present days + ADJ-P days + (P/A days × 0.5).",
     H_base: "Holidays selected from Holiday Management.",
     Total: "Present After Adj + Holidays (Base)",
     AdditionalOT:

@@ -15,10 +15,6 @@ import { useHRLateLookup } from "@/hooks/useHRLateLookup";
 import { usePunchData } from "@/context/PunchDataContext";
 import { useMaintenanceDeductLookup } from "@/hooks/useMaintenanceDeductLookup";
 import { useStaffOTGrantedLookup } from "@/hooks/useStaffOTGrantedLookup";
-import {
-  isAdjPFullDayPresent,
-  isAdjPHalfDayPresent,
-} from "@/lib/adjPresentMinutes";
 
 // Utility helpers
 const canon = (s: string) => (s ?? "").toUpperCase().trim();
@@ -568,6 +564,12 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
         if (outM > inM) workMins = outM - inM;
       }
 
+      // Check for ADJ-P half day
+      let isAdjPHalfDay = false;
+      if ((status === "ADJ-P" || status === "ADJP") && workMins > 0 && workMins <= 320) {
+        isAdjPHalfDay = true;
+      }
+
       // === LATE ARRIVAL CALCULATION ===
       if (inTime && inTime !== "-") {
         const inMinutes = timeToMinutes(inTime);
@@ -578,15 +580,8 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
         const isSaturday = dayName === "sa" || dayName === "sat" || dayName === "saturday";
 
         // ⭐ P/A status should ALWAYS use P/A-specific rules, regardless of custom timing
-        if (
-          status === "P/A" ||
-          status === "PA" ||
-          status === "ADJ-P/A" ||
-          status === "ADJP/A" ||
-          status === "ADJ-PA" ||
-          ((status === "ADJ-P" || status === "ADJP") &&
-            isAdjPHalfDayPresent(workMins))
-        ) {
+        if (status === "P/A" || status === "PA" || status === "ADJ-P/A" ||
+          status === "ADJP/A" || status === "ADJ-PA" || isAdjPHalfDay) {
 
           // P/A: Use morning/evening cutoff logic for ALL days (not just Saturday)
           // Morning shift: before 10:00 AM cutoff → late from 8:30 AM
@@ -605,23 +600,13 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
             // If between 10:00 AM and 1:15 PM, late is 0 (arrived on time for afternoon shift)
           }
         } else if (customTiming) {
-          const skipAdjPPartial =
-            (status === "ADJ-P" || status === "ADJP") &&
-            isAdjPHalfDayPresent(workMins);
-          if (
-            !skipAdjPPartial &&
-            inMinutes > employeeNormalStartMinutes
-          ) {
-            dailyLateMins = inMinutes - employeeNormalStartMinutes;
-          }
-        } else if (status === "P" || status === "ADJ-M/WO-I") {
+          // Use custom timing for regular P/ADJ-P status
           if (inMinutes > employeeNormalStartMinutes) {
             dailyLateMins = inMinutes - employeeNormalStartMinutes;
           }
-        } else if (
-          (status === "ADJ-P" || status === "ADJP") &&
-          isAdjPFullDayPresent(workMins)
-        ) {
+        } else if (status === "P" || status === "ADJ-P" || status === "ADJ-M/WO-I") {
+          // Standard timing for P/ADJ-P and ADJ-M/WO-I
+          // ADJ-M/WO-I: Count late arrival even though early departure is skipped
           if (inMinutes > employeeNormalStartMinutes) {
             dailyLateMins = inMinutes - employeeNormalStartMinutes;
           }
@@ -666,10 +651,8 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
         return;
       }
 
-      if (
-        (status === "ADJ-P" || status === "ADJP") &&
-        !isAdjPFullDayPresent(workMins)
-      ) {
+      // Skip ADJ-P half day
+      if (isAdjPHalfDay) {
         return;
       }
 
