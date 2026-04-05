@@ -649,18 +649,23 @@ function calculateFinalOT(
       if (dateNum < fromD || dateNum > toD) return;
 
       const status = (day.attendance.status || "").toString().trim().toUpperCase();
-      const dayName = (day.day || "").toString().trim().toLowerCase();
       const outTime = day.attendance.outTime;
       let dayOTMinutes = 0;
 
-      // ✅ NEW: Exclude Adjusted Days (ADJ-M/WO-I, ADJ-M) from OT even for granted employees
-      // Unless Maintenance (then calculate extra hours)
-      if (status === "ADJ-M/WO-I" || status === "ADJ-M") {
+      // ADJ-M/WO-I = employee worked on a week-off day (with morning adjustment).
+      // The WO-I component means OT applies: count time beyond normal shift end.
+      if (status === "ADJ-M/WO-I") {
+        dayOTMinutes = calculateCustomTimingOT(outTime, employeeNormalEndMinutes);
+        grantedFromSheetStaffMinutes += dayOTMinutes;
+        return;
+      }
+
+      // ADJ-M alone = morning adjustment on a regular working day -> no OT
+      // UNLESS the employee is Maintenance, then count time beyond shift end.
+      if (status === "ADJ-M") {
         if (isMaintenance) {
-             dayOTMinutes = calculateCustomTimingOT(outTime, employeeNormalEndMinutes);
-             grantedFromSheetStaffMinutes += dayOTMinutes;
-        } else {
-             grantedFromSheetStaffMinutes += 0;
+          dayOTMinutes = calculateCustomTimingOT(outTime, employeeNormalEndMinutes);
+          grantedFromSheetStaffMinutes += dayOTMinutes;
         }
         return;
       }
@@ -681,17 +686,11 @@ function calculateFinalOT(
       }
 
       const sheetOt = getSheetOtMinutes(day.attendance);
-      const punchOt = calculateCustomTimingOT(
-        outTime,
-        employeeNormalEndMinutes
-      );
-      if (status === "ADJ-P") {
-        dayOTMinutes = Math.max(sheetOt, punchOt);
-      } else if (isGrantedStaffSheetOtAuthoritative(status, dayName)) {
-        dayOTMinutes = sheetOt;
-      } else {
-        dayOTMinutes = Math.max(sheetOt, punchOt);
-      }
+
+      // ✅ Always use the validated OT Hours column for granted-sheet staff.
+      // The OT column already reflects approved OT (break adjustments, shift rules applied).
+      // Do NOT recalculate from raw punch times — that leads to inflated totals.
+      dayOTMinutes = sheetOt;
 
       grantedFromSheetStaffMinutes += dayOTMinutes;
     });
