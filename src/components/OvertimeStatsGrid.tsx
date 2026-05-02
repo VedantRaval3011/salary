@@ -648,11 +648,14 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
         const outTime = day.attendance.outTime;
         let dayOTMinutes = 0;
 
-        // ADJ-M/WO-I = employee worked on a week-off day (with morning adjustment).
-        // The WO-I component means OT applies: count time beyond normal shift end.
+        // ADJ-P handling: staff gets 0 OT for ADJ-P (adjusted punch)
+        if (status === "ADJ-P" || status === "ADJ-P/A" || status === "ADJP/A") {
+          return;
+        }
+
+        // ADJ-M/WO-I = morning adjustment on a week-off.
+        // As per the adjustment rules, it must be counted as 0 OT.
         if (status === "ADJ-M/WO-I") {
-          dayOTMinutes = calculateCustomTimingOT(outTime, employeeNormalEndMinutes);
-          grantedFromSheetStaffMinutes += dayOTMinutes;
           return;
         }
 
