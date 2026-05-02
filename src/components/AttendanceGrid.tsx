@@ -483,7 +483,7 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
     const HALF_DAY_MIN = 4 * 60 - 5;
     const HALF_DAY_MAX = 5 * 60;
     const isWaiverApplicable = 
-        (status === "ADJ-M/WO-I" || status.includes("P/A") || status.includes("PA")) && 
+        status === "ADJ-M/WO-I" && 
         workMins >= HALF_DAY_MIN &&
         workMins <= HALF_DAY_MAX;
 

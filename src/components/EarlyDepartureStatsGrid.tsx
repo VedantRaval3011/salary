@@ -645,7 +645,7 @@ export const EarlyDepartureStatsGrid: React.FC<Props> = ({
       const HALF_DAY_MAX = 5 * 60; // 300 mins
       
       if (
-        (status === "ADJ-M/WO-I" || status.includes("P/A") || status.includes("PA")) &&
+        status === "ADJ-M/WO-I" &&
         workMins >= HALF_DAY_MIN &&
         workMins <= HALF_DAY_MAX
       ) {
