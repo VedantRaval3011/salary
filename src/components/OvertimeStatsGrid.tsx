@@ -621,6 +621,19 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
     let workerGrantedOTMinutes = 0;
     let worker9to6OTMinutes = 0;
 
+    const calculateAdjPOT = (inTime: string | undefined, outTime: string | undefined): number => {
+      if (!inTime || !outTime || inTime === "-" || outTime === "-") return 0;
+      const inMinutes = timeToMinutes(inTime);
+      const outMinutes = timeToMinutes(outTime);
+      if (outMinutes > inMinutes) {
+        const duration = outMinutes - inMinutes;
+        if (duration > 570) { // 9 hours 30 mins
+          return duration - 540; // Subtract 9 hours (8h work + 1h break)
+        }
+      }
+      return 0;
+    };
+
     const calculateCustomTimingOT = (outTime: string, expectedEndMinutes: number): number => {
       if (!outTime || outTime === "-") return 0;
       const outMin = timeToMinutes(outTime);
@@ -648,8 +661,10 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
         const outTime = day.attendance.outTime;
         let dayOTMinutes = 0;
 
-        // ADJ-P handling: staff gets 0 OT for ADJ-P (adjusted punch)
+        // ADJ-P handling: OT applies immediately after shift end and includes early coming
         if (status === "ADJ-P" || status === "ADJ-P/A" || status === "ADJP/A") {
+          dayOTMinutes = calculateAdjPOT(day.attendance.inTime, outTime);
+          grantedFromSheetStaffMinutes += dayOTMinutes;
           return;
         }
 
@@ -726,9 +741,10 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
           }
 
 
-          // ADJ-P handling
-          if (status === "ADJ-P") {
-            return; // Staff gets 0 OT for ADJ-P
+          // ADJ-P handling: OT applies immediately after shift end and includes early coming
+          if (status === "ADJ-P" || status === "ADJ-P/A" || status === "ADJP/A") {
+            staffGrantedOTMinutes += calculateAdjPOT(day.attendance.inTime, day.attendance.outTime);
+            return;
           }
 
           // Other holiday statuses (match variants like "M/WO-I", "ADJ-M/WO-I", "H")
@@ -760,7 +776,7 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
           const dayName = (day.day || "").toLowerCase();
           const status = (day.attendance.status || "").toString().trim().toUpperCase();
 
-          if (dayName !== "sa" && status !== "ADJ-P" && status !== "ADJ-M" && status !== "WO-I") {
+          if (dayName !== "sa" && !status.includes("ADJ-P") && status !== "ADJP/A" && status !== "ADJ-M" && status !== "WO-I") {
             let dayOTMinutes = 0;
 
             // ✅ FIXED: Use custom timing consistently
@@ -839,17 +855,9 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
               worker9to6OTMinutes += dayOTMinutes;
             }
           }
-          // ADJ-P with buffer
-          else if (status === "ADJ-P") {
-            const outTime = day.attendance.outTime;
-            if (outTime && outTime !== "-") {
-              const outMinutes = timeToMinutes(outTime);
-              const bufferEnd = employeeNormalEndMinutes + ADJ_P_BUFFER_MINUTES;
-
-              if (outMinutes > bufferEnd) {
-                dayOTMinutes = outMinutes - employeeNormalEndMinutes;
-              }
-            }
+          // ADJ-P handling: OT applies immediately after shift end and includes early coming
+          else if (status === "ADJ-P" || status === "ADJ-P/A" || status === "ADJP/A") {
+            dayOTMinutes = calculateAdjPOT(day.attendance.inTime, day.attendance.outTime);
           }
           // ⚠️ CRITICAL: Only use OT field for non-custom-timing days
           // Do NOT count this for custom timing employees (already calculated above)

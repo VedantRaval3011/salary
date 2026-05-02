@@ -365,20 +365,17 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
     const outTime = day.attendance.outTime;
     const dateNum = Number(day.date) || 0;
 
-    // ADJ-P special handling: OT only after 6:00 PM (5:30 PM + 30 min buffer)
+    // ADJ-P special handling: OT based on total duration > 9h30m
     if (status === "ADJ-P" || status === "ADJ-P/A" || status === "ADJP/A") {
-      if (isStaff) return 0;
-
-      if (outTime && outTime !== "-") {
+      const inTime = day.attendance.inTime;
+      if (inTime && inTime !== "-" && outTime && outTime !== "-") {
+        const inMinutes = timeToMinutes(inTime);
         const outMinutes = timeToMinutes(outTime);
-        const ADJ_P_SHIFT_END = 17 * 60 + 30; // 17:30
-        const ADJ_P_BUFFER = 30; // minutes
-        const ADJ_P_BUFFER_END = ADJ_P_SHIFT_END + ADJ_P_BUFFER; // 18:00
-
-        if (outMinutes > ADJ_P_BUFFER_END) {
-          return outMinutes - ADJ_P_SHIFT_END;
-        } else {
-          return 0;
+        if (outMinutes > inMinutes) {
+          const duration = outMinutes - inMinutes;
+          if (duration > 570) { // 9 hours 30 mins
+            return duration - 540; // Subtract 9 hours (8h work + 1h break)
+          }
         }
       }
       return 0;
