@@ -12,6 +12,7 @@ export default function SalaryValidationModal({ onClose }: Props) {
   const [workerFile, setWorkerFile]     = useState<File | null>(null);
   const [staffFile, setStaffFile]       = useState<File | null>(null);
   const [monthWiseFile, setMonthWiseFile] = useState<File | null>(null);
+  const [miscFile, setMiscFile]         = useState<File | null>(null);
   const [loading, setLoading]           = useState(false);
   const [error, setError]               = useState<string | null>(null);
   const [result, setResult]             = useState<ValidationResult | null>(null);
@@ -21,6 +22,7 @@ export default function SalaryValidationModal({ onClose }: Props) {
   const workerRef = useRef<HTMLInputElement | null>(null);
   const staffRef  = useRef<HTMLInputElement | null>(null);
   const monthRef  = useRef<HTMLInputElement | null>(null);
+  const miscRef   = useRef<HTMLInputElement | null>(null);
 
   const handleWorkerFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     setWorkerFile(e.target.files?.[0] ?? null); setResult(null); setError(null);
@@ -31,6 +33,9 @@ export default function SalaryValidationModal({ onClose }: Props) {
   const handleMonthFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     setMonthWiseFile(e.target.files?.[0] ?? null); setResult(null); setError(null);
   };
+  const handleMiscFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setMiscFile(e.target.files?.[0] ?? null); setResult(null); setError(null);
+  };
 
   const handleRun = async () => {
     const workerFiles = [workerFile, staffFile].filter(Boolean) as File[];
@@ -40,7 +45,7 @@ export default function SalaryValidationModal({ onClose }: Props) {
     }
     setLoading(true); setError(null); setResult(null);
     try {
-      const res = await validateSalary(workerFiles, monthWiseFile);
+      const res = await validateSalary(workerFiles, monthWiseFile, miscFile);
       setResult(res);
       setExpandedPages(new Set(res.pages.map((_, i) => i)));
     } catch (err: any) {
@@ -84,8 +89,8 @@ export default function SalaryValidationModal({ onClose }: Props) {
 
         <div className="p-6">
 
-          {/* ── File Upload Row — 3 columns ───────────────── */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          {/* ── File Upload Row ───────────────────────────── */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
 
             {/* Worker File */}
             <FileCard
@@ -122,6 +127,17 @@ export default function SalaryValidationModal({ onClose }: Props) {
               onChange={handleMonthFile}
               onClear={() => { setMonthWiseFile(null); if (monthRef.current) monthRef.current.value = ""; }}
             />
+
+            <FileCard
+              label="Misc Sheet (Employee 2)"
+              hint="e.g. 14. Misc..xlsx — required for Misc. Employee 2"
+              icon="📎"
+              color="amber"
+              file={miscFile}
+              inputRef={miscRef}
+              onChange={handleMiscFile}
+              onClear={() => { setMiscFile(null); if (miscRef.current) miscRef.current.value = ""; }}
+            />
           </div>
 
           {/* ── Run Button ────────────────────────────────── */}
@@ -155,6 +171,17 @@ export default function SalaryValidationModal({ onClose }: Props) {
             />
           )}
 
+          {result && result.miscSheetValidation && (
+            <MonthWiseSection
+              data={result.miscSheetValidation}
+              expanded={expandedMonthWise}
+              onToggle={() => setExpandedMonthWise(p => !p)}
+              formatVal={formatVal}
+              title="Misc Sheet Physical Sum Validation"
+              subtitle="Sum of employee rows in the Misc Excel vs its Grand Total row"
+            />
+          )}
+
           {result && result.pages.length === 0 && (
             <div className="p-6 text-center text-gray-500 bg-gray-50 rounded-xl border border-dashed border-gray-300">
               No salary pages detected. Ensure the files contain "SALARY FOR THE MONTH OF…" headers.
@@ -178,12 +205,13 @@ export default function SalaryValidationModal({ onClose }: Props) {
 
 // ─── File Card ────────────────────────────────────────────────────────────────
 
-type CardColor = "indigo" | "emerald" | "purple";
+type CardColor = "indigo" | "emerald" | "purple" | "amber";
 
 const colorMap: Record<CardColor, { border: string; bg: string; hoverBorder: string; hoverBg: string; label: string; hint: string }> = {
   indigo:  { border: "border-indigo-300",  bg: "bg-indigo-50",  hoverBorder: "hover:border-indigo-500",  hoverBg: "hover:bg-indigo-100",  label: "text-indigo-800",  hint: "text-indigo-500"  },
   emerald: { border: "border-emerald-300", bg: "bg-emerald-50", hoverBorder: "hover:border-emerald-500", hoverBg: "hover:bg-emerald-100", label: "text-emerald-800", hint: "text-emerald-500" },
   purple:  { border: "border-purple-300",  bg: "bg-purple-50",  hoverBorder: "hover:border-purple-500",  hoverBg: "hover:bg-purple-100",  label: "text-purple-800",  hint: "text-purple-500"  },
+  amber:   { border: "border-amber-300",   bg: "bg-amber-50",   hoverBorder: "hover:border-amber-500",   hoverBg: "hover:bg-amber-100",   label: "text-amber-800",   hint: "text-amber-600"   },
 };
 
 function FileCard({
@@ -228,6 +256,8 @@ function PageSection({
   formatVal: (v: number | string | null, cellFound: boolean) => string;
 }) {
   const mismatchCount = page.columns.filter((c) => !c.match).length;
+  const isMiscSheetPage = page.workerGroup.toLowerCase().includes("misc") && page.workerGroup.includes("2");
+  const sourceLabel = isMiscSheetPage ? "Misc Sheet (Grand Total)" : "Grand Total (Worker)";
 
   return (
     <div className={`mb-4 rounded-xl border-2 overflow-hidden ${page.allMatch ? "border-green-300" : "border-red-300"}`}>
@@ -265,7 +295,7 @@ function PageSection({
             <thead>
               <tr className="bg-gray-100 text-gray-600 text-xs uppercase tracking-wide">
                 <th className="text-left px-4 py-2.5 font-semibold">Column</th>
-                <th className="text-right px-4 py-2.5 font-semibold">Grand Total (Worker)</th>
+                <th className="text-right px-4 py-2.5 font-semibold">{sourceLabel}</th>
                 <th className="text-center px-3 py-2.5 font-semibold text-gray-400">Cell</th>
                 <th className="text-right px-4 py-2.5 font-semibold">Month Wise Sheet</th>
                 <th className="text-center px-3 py-2.5 font-semibold text-gray-400">Cell</th>
@@ -312,12 +342,17 @@ function PageSection({
 
 function MonthWiseSection({
   data, expanded, onToggle, formatVal,
+  title = "Month Wise Sheet Totals Validation",
+  subtitle = "Validates that physical sums of Month Wise columns match their Grand Total row",
 }: {
   data: MonthWiseValidationResult; expanded: boolean;
   onToggle: () => void;
   formatVal: (v: number | string | null, cellFound: boolean) => string;
+  title?: string;
+  subtitle?: string;
 }) {
   const mismatchCount = data.columns.filter((c) => !c.match).length;
+  const gtRow = data.columns[0]?.grandTotalRow ?? "?";
 
   return (
     <div className={`mb-4 rounded-xl border-2 overflow-hidden ${data.allMatch ? "border-green-300" : "border-red-300"}`}>
@@ -328,9 +363,9 @@ function MonthWiseSection({
         <div className="flex items-center gap-3">
           <span className="text-lg">{data.allMatch ? "✅" : "❌"}</span>
           <div>
-            <p className="font-bold text-gray-800 text-sm">Month Wise Sheet Totals Validation</p>
+            <p className="font-bold text-gray-800 text-sm">{title}</p>
             <p className="text-xs text-gray-500 mt-0.5">
-              Validates that physical sums of Month Wise columns match their Grand Total row (found at row {data.columns[0]?.grandTotalRow ?? "?"})
+              {subtitle} (Grand Total @ row {gtRow})
             </p>
           </div>
         </div>
