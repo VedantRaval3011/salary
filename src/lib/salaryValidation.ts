@@ -51,12 +51,22 @@ export interface ValidationResult {
   sheetName: string;
   pages: PageResult[];
   monthWiseValidation?: MonthWiseValidationResult;
+  /** Physical-sum check: detail rows in the Misc Excel vs its Grand Total row */
+  miscSheetValidation?: MonthWiseValidationResult;
   error?: string;
 }
+
+/** Maps worker/misc page titles → Month Wise group labels */
+const MONTH_WISE_GROUP_ALIASES: Record<string, string> = {
+  "misc employee": "misc worker",
+  "misc employee 2": "misc worker 02",
+  "misc sheet 2": "misc worker 02",
+};
 
 // ─── Column mapping ────────────────────────────────────────────────────────────
 // Maps the display label → keywords to search for in the column header (case-insensitive)
 const COLUMNS_TO_VALIDATE: { label: string; keywords: string[] }[] = [
+  { label: "WD Salary",       keywords: ["wd salary", "wd sal"] },
   { label: "Gross Salary",    keywords: ["salary1", "gross salary", "salary (s"] },
   { label: "PF 12%",          keywords: ["pf 12", "pf12"] },
   { label: "ESIC 0.75%",      keywords: ["esic"] },
@@ -91,6 +101,62 @@ function normalize(s: string): string {
 
 function isSalaryHeader(cellStr: string): boolean {
   return cellStr.toUpperCase().includes("SALARY FOR THE MONTH");
+}
+
+/** Page labels that are only a sheet number (e.g. "01") — common in multi-company workbooks */
+function isNumericPageLabel(name: string): boolean {
+  const n = normalize(name);
+  return /^page \d+$/.test(n) || /^\d{1,3}$/.test(n);
+}
+
+function getFileCategoryHint(fileName: string): "worker" | "staff" {
+  return fileName.toLowerCase().includes("staff") ? "staff" : "worker";
+}
+
+function monthWiseRowMatchesFileHint(groupName: string, hint: "worker" | "staff"): boolean {
+  const g = normalize(groupName);
+  if (g.includes("misc")) return false;
+  if (hint === "staff") return g.includes("staff") && !g.includes("worker");
+  return g.includes("worker") && !g.includes("staff");
+}
+
+/** Prefer EMP. NAME / EMPLOYEE NAME — avoid mistaking EMP. ID for the name column */
+function findNameColumnIndex(headers: unknown[]): number {
+  const normHeaders = headers.map((h) => normalize(String(h ?? "")));
+  const priority = [
+    "employee name",
+    "emp name",
+    "emp. name",
+    "worker group",
+    "group name",
+    "department",
+    "category",
+    "detail",
+  ];
+  for (const kw of priority) {
+    const ci = normHeaders.findIndex((h) => h.includes(kw));
+    if (ci >= 0) return ci;
+  }
+  const nameCol = normHeaders.findIndex((h) => h.includes("name") && !h.includes("id"));
+  if (nameCol >= 0) return nameCol;
+  return 0;
+}
+
+/** Extract a descriptive group name from the salary page header row */
+function extractPageGroupName(headerRow: unknown[], pageIndex: number): string {
+  const descriptive: string[] = [];
+  for (let c = 0; c < headerRow.length; c++) {
+    const v = String(headerRow[c] ?? "").trim();
+    if (!v || isSalaryHeader(v)) continue;
+    if (/^\d+(\.\d+)?$/.test(v)) continue;
+    if (/^(page\s*)?\d{1,3}$/i.test(v)) continue;
+    const norm = normalize(v);
+    if (["nutraceutico", "indiana", "tulsi"].includes(norm)) continue;
+    if (/worker|staff|employee|misc|office|apprentice|boys|girls/i.test(v)) return v;
+    descriptive.push(v);
+  }
+  if (descriptive.length > 0) return descriptive[0];
+  return `Page ${pageIndex + 1}`;
 }
 
 /** Find the column index matching the given keywords array. Returns -1 if not found.
@@ -160,17 +226,8 @@ function parseWorkerSheet(ws: XLSX.WorkSheet): RawPage[] {
         ? pageHeaderIndices[p + 1]
         : data.length;
 
-    // Worker group name: scan the header row for a non-empty cell after col 10
     const headerRow = data[headerRowIdx] as unknown[];
-    let baseWorkerGroup = "";
-    for (let c = 10; c < headerRow.length; c++) {
-      const v = String(headerRow[c] ?? "").trim();
-      if (v && !isSalaryHeader(v)) {
-        baseWorkerGroup = v;
-        break;
-      }
-    }
-    if (!baseWorkerGroup) baseWorkerGroup = `Page ${p + 1}`;
+    const baseWorkerGroup = extractPageGroupName(headerRow, p);
 
     // Column header row: first row after header that has >= 5 non-empty cells
     let columnHeaderRowIdx = headerRowIdx + 1;
@@ -290,15 +347,7 @@ function parseMonthWiseSheet(ws: XLSX.WorkSheet): {
   }
   const headers = data[headerRowIndex] as unknown[];
 
-  // Find name/group column (first col with worker-group-like content)
-  let nameColIndex = 0;
-  for (let c = 0; c < headers.length; c++) {
-    const h = normalize(String(headers[c] ?? ""));
-    if (h.includes("name") || h.includes("worker") || h.includes("group") || h.includes("department") || h.includes("category") || h.includes("detail")) {
-      nameColIndex = c;
-      break;
-    }
-  }
+  const nameColIndex = findNameColumnIndex(headers);
 
   // Find Grand Total row in Month Wise sheet (look from bottom up)
   let grandTotalRowIndex: number | null = null;
@@ -344,25 +393,230 @@ function parseMonthWiseSheet(ws: XLSX.WorkSheet): {
   return { headerRowIndex, headers, rows, grandTotalRowIndex, rawData: data };
 }
 
+// ─── Misc sheet parsing (Misc. Employee 2 — separate Excel file) ─────────────
+
+interface ParsedMiscSheet {
+  workerGroup: string;
+  headerRowIndex: number;
+  headers: unknown[];
+  grandTotalRowIndex: number | null;
+  firstDetailRowIndex: number;
+  lastDetailRowIndex: number;
+  rawData: unknown[][];
+}
+
+function isMiscSecondLabel(name: string): boolean {
+  const n = normalize(name);
+  if (!n.includes("misc")) return false;
+  return /\b02\b/.test(n) || n.endsWith(" 2");
+}
+
+function parseMiscSheet(ws: XLSX.WorkSheet): ParsedMiscSheet | null {
+  const data: unknown[][] = XLSX.utils.sheet_to_json(ws, {
+    header: 1,
+    defval: "",
+    blankrows: true,
+  }) as unknown[][];
+
+  if (data.length < 3) return null;
+
+  let headerRowIndex = 0;
+  let maxNonEmpty = 0;
+  for (let r = 0; r < Math.min(data.length, 10); r++) {
+    const row = data[r] as unknown[];
+    const nonEmpty = row.filter((c) => String(c ?? "").trim() !== "").length;
+    if (nonEmpty > maxNonEmpty) {
+      maxNonEmpty = nonEmpty;
+      headerRowIndex = r;
+    }
+  }
+  const headers = data[headerRowIndex] as unknown[];
+
+  let nameColIndex = 3;
+  for (let c = 0; c < headers.length; c++) {
+    const h = normalize(String(headers[c] ?? ""));
+    if (h.includes("employee name") || h === "emp name" || h.includes("emp name")) {
+      nameColIndex = c;
+      break;
+    }
+  }
+
+  let grandTotalRowIndex: number | null = null;
+  for (let r = data.length - 1; r > headerRowIndex; r--) {
+    const row = data[r] as unknown[];
+    const rowStr = JSON.stringify(row).toUpperCase();
+    if (
+      rowStr.includes("GRAND TOTAL") ||
+      rowStr.includes("TOTAL :-") ||
+      rowStr.includes("TOTAL:-") ||
+      rowStr.includes("TOTAL :")
+    ) {
+      grandTotalRowIndex = r;
+      break;
+    }
+  }
+
+  if (grandTotalRowIndex === null) {
+    for (let r = data.length - 1; r > headerRowIndex; r--) {
+      const row = data[r] as unknown[];
+      const name = String(row[nameColIndex] ?? "").trim();
+      const grossCol = findColIndex(headers, ["salary1", "gross salary"]);
+      const gross = grossCol >= 0 ? toNum(row[grossCol]) : null;
+      if (!name && gross !== null && gross > 0) {
+        grandTotalRowIndex = r;
+        break;
+      }
+    }
+  }
+
+  if (grandTotalRowIndex === null) return null;
+
+  let firstDetail = headerRowIndex + 1;
+  let lastDetail = grandTotalRowIndex - 1;
+  for (let r = headerRowIndex + 1; r < grandTotalRowIndex; r++) {
+    const row = data[r] as unknown[];
+    const name = String(row[nameColIndex] ?? "").trim();
+    if (name && !normalize(name).includes("employee name")) {
+      firstDetail = r;
+      break;
+    }
+  }
+  for (let r = grandTotalRowIndex - 1; r > headerRowIndex; r--) {
+    const row = data[r] as unknown[];
+    const name = String(row[nameColIndex] ?? "").trim();
+    if (name && !normalize(name).includes("employee name")) {
+      lastDetail = r;
+      break;
+    }
+  }
+
+  return {
+    workerGroup: "Misc. Employee 2",
+    headerRowIndex,
+    headers,
+    grandTotalRowIndex,
+    firstDetailRowIndex: firstDetail,
+    lastDetailRowIndex: lastDetail,
+    rawData: data,
+  };
+}
+
+function buildPhysicalSumValidation(
+  headers: unknown[],
+  rawData: unknown[][],
+  firstDetailRow: number,
+  lastDetailRow: number,
+  grandTotalRowIndex: number | null
+): MonthWiseValidationResult {
+  const mwCols: MonthWiseColumnResult[] = [];
+  const usedLabels = new Set<string>();
+  const mwAssignedCols = new Set<number>();
+  const mwColAssignments: Array<{ label: string; colIndex: number }> = [];
+
+  for (const { label, keywords } of COLUMNS_TO_VALIDATE) {
+    if (usedLabels.has(label)) continue;
+    const ci = findColIndex(headers, keywords);
+    if (ci >= 0 && !mwAssignedCols.has(ci)) {
+      mwColAssignments.push({ label, colIndex: ci });
+      mwAssignedCols.add(ci);
+      usedLabels.add(label);
+    } else if (ci >= 0) {
+      mwColAssignments.push({ label, colIndex: ci });
+      usedLabels.add(label);
+    }
+  }
+
+  let mwAllMatch = true;
+  for (const { label, colIndex } of mwColAssignments) {
+    let sum = 0;
+    for (let r = firstDetailRow; r <= lastDetailRow; r++) {
+      const row = rawData[r] as unknown[];
+      const v = row[colIndex];
+      const num = typeof v === "number" ? v : toNum(v);
+      if (num !== null) sum += num;
+    }
+    const physicalSum = Math.round(sum * 100) / 100;
+
+    let gtVal: number | string | null = null;
+    let gtCell: string | null = null;
+    if (grandTotalRowIndex !== null && colIndex >= 0) {
+      const gtRow = rawData[grandTotalRowIndex] as unknown[];
+      gtVal = (toNum(gtRow[colIndex]) ?? String(gtRow[colIndex] ?? "").trim()) || null;
+      gtCell = encodeCell(grandTotalRowIndex, colIndex);
+    }
+
+    const coerce = (v: number | string | null): number => {
+      if (v === null || v === undefined || v === "") return 0;
+      if (typeof v === "string") {
+        const n = toNum(v);
+        return n !== null ? n : 0;
+      }
+      return v;
+    };
+
+    const roundedGt = Math.round(coerce(gtVal) * 100) / 100;
+    const match = physicalSum === roundedGt;
+    if (!match) mwAllMatch = false;
+
+    mwCols.push({
+      field: label,
+      colIndex,
+      physicalSum,
+      grandTotalRow: grandTotalRowIndex !== null ? grandTotalRowIndex + 1 : null,
+      grandTotalValue: gtVal,
+      grandTotalCell: gtCell,
+      match,
+    });
+  }
+
+  return { columns: mwCols, allMatch: mwCols.length > 0 && mwAllMatch };
+}
+
 // ─── Fuzzy group name matching ────────────────────────────────────────────────
+
+interface MatchWorkerGroupOptions {
+  fileHint?: "worker" | "staff";
+  /** Index among numbered pages in the same file (01, 02, …) */
+  numericPageIndex?: number;
+}
 
 function matchWorkerGroup(
   name: string,
   monthWiseRows: MonthWiseRow[],
-  usedRowIndices: Set<number>
+  usedRowIndices: Set<number>,
+  options?: MatchWorkerGroupOptions
 ): MonthWiseRow | null {
   const normName = normalize(name);
+  const wantsSecond = isMiscSecondLabel(name);
   /** Helper: skip already-used rows */
   const available = (r: MonthWiseRow) => !usedRowIndices.has(r.rowIndex);
+  const miscRowOk = (r: MonthWiseRow) => {
+    const g = normalize(r.workerGroup);
+    const rowIsSecond = isMiscSecondLabel(g);
+    if (wantsSecond) return rowIsSecond;
+    if (g.includes("misc") && rowIsSecond) return false;
+    return true;
+  };
+
+  const aliasTarget = MONTH_WISE_GROUP_ALIASES[normName];
+  if (aliasTarget) {
+    const match = monthWiseRows.find(
+      (r) => available(r) && miscRowOk(r) && normalize(r.workerGroup) === aliasTarget
+    );
+    if (match) return match;
+  }
 
   // Exact match
-  let match = monthWiseRows.find((r) => available(r) && normalize(r.workerGroup) === normName);
+  let match = monthWiseRows.find(
+    (r) => available(r) && miscRowOk(r) && normalize(r.workerGroup) === normName
+  );
   if (match) return match;
 
   // Partial: one contains the other
   match = monthWiseRows.find(
     (r) =>
       available(r) &&
+      miscRowOk(r) &&
       (normalize(r.workerGroup).includes(normName) ||
         normName.includes(normalize(r.workerGroup)))
   );
@@ -373,7 +627,7 @@ function matchWorkerGroup(
   let bestScore = 0;
   let bestMatch: MonthWiseRow | null = null;
   for (const r of monthWiseRows) {
-    if (!available(r)) continue;
+    if (!available(r) || !miscRowOk(r)) continue;
     const rNorm = normalize(r.workerGroup);
     const rTokens = rNorm.split(" ").filter(Boolean);
     const shared = nameTokens.filter((t) => rTokens.includes(t)).length;
@@ -383,7 +637,19 @@ function matchWorkerGroup(
       bestMatch = r;
     }
   }
-  return bestScore >= 0.5 ? bestMatch : null;
+  if (bestScore >= 0.5 && bestMatch) return bestMatch;
+
+  // Numbered pages (e.g. "01") + Worker/Staff file → match NUTRA WORKER / NUTRA STAFF rows
+  if (options?.fileHint && isNumericPageLabel(name)) {
+    const candidates = monthWiseRows
+      .filter((r) => available(r) && miscRowOk(r))
+      .filter((r) => monthWiseRowMatchesFileHint(r.workerGroup, options.fileHint!))
+      .sort((a, b) => a.rowIndex - b.rowIndex);
+    const idx = options.numericPageIndex ?? 0;
+    if (candidates[idx]) return candidates[idx];
+  }
+
+  return null;
 }
 
 // ─── Main validation entry point ──────────────────────────────────────────────
@@ -401,12 +667,24 @@ async function processWorkerFile(
   const workerSheetName = workerWb.SheetNames[0];
   const workerWs = workerWb.Sheets[workerSheetName];
   const rawPages = parseWorkerSheet(workerWs);
+  const fileHint = getFileCategoryHint(workerFile.name);
+  let numericPageIndex = 0;
 
   for (const page of rawPages) {
     const { workerGroup, headerRow, endRowIndex, grandTotalRowIndex, headers, rawData } = page;
+    const matchOptions: MatchWorkerGroupOptions = {
+      fileHint,
+      numericPageIndex: isNumericPageLabel(workerGroup) ? numericPageIndex : undefined,
+    };
 
     // Find matching Month Wise row — skip rows already claimed by earlier pages
-    let mwRow = matchWorkerGroup(workerGroup, monthWiseParsed.rows, usedMwRowIndices);
+    let mwRow = matchWorkerGroup(
+      workerGroup,
+      monthWiseParsed.rows,
+      usedMwRowIndices,
+      matchOptions
+    );
+    if (isNumericPageLabel(workerGroup)) numericPageIndex++;
 
     // Sequential fallback: if fuzzy match failed AND a previous page with the
     // same worker group name already matched a Month Wise row, try the NEXT
@@ -436,11 +714,14 @@ async function processWorkerFile(
     const colAssignments: Array<{ label: string; colIndex: number }> = [];
     const assignedCols = new Set<number>();
 
-    // ── OFFICE STAFF SPECIFIC OVERRIDES ──
-    // The user requested that for Office Staff, Gross Salary should use Column R (index 17)
-    // and Final Paid OT should use Column AD (index 29).
+    // ── OFFICE STAFF SPECIFIC OVERRIDES (Staff Tulsi.xlsx) ──
+    // WD Salary → SALARY1 (O/14), Gross Salary → GROSS SALARY (R/17), Final Paid OT → NET OT (AD/29)
     const isOfficeStaff = workerGroup.toUpperCase().includes("OFFICE STAFF");
     if (isOfficeStaff) {
+      colAssignments.push({ label: "WD Salary", colIndex: 14 }); // O — matches Month Wise WD SALARY
+      assignedCols.add(14);
+      usedLabels.add("WD Salary");
+
       colAssignments.push({ label: "Gross Salary", colIndex: 17 }); // R
       assignedCols.add(17);
       usedLabels.add("Gross Salary");
@@ -448,6 +729,23 @@ async function processWorkerFile(
       colAssignments.push({ label: "Final Paid OT", colIndex: 29 }); // AD
       assignedCols.add(29);
       usedLabels.add("Final Paid OT");
+    } else if (fileHint === "staff" && findColIndex(headers, ["gross salary"]) >= 0) {
+      // Staff Tulsi layout (e.g. NUTRA STAFF): WD → SALARY1, Gross → GROSS SALARY
+      colAssignments.push({ label: "WD Salary", colIndex: 14 });
+      assignedCols.add(14);
+      usedLabels.add("WD Salary");
+
+      colAssignments.push({ label: "Gross Salary", colIndex: 17 });
+      assignedCols.add(17);
+      usedLabels.add("Gross Salary");
+
+      let finalOtCol = findColIndex(headers, ["net ot"]);
+      if (finalOtCol < 0) finalOtCol = findColIndex(headers, ["p ot", "final paid ot"]);
+      if (finalOtCol >= 0) {
+        colAssignments.push({ label: "Final Paid OT", colIndex: finalOtCol });
+        assignedCols.add(finalOtCol);
+        usedLabels.add("Final Paid OT");
+      }
     }
 
     for (const { label, keywords } of COLUMNS_TO_VALIDATE) {
@@ -508,8 +806,13 @@ async function processWorkerFile(
       });
     }
 
+    const displayGroup =
+      mwRow && (isNumericPageLabel(workerGroup) || workerGroup.toLowerCase().startsWith("page "))
+        ? mwRow.workerGroup
+        : workerGroup;
+
     pages.push({
-      workerGroup,
+      workerGroup: displayGroup,
       pageStartRow: headerRow + 1,
       pageEndRow: endRowIndex + 1,
       grandTotalRow: grandTotalRowIndex !== null ? grandTotalRowIndex + 1 : null,
@@ -522,9 +825,112 @@ async function processWorkerFile(
   return workerSheetName;
 }
 
+/** Misc. Employee 2 lives in a separate Misc Excel — compare its Grand Total to Month Wise. */
+async function processMiscFile(
+  miscFile: File,
+  monthWiseParsed: ReturnType<typeof parseMonthWiseSheet>,
+  pages: PageResult[],
+  usedMwRowIndices: Set<number>
+): Promise<{ sheetName: string; physicalSum: MonthWiseValidationResult } | null> {
+  const miscBuf = await miscFile.arrayBuffer();
+  const miscWb = XLSX.read(miscBuf, { type: "array" });
+  const miscSheetName = miscWb.SheetNames[0];
+  const miscWs = miscWb.Sheets[miscSheetName];
+  const parsed = parseMiscSheet(miscWs);
+  if (!parsed || parsed.grandTotalRowIndex === null) return null;
+
+  const { workerGroup, headers, grandTotalRowIndex, rawData, headerRowIndex, firstDetailRowIndex, lastDetailRowIndex } =
+    parsed;
+
+  let mwRow = matchWorkerGroup(workerGroup, monthWiseParsed.rows, usedMwRowIndices);
+  if (!mwRow) {
+    const miscRows = monthWiseParsed.rows.filter(
+      (r) => normalize(r.workerGroup).includes("misc") && isMiscSecondLabel(r.workerGroup)
+    );
+    mwRow = miscRows.find((r) => !usedMwRowIndices.has(r.rowIndex)) ?? null;
+  }
+  if (mwRow) usedMwRowIndices.add(mwRow.rowIndex);
+
+  const columns: ColumnResult[] = [];
+  const usedLabels = new Set<string>();
+  const colAssignments: Array<{ label: string; colIndex: number }> = [];
+  const assignedCols = new Set<number>();
+
+  for (const { label, keywords } of COLUMNS_TO_VALIDATE) {
+    if (usedLabels.has(label)) continue;
+    const ci = findColIndex(headers, keywords);
+    if (ci >= 0 && !assignedCols.has(ci)) {
+      colAssignments.push({ label, colIndex: ci });
+      assignedCols.add(ci);
+      usedLabels.add(label);
+    } else if (ci >= 0) {
+      colAssignments.push({ label, colIndex: ci });
+      usedLabels.add(label);
+    }
+  }
+
+  for (const { label, colIndex } of colAssignments) {
+    let workerVal: number | string | null = null;
+    let workerCell = "";
+    const gtRow = rawData[grandTotalRowIndex] as unknown[];
+    workerVal = (toNum(gtRow[colIndex]) ?? String(gtRow[colIndex] ?? "").trim()) || null;
+    workerCell = encodeCell(grandTotalRowIndex, colIndex);
+
+    let mwVal: number | string | null = null;
+    let mwCell = "";
+    if (mwRow) {
+      const mwColData = mwRow.colMap[label];
+      if (mwColData) {
+        mwVal = mwColData.value;
+        mwCell = mwColData.cell;
+      }
+    }
+
+    const coerce = (v: number | string | null): number | string => {
+      if (v === null || v === undefined || v === "") return 0;
+      return v;
+    };
+    const roundedWorker =
+      typeof workerVal === "number" ? Math.round(workerVal * 100) / 100 : coerce(workerVal);
+    const roundedMw =
+      typeof mwVal === "number" ? Math.round(mwVal * 100) / 100 : coerce(mwVal);
+
+    columns.push({
+      field: label,
+      workerColIndex: colIndex,
+      workerCell,
+      workerValue: workerVal,
+      monthWiseCell: mwCell,
+      monthWiseValue: mwVal,
+      match: roundedWorker === roundedMw,
+    });
+  }
+
+  pages.push({
+    workerGroup,
+    pageStartRow: firstDetailRowIndex + 1,
+    pageEndRow: lastDetailRowIndex + 1,
+    grandTotalRow: grandTotalRowIndex + 1,
+    monthWiseRow: mwRow ? mwRow.rowIndex + 1 : null,
+    columns,
+    allMatch: columns.length > 0 && columns.every((c) => c.match),
+  });
+
+  const physicalSum = buildPhysicalSumValidation(
+    headers,
+    rawData,
+    firstDetailRowIndex,
+    lastDetailRowIndex,
+    grandTotalRowIndex
+  );
+
+  return { sheetName: miscSheetName, physicalSum };
+}
+
 export async function validateSalary(
   workerFiles: File[],
-  monthWiseFile: File
+  monthWiseFile: File,
+  miscFile?: File | null
 ): Promise<ValidationResult> {
   const monthWiseBuf = await monthWiseFile.arrayBuffer();
   const monthWiseWb = XLSX.read(monthWiseBuf, { type: "array" });
@@ -538,6 +944,17 @@ export async function validateSalary(
   // Process all worker/staff files sequentially, sharing the same row-tracking set
   for (const file of workerFiles) {
     await processWorkerFile(file, monthWiseParsed, pages, usedMwRowIndices);
+  }
+
+  let miscSheetValidation: MonthWiseValidationResult | undefined;
+  if (miscFile) {
+    const miscResult = await processMiscFile(
+      miscFile,
+      monthWiseParsed,
+      pages,
+      usedMwRowIndices
+    );
+    if (miscResult) miscSheetValidation = miscResult.physicalSum;
   }
 
   // ── Month Wise Physical Sums Validation ──
@@ -615,5 +1032,6 @@ export async function validateSalary(
       columns: mwCols,
       allMatch: mwCols.length > 0 && mwAllMatch,
     },
+    miscSheetValidation,
   };
 }
