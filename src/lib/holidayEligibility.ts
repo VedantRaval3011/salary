@@ -88,9 +88,12 @@ export function countEligibleHolidays(
   if (joinDay && joinDay > 1) {
     days = days.filter((d) => d.date >= joinDay);
   }
+  // A date set as "Original Date" in Adjustment Days (e.g. 3 → 12) is treated as a
+  // holiday here, so the check looks at the working day before it (the 2nd).
   const bridges = (day: DayAttendance) =>
     isNonWorkingDay(normalize(day.attendance.status)) ||
-    closureDates.has(day.date);
+    closureDates.has(day.date) ||
+    (!!day.isAdjustmentOriginal && getAdjustmentDayWorkMinutes(day) === 0);
 
   let eligible = 0;
   let i = 0;
