@@ -10,6 +10,7 @@ import {
 } from "@/lib/exportComparison";
 import { useHRDataLookup } from "@/hooks/useHRDataLookup";
 import { calculateEmployeeStats } from "@/lib/statsCalculator";
+import { getCompanyClosureDates } from "@/lib/holidayEligibility";
 import { ArrowDown, ArrowUp, ChevronDown, ChevronUp } from "lucide-react";
 
 // Define the type for the sorting state
@@ -536,7 +537,8 @@ export const PresentDayComparison: React.FC<
             getFullNightOTForEmployee,
             getCustomTimingForEmployee,
             isMaintenanceEmployee,
-            finalDifference
+            finalDifference,
+            getCompanyClosureDates(excelData.employees)
           );
           softwareTotal = stats.GrandTotal;
         }

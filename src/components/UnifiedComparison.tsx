@@ -14,6 +14,7 @@ import { useHRDataLookup } from "@/hooks/useHRDataLookup";
 import { useHRLateLookup } from "@/hooks/useHRLateLookup";
 import { useHROTLookup } from "@/hooks/useHROTLookup";
 import { calculateEmployeeStats } from "@/lib/statsCalculator";
+import { getCompanyClosureDates } from "@/lib/holidayEligibility";
 import { calculateTotalCombinedMinutes } from "@/lib/unifiedCalculations";
 import { exportUnifiedComparisonToExcel, exportMajorMediumDifferences } from "@/lib/exportUnifiedComparison";
 import { ArrowDown, ArrowUp, ChevronDown, ChevronUp } from "lucide-react";
@@ -561,7 +562,8 @@ export const UnifiedComparison: React.FC = () => {
           getFullNightOTForEmployee,
           getCustomTimingForEmployee,
           isMaintenanceEmployee,
-          finalDifference
+          finalDifference,
+          getCompanyClosureDates(excelData.employees)
         );
         softwarePresentDays = stats.GrandTotal;
       }

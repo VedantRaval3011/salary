@@ -12,7 +12,10 @@ import {
   isAdjustmentDayFullPresent,
   isAdjustmentDayPartialPresent,
 } from "@/lib/adjPresentMinutes";
-import { countEligibleHolidays } from "@/lib/holidayEligibility";
+import {
+  countEligibleHolidays,
+  getCompanyClosureDates,
+} from "@/lib/holidayEligibility";
 import { DifferenceExplanationModal } from "./DifferenceExplanationModal";
 
 // Utility helpers
@@ -479,6 +482,7 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
 }) => {
   const [isDifferenceModalOpen, setIsDifferenceModalOpen] = useState(false);
   const { getPL } = usePaidLeaveLookup();
+  const { excelData } = useExcel();
   const { lateDeductionOverride } = useFinalDifference();
 
   const { getGrantForEmployee } = useStaffOTGrantedLookup();
@@ -546,7 +550,10 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
     // Check for C CASH EMPLOYEE - Force Holidays to 0
     const isCashEmployee = (employee.department || "").toUpperCase().includes("C CASH EMPLOYEE");
     // Sandwich Rule: holidays with absence on both sides are not paid
-    const validHolidays = countEligibleHolidays(employee.days);
+    const validHolidays = countEligibleHolidays(
+      employee.days,
+      getCompanyClosureDates(excelData?.employees)
+    );
     const H_base = isCashEmployee ? 0 : validHolidays;
 
 
@@ -795,6 +802,7 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
     getCustomTimingForEmployee,
     isMaintenanceEmployee,
     lateDeductionDays,
+    excelData,
   ]);
 
   // Effect to notify parent of Total calculation

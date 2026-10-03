@@ -82,7 +82,8 @@ export function calculateEmployeeStats(
   isMaintenanceEmployee: (
     emp: Pick<EmployeeData, "empCode" | "empName">
   ) => boolean,
-  finalDifference: number = 0 // 🆕 ADD THIS PARAMETER WITH DEFAULT VALUE
+  finalDifference: number = 0, // 🆕 ADD THIS PARAMETER WITH DEFAULT VALUE
+  closureDates: Set<number> = new Set() // company-wide closure days (see getCompanyClosureDates)
 ) {
   // --- 1. Calculate PAA (Present After Adjustment) ---
   let paCount = 0;
@@ -120,7 +121,11 @@ export function calculateEmployeeStats(
   // Check for C CASH EMPLOYEE - Force Holidays to 0
   const isCashEmployee = (employee.department || "").toUpperCase().includes("C CASH EMPLOYEE");
   // --- Sandwich Rule: holidays with absence on both sides are not paid ---
-  const validHolidays = countEligibleHolidays(employee.days, employee.empName);
+  const validHolidays = countEligibleHolidays(
+    employee.days,
+    closureDates,
+    employee.empName
+  );
   const H_base = isCashEmployee ? 0 : validHolidays;
 
   const Total = PAA + (isCashEmployee ? 0 : validHolidays);
