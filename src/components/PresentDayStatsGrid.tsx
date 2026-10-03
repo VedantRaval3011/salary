@@ -12,6 +12,7 @@ import {
   isAdjustmentDayFullPresent,
   isAdjustmentDayPartialPresent,
 } from "@/lib/adjPresentMinutes";
+import { countEligibleHolidays } from "@/lib/holidayEligibility";
 import { DifferenceExplanationModal } from "./DifferenceExplanationModal";
 
 // Utility helpers
@@ -544,92 +545,9 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
     const PAA = fullPresentDays + adjPresentDays + paAdjustment;
     // Check for C CASH EMPLOYEE - Force Holidays to 0
     const isCashEmployee = (employee.department || "").toUpperCase().includes("C CASH EMPLOYEE");
-    const H_base = isCashEmployee ? 0 : (selectedHolidaysCount || baseHolidaysCount || 0);
-
-    let validHolidays = 0;
-    const days = employee.days || [];
-
-    const isAbsentOrNA = (status: string): boolean => {
-      const normalized = status.toUpperCase().trim();
-      return (
-        normalized === "A" || normalized === "NA" || normalized === "ABSENT"
-      );
-    };
-
-    const isHolidayOrSpecial = (status: string): boolean => {
-      const normalized = status.toUpperCase().trim();
-      return (
-        normalized === "H" ||
-        normalized === "ADJ-M/WO-I" ||
-        normalized === "ADJ-M" ||
-        normalized === "WO-I"
-      );
-    };
-
-    let i = 0;
-    while (i < days.length) {
-      const currentStatus = (days[i].attendance.status || "")
-        .toUpperCase()
-        .trim();
-
-      if (isHolidayOrSpecial(currentStatus)) {
-        const blockStart = i;
-        let blockEnd = i;
-
-        while (
-          blockEnd < days.length &&
-          isHolidayOrSpecial(
-            (days[blockEnd].attendance.status || "").toUpperCase().trim()
-          )
-        ) {
-          blockEnd++;
-        }
-        blockEnd--;
-
-        let prevStatus = null;
-        for (let j = blockStart - 1; j >= 0; j--) {
-          const pStatus = (days[j].attendance.status || "")
-            .toUpperCase()
-            .trim();
-          if (!isHolidayOrSpecial(pStatus)) {
-            prevStatus = pStatus;
-            break;
-          }
-        }
-
-        let nextStatus = null;
-        for (let j = blockEnd + 1; j < days.length; j++) {
-          const nStatus = (days[j].attendance.status || "")
-            .toUpperCase()
-            .trim();
-          if (!isHolidayOrSpecial(nStatus)) {
-            nextStatus = nStatus;
-            break;
-          }
-        }
-
-        const isSandwiched =
-          prevStatus !== null &&
-          nextStatus !== null &&
-          isAbsentOrNA(prevStatus) &&
-          isAbsentOrNA(nextStatus);
-
-        if (!isSandwiched) {
-          for (let j = blockStart; j <= blockEnd; j++) {
-            const blockStatus = (days[j].attendance.status || "")
-              .toUpperCase()
-              .trim();
-            if (blockStatus === "H") {
-              validHolidays++;
-            }
-          }
-        }
-
-        i = blockEnd + 1;
-      } else {
-        i++;
-      }
-    }
+    // Sandwich Rule: holidays with absence on both sides are not paid
+    const validHolidays = countEligibleHolidays(employee.days);
+    const H_base = isCashEmployee ? 0 : validHolidays;
 
 
 
@@ -903,7 +821,8 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
     PD_excel: "Present days counted directly from attendance sheet.",
     PAA:
       "PAA = full P days + full ADJ-P/ADJ-M when worked ≥ 5h30 + 0.5×(P/A, ADJ-P/A, partial adjustment days under 5h30).",
-    H_base: "Holidays selected from Holiday Management.",
+    H_base:
+      "Paid holidays. A holiday is not paid when the employee is absent on both the working day before and after it (sandwich rule).",
     Total: "Present After Adj + Holidays (Base)",
     AdditionalOT:
       "Deduction (in days) applied when Late Hours > Final OT. If Final OT < 4 hrs, deduction is 0.5 days. Otherwise, 0.5 days per 4-hour block.",

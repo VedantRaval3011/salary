@@ -4,6 +4,7 @@ import {
   isAdjustmentDayFullPresent,
   isAdjustmentDayPartialPresent,
 } from "./adjPresentMinutes";
+import { countEligibleHolidays } from "./holidayEligibility";
 
 // Helper to convert time string to minutes
 const timeToMinutes = (timeStr: string): number => {
@@ -118,113 +119,9 @@ export function calculateEmployeeStats(
   
   // Check for C CASH EMPLOYEE - Force Holidays to 0
   const isCashEmployee = (employee.department || "").toUpperCase().includes("C CASH EMPLOYEE");
-  const H_base = isCashEmployee ? 0 : (selectedHolidaysCount || baseHolidaysCount || 0);
-
-  // --- Sandwich Rule: Remove holidays surrounded by absences or NA ---
-  let validHolidays = 0;
-  const days = employee.days || [];
-
-  const isAbsentOrNA = (status: string): boolean => {
-    const normalized = status.toUpperCase().trim();
-    return normalized === "A" || normalized === "NA" || normalized === "ABSENT";
-  };
-
-  const isHolidayOrSpecial = (status: string): boolean => {
-    const normalized = status.toUpperCase().trim();
-    return (
-      normalized === "H" ||
-      normalized === "ADJ-M/WO-I" ||
-      normalized === "ADJ-M" ||
-      normalized === "WO-I"
-    );
-  };
-
-  // Find continuous blocks of holidays/special days
-  let i = 0;
-  while (i < days.length) {
-    const currentStatus = (days[i].attendance.status || "")
-      .toUpperCase()
-      .trim();
-
-    if (isHolidayOrSpecial(currentStatus)) {
-      const blockStart = i;
-      let blockEnd = i;
-
-      while (
-        blockEnd < days.length &&
-        isHolidayOrSpecial(
-          (days[blockEnd].attendance.status || "").toUpperCase().trim()
-        )
-      ) {
-        blockEnd++;
-      }
-      blockEnd--;
-
-      let prevStatus = null;
-      for (let j = blockStart - 1; j >= 0; j--) {
-        const pStatus = (days[j].attendance.status || "").toUpperCase().trim();
-        if (!isHolidayOrSpecial(pStatus)) {
-          prevStatus = pStatus;
-          break;
-        }
-      }
-
-      let nextStatus = null;
-      for (let j = blockEnd + 1; j < days.length; j++) {
-        const nStatus = (days[j].attendance.status || "").toUpperCase().trim();
-        if (!isHolidayOrSpecial(nStatus)) {
-          nextStatus = nStatus;
-          break;
-        }
-      }
-
-      const isSandwiched =
-        prevStatus !== null &&
-        nextStatus !== null &&
-        isAbsentOrNA(prevStatus) &&
-        isAbsentOrNA(nextStatus);
-
-      if (isSandwiched) {
-        let sandwichedHCount = 0;
-        const blockDays = [];
-        for (let j = blockStart; j <= blockEnd; j++) {
-          const blockStatus = (days[j].attendance.status || "")
-            .toUpperCase()
-            .trim();
-          blockDays.push(`${days[j].date}(${blockStatus})`);
-          if (blockStatus === "H") {
-            sandwichedHCount++;
-          }
-        }
-
-        console.log(
-          `🥪 ${employee.empName} - Block [${blockDays.join(
-            ", "
-          )}] is sandwiched between ${prevStatus}(Day ${
-            days[blockStart - 1]?.date
-          }) and ${nextStatus}(Day ${
-            days[blockEnd + 1]?.date
-          }) - ${sandwichedHCount} holiday(s) NOT counted`
-        );
-      } else {
-        for (let j = blockStart; j <= blockEnd; j++) {
-          const blockStatus = (days[j].attendance.status || "")
-            .toUpperCase()
-            .trim();
-          if (blockStatus === "H") {
-            validHolidays++;
-            console.log(
-              `✅ ${employee.empName} - Day ${days[j].date} (H) is valid - counted`
-            );
-          }
-        }
-      }
-
-      i = blockEnd + 1;
-    } else {
-      i++;
-    }
-  }
+  // --- Sandwich Rule: holidays with absence on both sides are not paid ---
+  const validHolidays = countEligibleHolidays(employee.days, employee.empName);
+  const H_base = isCashEmployee ? 0 : validHolidays;
 
   const Total = PAA + (isCashEmployee ? 0 : validHolidays);
   console.log(
