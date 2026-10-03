@@ -7,7 +7,44 @@ export interface HRData {
   day?: number;
   OT?: number;
   Late?: number; // ADD LATE FIELD
+  doj?: string; // Date of joining as written in the DOJ column
+  /** Day of month the employee joined, set only when DOJ falls inside this salary month. */
+  joinDay?: number;
 }
+
+const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+
+/** Reads "SALARY FOR THE MONTH OF SEPTEMBER-2026" / "SEP-2026" from the title rows. */
+const findSalaryMonth = (data: any[][]): { month: number; year: number } | null => {
+  for (let i = 0; i < Math.min(data.length, 10); i++) {
+    const text = (data[i] || []).filter(Boolean).join(" ").toUpperCase();
+    const m = text.match(/MONTH OF\s+([A-Z]+)[\s\-.,']*(\d{2,4})/);
+    if (m) {
+      const month = MONTHS.indexOf(m[1].slice(0, 3)) + 1;
+      let year = Number(m[2]);
+      if (year < 100) year += 2000;
+      if (month > 0) return { month, year };
+    }
+  }
+  return null;
+};
+
+/** Parses DOJ cells: Date objects, Excel serials, or text like "06.09.26" / "6/9/2026". */
+const parseDOJ = (value: any): { day: number; month: number; year: number } | null => {
+  if (value === null || value === undefined || value === "") return null;
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return { day: value.getDate(), month: value.getMonth() + 1, year: value.getFullYear() };
+  }
+  if (typeof value === "number") {
+    const d = XLSX.SSF.parse_date_code(value);
+    return d ? { day: d.d, month: d.m, year: d.y } : null;
+  }
+  const m = String(value).trim().match(/^(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{2,4})$/);
+  if (!m) return null;
+  let year = Number(m[3]);
+  if (year < 100) year += 2000;
+  return { day: Number(m[1]), month: Number(m[2]), year };
+};
 
 /**
  * Finds the header row index by searching for key column names.
@@ -84,6 +121,9 @@ export async function processHRFile(
 
   let header: string[] = data[headerRowIndex].map(String);
   let colMap = getColumnMap(header);
+
+  const salaryMonth = findSalaryMonth(data);
+  let dojCol: number | undefined = colMap["DOJ"];
 
   let codeCol =
     colMap["Emp. Code"] ??
@@ -182,7 +222,8 @@ export async function processHRFile(
       dayCol = colMap["DAY"] ?? colMap["Day"] ?? colMap["day"];
 
       otCol = colMap["OT"] ?? colMap["ot"];
-      
+      dojCol = colMap["DOJ"];
+
       // RE-DETECT LATE COLUMN ON NEW HEADER
       lateCol =
         type === "staff"
@@ -216,6 +257,20 @@ export async function processHRFile(
       // ADD LATE VALUE TO EMPLOYEE DATA
       if (lateCol !== undefined && lateValue !== null && lateValue !== undefined) {
         employeeData.Late = Number(lateValue) || 0;
+      }
+
+      // DOJ: if the employee joined during this salary month, remember the day
+      const dojValue = dojCol !== undefined ? row[dojCol] : null;
+      const doj = parseDOJ(dojValue);
+      if (doj) {
+        employeeData.doj = `${String(doj.day).padStart(2, "0")}.${String(doj.month).padStart(2, "0")}.${doj.year}`;
+        if (
+          salaryMonth &&
+          doj.month === salaryMonth.month &&
+          doj.year === salaryMonth.year
+        ) {
+          employeeData.joinDay = doj.day;
+        }
       }
 
       employees.push(employeeData);

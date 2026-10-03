@@ -9,6 +9,7 @@ import { useMaintenanceDeductLookup } from "@/hooks/useMaintenanceDeductLookup";
 import { useStaffOTGrantedLookup } from "@/hooks/useStaffOTGrantedLookup";
 import { getPermissibleLateMinutes } from "@/lib/unifiedCalculations";
 import { ADJUSTMENT_DAY_FULL_PRESENT_MIN_MINS } from "@/lib/adjPresentMinutes";
+import { getCustomTimingOT } from "@/lib/customTimingOT";
 
 interface AttendanceGridProps {
   days: DayAttendance[];
@@ -295,11 +296,16 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
     return { startHour, startMin, endHour, endMin };
   };
 
-  const recalculateOTHours = (
+  const formatHM = (totalMins: number): string =>
+    `${Math.floor(totalMins / 60)}:${(totalMins % 60).toString().padStart(2, "0")}`;
+
+  // Late OT after shift end; early OT before shift start (workers only).
+  const recalculateOT = (
     inTime: string,
     outTime: string,
-    customTiming: ReturnType<typeof parseCustomTime>
-  ): string => {
+    customTiming: ReturnType<typeof parseCustomTime>,
+    includeEarlyOT: boolean
+  ): { otHrs: string; earlyOTMinutes: number } => {
     if (
       !customTiming ||
       !inTime ||
@@ -307,19 +313,16 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
       inTime === "-" ||
       outTime === "-"
     )
-      return "0:00";
-    const timeToMinutes = (t: string): number => {
-      const [h, m] = t.split(":").map(Number);
-      return h * 60 + (m || 0);
-    };
-    const outMinutes = timeToMinutes(outTime);
-    const expectedEndMinutes = customTiming.endHour * 60 + customTiming.endMin;
-    const otMinutes =
-      outMinutes > expectedEndMinutes ? outMinutes - expectedEndMinutes : 0;
-    if (otMinutes < 5) return "0:00";
-    const hrs = Math.floor(otMinutes / 60);
-    const mins = otMinutes % 60;
-    return `${hrs}:${mins.toString().padStart(2, "0")}`;
+      return { otHrs: "0:00", earlyOTMinutes: 0 };
+    const ot = getCustomTimingOT(
+      inTime,
+      outTime,
+      includeEarlyOT
+        ? customTiming.startHour * 60 + customTiming.startMin
+        : undefined,
+      customTiming.endHour * 60 + customTiming.endMin
+    );
+    return { otHrs: formatHM(ot.totalMinutes), earlyOTMinutes: ot.earlyMinutes };
   };
 
   const recalculateLateMinutes = (
@@ -703,20 +706,24 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
       : recalculateLateMinutes(day.attendance.inTime, customTimingParsed);
     const recalculatedLateMins =
       rawCustomLate > permissibleLateMins ? rawCustomLate : 0;
-    const recalculatedOTHrs = isKaplesh ? "0:00" : recalculateOTHours(
-      day.attendance.inTime,
-      day.attendance.outTime,
-      customTimingParsed
-    );
+    const recalculated = isKaplesh
+      ? { otHrs: "0:00", earlyOTMinutes: 0 }
+      : recalculateOT(
+          day.attendance.inTime,
+          day.attendance.outTime,
+          customTimingParsed,
+          isWorker
+        );
     return {
       ...day,
       attendance: {
         ...day.attendance,
         lateMins: recalculatedLateMins.toString(),
-        otHrs: recalculatedOTHrs,
+        otHrs: recalculated.otHrs,
       },
       originalLateMins: originalLateMinsForPA || originalLateMins,
       originalOTHrs,
+      earlyOTMinutes: recalculated.earlyOTMinutes,
       hasCustomCalculation: true,
       hasOTCalculation,
       originalOTValue,
@@ -1039,6 +1046,13 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
                   })()}
                 </span>
               </div>
+              {/* Early OT: came in before shift start (custom timing, workers) */}
+              {day.hasCustomCalculation && !!day.earlyOTMinutes && (
+                <div className="flex justify-between text-xs font-semibold text-purple-700 -mt-1 ml-4">
+                  <span>Early OT (came before shift):</span>
+                  <span>{formatHM(day.earlyOTMinutes)}</span>
+                </div>
+              )}
               {/* Show custom timing OT recalculation */}
               {day.hasCustomCalculation && day.originalOTHrs && (
                 <div className="flex justify-between text-xs opacity-60 -mt-1 ml-4">
@@ -1100,6 +1114,13 @@ export const AttendanceGrid: React.FC<AttendanceGridProps> = ({
               {day.hasCustomCalculation && (
                 <div className="pt-2 border-t border-current border-opacity-30 text-xs text-purple-700">
                   * Recalculated for {customTime}
+                  {!!day.earlyOTMinutes && (
+                    <div className="mt-1 font-semibold">
+                      Includes {formatHM(day.earlyOTMinutes)} early OT (in at{" "}
+                      {day.attendance.inTime}, shift starts{" "}
+                      {customTime?.split(/\s*TO\s*/i)[0]})
+                    </div>
+                  )}
                 </div>
               )}
 

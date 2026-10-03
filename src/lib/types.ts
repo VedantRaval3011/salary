@@ -42,6 +42,7 @@ export interface DayAttendance {
   hasCustomCalculation?: boolean;
   originalLateMins?: string;
   originalOTHrs?: string;
+  earlyOTMinutes?: number; // Custom timing: OT from coming in before shift start (workers)
 }
 
 /**

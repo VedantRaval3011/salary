@@ -2,6 +2,7 @@
 
 import React, { useMemo, useState, useCallback } from "react";
 import { useExcel } from "@/context/ExcelContext";
+import { useJoinDayLookup } from "@/hooks/useJoinDayLookup";
 import { EmployeeData } from "@/lib/types";
 import { useFinalDifference } from "@/context/FinalDifferenceContext";
 import {
@@ -63,6 +64,7 @@ const getDifferenceCategory = (
 // Helper to get Paid Leave
 function usePaidLeaveLookup() {
   const { getAllUploadedFiles } = useExcel();
+  const { joinedMidMonth } = useJoinDayLookup();
 
   return useMemo(() => {
     const files = getAllUploadedFiles?.() ?? [];
@@ -104,6 +106,7 @@ function usePaidLeaveLookup() {
     });
 
     const getPL = (emp: Pick<EmployeeData, "empCode" | "empName">): number => {
+      if (joinedMidMonth(emp)) return 0; // Joined mid-month (DOJ in this salary month) → no paid leave
       const raw = canon(emp.empCode);
       const s1 = stripNonAlnum(raw);
       const num = numericOnly(raw);
@@ -120,7 +123,7 @@ function usePaidLeaveLookup() {
     };
 
     return { getPL };
-  }, [getAllUploadedFiles]);
+  }, [getAllUploadedFiles, joinedMidMonth]);
 }
 
 // Helper for Staff OT Granted
@@ -498,6 +501,7 @@ export const PresentDayComparison: React.FC<
   // --- Lookup Hooks ---
   const { getHRPresentDays } = useHRDataLookup();
   const { getPL } = usePaidLeaveLookup();
+  const { getJoinDay } = useJoinDayLookup();
   const { getGrantForEmployee } = useStaffOTGrantedLookup();
   const { getFullNightOTForEmployee } = useFullNightOTLookup();
   const { getCustomTimingForEmployee } = useCustomTimingLookup();
@@ -538,7 +542,8 @@ export const PresentDayComparison: React.FC<
             getCustomTimingForEmployee,
             isMaintenanceEmployee,
             finalDifference,
-            getCompanyClosureDates(excelData.employees)
+            getCompanyClosureDates(excelData.employees),
+            getJoinDay(employee)
           );
           softwareTotal = stats.GrandTotal;
         }
@@ -579,6 +584,7 @@ export const PresentDayComparison: React.FC<
     getFullNightOTForEmployee,
     getCustomTimingForEmployee,
     isMaintenanceEmployee,
+    getJoinDay,
     baseHolidaysCount,
     selectedHolidaysCount,
     employeeFinalDifferences,

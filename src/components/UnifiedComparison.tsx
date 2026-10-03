@@ -2,6 +2,7 @@
 
 import React, { useMemo, useState, useCallback } from "react";
 import { useExcel } from "@/context/ExcelContext";
+import { useJoinDayLookup } from "@/hooks/useJoinDayLookup";
 import type { AttendanceData, EmployeeData } from "@/lib/types";
 
 /** Excel / pipeline may expose OT under several keys; `AttendanceData` only types `otHrs`. */
@@ -15,6 +16,7 @@ import { useHRLateLookup } from "@/hooks/useHRLateLookup";
 import { useHROTLookup } from "@/hooks/useHROTLookup";
 import { calculateEmployeeStats } from "@/lib/statsCalculator";
 import { getCompanyClosureDates } from "@/lib/holidayEligibility";
+import { getCustomTimingOTMinutes } from "@/lib/customTimingOT";
 import { calculateTotalCombinedMinutes } from "@/lib/unifiedCalculations";
 import { exportUnifiedComparisonToExcel, exportMajorMediumDifferences } from "@/lib/exportUnifiedComparison";
 import { ArrowDown, ArrowUp, ChevronDown, ChevronUp } from "lucide-react";
@@ -110,6 +112,7 @@ const getOTCategory = (diff: number | string): DifferenceCategory => {
 
 function usePaidLeaveLookup() {
   const { getAllUploadedFiles } = useExcel();
+  const { joinedMidMonth } = useJoinDayLookup();
   return useMemo(() => {
     const files = getAllUploadedFiles?.() ?? [];
     const plRows = files
@@ -140,6 +143,7 @@ function usePaidLeaveLookup() {
     });
 
     const getPL = (emp: Pick<EmployeeData, "empCode" | "empName">): number => {
+      if (joinedMidMonth(emp)) return 0; // Joined mid-month (DOJ in this salary month) → no paid leave
       const raw = canon(emp.empCode);
       const s1 = stripNonAlnum(raw);
       const num = numericOnly(raw);
@@ -156,7 +160,7 @@ function usePaidLeaveLookup() {
     };
 
     return { getPL };
-  }, [getAllUploadedFiles]);
+  }, [getAllUploadedFiles, joinedMidMonth]);
 }
 
 
@@ -483,7 +487,13 @@ function calculateFinalOT(
         const status = (day.attendance.status || "").toUpperCase();
         let dayOTMinutes = 0;
         if (customTiming) {
-          dayOTMinutes = calculateCustomTimingOT(day.attendance.outTime, customTiming.expectedEndMinutes);
+          // Workers: late OT after shift end + early OT before shift start
+          dayOTMinutes = getCustomTimingOTMinutes(
+            day.attendance.inTime,
+            day.attendance.outTime,
+            customTiming.expectedStartMinutes,
+            customTiming.expectedEndMinutes
+          );
           if (dayOTMinutes > 0) worker9to6OTMinutes += dayOTMinutes;
         } else if (status === "ADJ-P") {
           const outTime = day.attendance.outTime;
@@ -528,6 +538,7 @@ export const UnifiedComparison: React.FC = () => {
   const { getHRLateValue } = useHRLateLookup();
   const { getHROTValue } = useHROTLookup();
   const { getPL } = usePaidLeaveLookup();
+  const { getJoinDay } = useJoinDayLookup();
   const { getGrantForEmployee } = useStaffOTGrantedLookup();
   const { getFullNightOTForEmployee } = useFullNightOTLookup();
   const { getCustomTimingForEmployee } = useCustomTimingLookup();
@@ -563,7 +574,8 @@ export const UnifiedComparison: React.FC = () => {
           getCustomTimingForEmployee,
           isMaintenanceEmployee,
           finalDifference,
-          getCompanyClosureDates(excelData.employees)
+          getCompanyClosureDates(excelData.employees),
+          getJoinDay(employee)
         );
         softwarePresentDays = stats.GrandTotal;
       }
@@ -635,6 +647,7 @@ export const UnifiedComparison: React.FC = () => {
     getFullNightOTForEmployee,
     getCustomTimingForEmployee,
     isMaintenanceEmployee,
+    getJoinDay,
     getHRPresentDays,
     getHRLateValue,
     getHROTValue,

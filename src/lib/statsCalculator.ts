@@ -5,6 +5,7 @@ import {
   isAdjustmentDayPartialPresent,
 } from "./adjPresentMinutes";
 import { countEligibleHolidays } from "./holidayEligibility";
+import { getCustomTimingOTMinutes } from "./customTimingOT";
 
 // Helper to convert time string to minutes
 const timeToMinutes = (timeStr: string): number => {
@@ -33,17 +34,14 @@ const parseMinutes = (val?: string | number | null): number => {
   return 0;
 };
 
-// Helper for custom timing OT
+// Helper for custom timing OT (late OT after shift end + early OT before shift start)
 const calculateCustomTimingOT = (
   outTime: string,
-  expectedEndMinutes: number
-): number => {
-  if (!outTime || outTime === "-") return 0;
-  const outMinutes = timeToMinutes(outTime);
-  const otMinutes =
-    outMinutes > expectedEndMinutes ? outMinutes - expectedEndMinutes : 0;
-  return otMinutes < 5 ? 0 : otMinutes;
-};
+  expectedEndMinutes: number,
+  inTime?: string,
+  expectedStartMinutes?: number
+): number =>
+  getCustomTimingOTMinutes(inTime, outTime, expectedStartMinutes, expectedEndMinutes);
 
 // Helper to check if employee is Staff or Worker
 const getIsStaff = (emp: EmployeeData): boolean => {
@@ -83,7 +81,8 @@ export function calculateEmployeeStats(
     emp: Pick<EmployeeData, "empCode" | "empName">
   ) => boolean,
   finalDifference: number = 0, // 🆕 ADD THIS PARAMETER WITH DEFAULT VALUE
-  closureDates: Set<number> = new Set() // company-wide closure days (see getCompanyClosureDates)
+  closureDates: Set<number> = new Set(), // company-wide closure days (see getCompanyClosureDates)
+  joinDay: number | null = null // day of month joined, when DOJ is in this salary month
 ) {
   // --- 1. Calculate PAA (Present After Adjustment) ---
   let paCount = 0;
@@ -124,7 +123,8 @@ export function calculateEmployeeStats(
   const validHolidays = countEligibleHolidays(
     employee.days,
     closureDates,
-    employee.empName
+    employee.empName,
+    joinDay
   );
   const H_base = isCashEmployee ? 0 : validHolidays;
 
@@ -219,7 +219,9 @@ employee.days?.forEach((day) => {
         if (customTiming) {
           dayOTMinutes = calculateCustomTimingOT(
             day.attendance.outTime,
-            customTiming.expectedEndMinutes
+            customTiming.expectedEndMinutes,
+            day.attendance.inTime,
+            isWorker ? customTiming.expectedStartMinutes : undefined // early OT: workers only
           );
           if (dayOTMinutes > 0) customTimingOTMinutes += dayOTMinutes;
         } else {
@@ -250,7 +252,9 @@ employee.days?.forEach((day) => {
           if (customTiming) {
             dayOTMinutes = calculateCustomTimingOT(
               day.attendance.outTime,
-              customTiming.expectedEndMinutes
+              customTiming.expectedEndMinutes,
+              day.attendance.inTime,
+              isWorker ? customTiming.expectedStartMinutes : undefined // early OT: workers only
             );
             if (dayOTMinutes > 0) customTimingOTMinutes += dayOTMinutes;
           } else {
@@ -277,7 +281,9 @@ employee.days?.forEach((day) => {
           if (customTiming) {
             dayOTMinutes = calculateCustomTimingOT(
               day.attendance.outTime,
-              customTiming.expectedEndMinutes
+              customTiming.expectedEndMinutes,
+              day.attendance.inTime,
+              isWorker ? customTiming.expectedStartMinutes : undefined // early OT: workers only
             );
             if (dayOTMinutes > 0) customTimingOTMinutes += dayOTMinutes;
           } else {
@@ -357,7 +363,8 @@ employee.days?.forEach((day) => {
   }
 
   const ATotal = Math.max(Total - AdditionalOT, 0);
-  const pl = getPL(employee) || 0;
+  // Joined mid-month → no paid leave
+  const pl = joinDay && joinDay > 1 ? 0 : getPL(employee) || 0;
   const GrandTotal = Math.max(ATotal + pl, 0);
   // --- 5. Return all calculated values ---
   return {

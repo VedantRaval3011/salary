@@ -13,6 +13,7 @@ import { useGrandOT } from "@/context/GrandOTContext";
 import { useFinalDifference } from "@/context/FinalDifferenceContext";
 import { getPermissibleLateMinutes } from "@/lib/unifiedCalculations";
 import { isGrantedStaffSheetOtAuthoritative } from "@/lib/grantedStaffOtDay";
+import { getCustomTimingOTMinutes } from "@/lib/customTimingOT";
 
 // Define the type for the sorting state
 type SortColumn = keyof OTComparisonData | "difference" | "category";
@@ -800,8 +801,11 @@ function calculateFinalOT(
         }
 
         if (customTiming) {
-          dayOTMinutes = calculateCustomTimingOT(
+          // Workers: late OT after shift end + early OT before shift start
+          dayOTMinutes = getCustomTimingOTMinutes(
+            day.attendance.inTime,
             day.attendance.outTime,
+            customTiming.expectedStartMinutes,
             customTiming.expectedEndMinutes
           );
           if (dayOTMinutes > 0) worker9to6OTMinutes += dayOTMinutes;

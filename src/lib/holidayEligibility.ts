@@ -76,13 +76,18 @@ export function getCompanyClosureDates(
  * the nearest working day before and the nearest working day after it.
  * Week offs and company closure days are skipped when finding those days.
  * Example: H on 4th, A on 3rd and 5th → the 4th is NOT paid.
+ * Holidays before the employee's joining day (DOJ in this month) are never paid.
  * Returns the number of paid (eligible) holidays.
  */
 export function countEligibleHolidays(
   days: DayAttendance[] = [],
   closureDates: Set<number> = new Set(),
-  empName?: string
+  empName?: string,
+  joinDay?: number | null
 ): number {
+  if (joinDay && joinDay > 1) {
+    days = days.filter((d) => d.date >= joinDay);
+  }
   const bridges = (day: DayAttendance) =>
     isNonWorkingDay(normalize(day.attendance.status)) ||
     closureDates.has(day.date);

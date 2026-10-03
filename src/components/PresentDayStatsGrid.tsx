@@ -16,6 +16,8 @@ import {
   countEligibleHolidays,
   getCompanyClosureDates,
 } from "@/lib/holidayEligibility";
+import { getCustomTimingOTMinutes } from "@/lib/customTimingOT";
+import { useJoinDayLookup } from "@/hooks/useJoinDayLookup";
 import { DifferenceExplanationModal } from "./DifferenceExplanationModal";
 
 // Utility helpers
@@ -38,6 +40,7 @@ const getIsStaff = (emp: EmployeeData): boolean => {
 // ---- Paid Leave Lookup Hook ---- //
 function usePaidLeaveLookup() {
   const { getAllUploadedFiles } = useExcel();
+  const { joinedMidMonth } = useJoinDayLookup();
 
   return useMemo(() => {
     const files = getAllUploadedFiles?.() ?? [];
@@ -80,6 +83,8 @@ function usePaidLeaveLookup() {
     });
 
     const getPL = (emp: Pick<EmployeeData, "empCode" | "empName">): { paidDays: number; adjDays: number; leaveDays: number } => {
+      // Joined mid-month (DOJ in this salary month) → no paid leave
+      if (joinedMidMonth(emp)) return { paidDays: 0, adjDays: 0, leaveDays: 0 };
       const raw = canon(emp.empCode);
       const s1 = stripNonAlnum(raw);
       const num = numericOnly(raw);
@@ -106,7 +111,7 @@ function usePaidLeaveLookup() {
     };
 
     return { getPL };
-  }, [getAllUploadedFiles]);
+  }, [getAllUploadedFiles, joinedMidMonth]);
 }
 
 // ---- Full Night Stay OT Lookup Hook ---- //
@@ -483,6 +488,7 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
   const [isDifferenceModalOpen, setIsDifferenceModalOpen] = useState(false);
   const { getPL } = usePaidLeaveLookup();
   const { excelData } = useExcel();
+  const { getJoinDay } = useJoinDayLookup();
   const { lateDeductionOverride } = useFinalDifference();
 
   const { getGrantForEmployee } = useStaffOTGrantedLookup();
@@ -552,7 +558,9 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
     // Sandwich Rule: holidays with absence on both sides are not paid
     const validHolidays = countEligibleHolidays(
       employee.days,
-      getCompanyClosureDates(excelData?.employees)
+      getCompanyClosureDates(excelData?.employees),
+      undefined,
+      getJoinDay(employee)
     );
     const H_base = isCashEmployee ? 0 : validHolidays;
 
@@ -639,16 +647,19 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
       return 0;
     };
 
+    // Late OT after shift end + early OT before shift start (early OT: workers only)
     const calculateCustomTimingOT = (
       outTime: string,
-      expectedEndMinutes: number
-    ): number => {
-      if (!outTime || outTime === "-") return 0;
-      const outMinutes = timeToMinutes(outTime);
-      const otMinutes =
-        outMinutes > expectedEndMinutes ? outMinutes - expectedEndMinutes : 0;
-      return otMinutes < 5 ? 0 : otMinutes;
-    };
+      expectedEndMinutes: number,
+      inTime?: string,
+      expectedStartMinutes?: number
+    ): number =>
+      getCustomTimingOTMinutes(
+        inTime,
+        outTime,
+        isWorker ? expectedStartMinutes : undefined,
+        expectedEndMinutes
+      );
 
     if (grant) {
       const fromD = Number(grant.fromDate) || 1;
@@ -661,7 +672,9 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
           if (customTiming) {
             dayOTMinutes = calculateCustomTimingOT(
               day.attendance.outTime,
-              customTiming.expectedEndMinutes
+              customTiming.expectedEndMinutes,
+              day.attendance.inTime,
+              customTiming.expectedStartMinutes
             );
             if (dayOTMinutes > 0) {
               customTimingOTMinutes += dayOTMinutes;
@@ -690,7 +703,9 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
           if (customTiming) {
             dayOTMinutes = calculateCustomTimingOT(
               day.attendance.outTime,
-              customTiming.expectedEndMinutes
+              customTiming.expectedEndMinutes,
+              day.attendance.inTime,
+              customTiming.expectedStartMinutes
             );
             if (dayOTMinutes > 0) {
               customTimingOTMinutes += dayOTMinutes;
@@ -721,7 +736,9 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
           if (customTiming) {
             dayOTMinutes = calculateCustomTimingOT(
               day.attendance.outTime,
-              customTiming.expectedEndMinutes
+              customTiming.expectedEndMinutes,
+              day.attendance.inTime,
+              customTiming.expectedStartMinutes
             );
             if (dayOTMinutes > 0) {
               customTimingOTMinutes += dayOTMinutes;
@@ -803,6 +820,7 @@ export const PresentDayStatsGrid: React.FC<Props> = ({
     isMaintenanceEmployee,
     lateDeductionDays,
     excelData,
+    getJoinDay,
   ]);
 
   // Effect to notify parent of Total calculation

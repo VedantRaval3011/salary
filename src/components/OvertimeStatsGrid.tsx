@@ -3,11 +3,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { EmployeeData } from "@/lib/types";
 import { useExcel } from "@/context/ExcelContext";
+import { useJoinDayLookup } from "@/hooks/useJoinDayLookup";
 import { useFinalDifference } from "@/context/FinalDifferenceContext";
 import { useGrandOT } from "@/context/GrandOTContext";
 import { useHROTLookup } from "@/hooks/useHROTLookup";
 import { getSmartOTExplanation } from "@/lib/differenceExplanation";
 import { isGrantedStaffSheetOtAuthoritative } from "@/lib/grantedStaffOtDay";
+import { getCustomTimingOTMinutes } from "@/lib/customTimingOT";
 import { DifferenceExplanationModal } from "./DifferenceExplanationModal";
 
 interface Props {
@@ -54,6 +56,7 @@ const minutesToHHMM = (totalMinutes: number): string => {
 // ---- Paid Leave Lookup Hook ---- //
 function usePaidLeaveLookup() {
   const { getAllUploadedFiles } = useExcel();
+  const { joinedMidMonth } = useJoinDayLookup();
 
   return useMemo(() => {
     const files = getAllUploadedFiles?.() ?? [];
@@ -95,6 +98,7 @@ function usePaidLeaveLookup() {
     });
 
     const getPL = (emp: Pick<EmployeeData, "empCode" | "empName">): number => {
+      if (joinedMidMonth(emp)) return 0; // Joined mid-month (DOJ in this salary month) → no paid leave
       const raw = canon(emp.empCode);
       const s1 = stripNonAlnum(raw);
       const num = numericOnly(raw);
@@ -111,7 +115,7 @@ function usePaidLeaveLookup() {
     };
 
     return { getPL };
-  }, [getAllUploadedFiles]);
+  }, [getAllUploadedFiles, joinedMidMonth]);
 }
 
 // ---- Full Night Stay OT Lookup Hook ---- //
@@ -850,7 +854,13 @@ export const OvertimeStatsGrid: React.FC<Props> = ({
 
           // ✅ FIXED: Custom timing takes precedence
           if (customTiming) {
-            dayOTMinutes = calculateCustomTimingOT(day.attendance.outTime, customTiming.expectedEndMinutes);
+            // Workers: late OT after shift end + early OT before shift start
+            dayOTMinutes = getCustomTimingOTMinutes(
+              day.attendance.inTime,
+              day.attendance.outTime,
+              customTiming.expectedStartMinutes,
+              customTiming.expectedEndMinutes
+            );
             if (dayOTMinutes > 0) {
               worker9to6OTMinutes += dayOTMinutes;
             }
